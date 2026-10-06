@@ -1,4 +1,10 @@
-# Vendored JS pins (Lane E1 owns in Phase 1). Format: name version sha256 url
-# Placeholders for Phase 0 — real datastar.js + CodeMirror pins + checksums + committed fallback land in Lane E1.
-# datastar <version> <sha256> <url>
-# codemirror <version> <sha256> <url>
+# Vendored JS pins (Lane E1 owns in Phase 1). Format: name version sha256 url [file=local-fallback]
+# Verified with `yonder vendor verify` (offline: committed fallbacks) and
+# `yonder vendor verify --fetch` (online: re-download + compare).
+# datastar pairs with datastar-go v1.2.2 (go.mod); the JS repo tags stop at
+# v1.0.4 while the Go SDK versions independently — v1.0.4 is the newest JS.
+# codemirror dist/index.js is an ESM re-export of @codemirror/*: the pinned
+# file verifies the upstream source, but the runnable editor bundle (with its
+# @codemirror/* closure) lands with the editor lane — no Node in the binary.
+datastar 1.0.4 727844adfc825ee651fb93c544a2a739986f9a21820a94524b35f0cac470cf91 https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.4/bundles/datastar.js file=datastar.js
+codemirror 6.0.2 6ae1617a0804ef9aeaae4278d9c001dcbfac914d0b0c81c23752c8369e1dcf2c https://cdn.jsdelivr.net/npm/codemirror@6.0.2/dist/index.js file=codemirror.js
