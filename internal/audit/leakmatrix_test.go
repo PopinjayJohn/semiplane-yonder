@@ -4,14 +4,16 @@
 // package is a *_test.go (or testdata corpus). No product code lives here.
 // Findings go in the lane report, never into silent implementation fixes.
 //
-// Status: Lane F1 (secrets.Filter + read handlers) has not landed yet, so
-//   - the index-level matrix below runs against REAL code (store.PageVisible,
-//     store.ChunkVisible, store.ConflictVisible, store.Search, markdown.Parse)
-//     and is green now;
-//   - secrets_conformance_test.go asserts the p03 spec against the frozen
-//     secrets.* signatures but SKIPS until F1's implementation is detectable;
-//   - read-handler checks (uniform 404, tag-pane, SSE) are contract tables
-//     plus skipped HTTP conformance.
+// Status: integrated with the real read path (Lane F1) on the Phase-2
+// wiring tree. Index-level rows run against store.* + markdown.Parse;
+// secrets_conformance_test.go asserts p03 through the real secrets.*.
+//
+// GATE AMEND WIDEN (p03 wins over spec §4): `-` blocks are visible to GM +
+// page owner + editable-by holders (owner-only `-` denial was bypassable via
+// raw-source serving). Cells asserting WIDEN are marked as such; where the
+// merged product code still denies editable-by, the cell is RED — that is the
+// finding, owned by the amend implementers, not by this lane (no product
+// code here, per the red line).
 package audit
 
 import (
@@ -38,10 +40,13 @@ func matrixViewers() map[string]*auth.Viewer {
 		"gm":      {UserID: "gm", IsGM: true},
 		"owner":   {UserID: "alice", OwnedSlugs: []string{"secret.md", "shared.md", "blocks.md"}},
 		"grantee": {UserID: "bob"},
-		"other":   {UserID: "carol"},
-		"guest":   nil,
-		"revoked": nil,
-		"preview": {UserID: "gm", IsGM: true, PreviewAs: "carol"},
+		// pathgrant holds a path-scoped grant (NOT editable-by): reads pages
+		// in scope but must NOT see `-` blocks (identity-scoped only).
+		"pathgrant": {UserID: "dave", Grants: []string{"shared.md"}},
+		"other":     {UserID: "carol"},
+		"guest":     nil,
+		"revoked":   nil,
+		"preview":   {UserID: "gm", IsGM: true, PreviewAs: "carol"},
 	}
 }
 
@@ -83,6 +88,8 @@ Bob knows the shared cipher nine. #cipher
 		"blocks.md": `---
 title: Mixed Blocks
 owner: alice
+editable-by:
+  - bob
 ---
 
 # Mixed Blocks
@@ -255,6 +262,9 @@ func TestPageVisibleMatrix(t *testing.T) {
 		{"grantee/shared-via-editableby", "grantee", true, "shared.md", "alice", eb("bob"), true},
 		{"other/shared-denied", "other", true, "shared.md", "alice", eb("bob"), false},
 		{"guest/shared-denied", "guest", true, "shared.md", "alice", eb("bob"), false},
+		// Path-scoped grants (not editable-by) open the page gate too.
+		{"pathgrant/shared-via-grants", "pathgrant", true, "shared.md", "alice", eb("bob"), true},
+		{"pathgrant/secret-denied", "pathgrant", true, "secret.md", "alice", "[]", false},
 		// GM preview-as renders through the previewed role's filter.
 		{"preview/secret-denied", "preview", true, "secret.md", "alice", "[]", false},
 		{"preview/open", "preview", false, "open.md", "", "[]", true},
@@ -272,14 +282,16 @@ func TestPageVisibleMatrix(t *testing.T) {
 	}
 }
 
-// TestChunkVisibleMatrix pins block-level filtering as built: `-` (default
-// hidden) chunks are GM + page-owner only; `+` chunks follow the page.
+// TestChunkVisibleMatrix pins block-level filtering to the gate-amended
+// p03 (WIDEN): `-` (default hidden) chunks are visible to GM + page owner +
+// editable-by holders; `+` chunks follow the page. Path grants do NOT open
+// `-` (identity-scoped only); party/guests/revoked never see `-`.
 //
-// FINDING-1 (filed in lane report, not fixed here): p03 says `-` blocks are
-// "visible to GM + page owner/editable-by", but store.ChunkVisible takes only
-// (chunkSecret, owner, viewer) — editable-by holders are denied `-` chunks
-// on pages they can otherwise read (e.g. bob on shared.md). Either the
-// signature needs the page's editable-by list or p03 needs narrowing.
+// IMPLEMENTATION GAP (lane report, not fixed here — no product code in this
+// lane): the merged tree still implements owner-only `-` visibility
+// (store.ChunkVisible takes only owner, and the brief's amended
+// editableByJSON parameter does not exist in the tree). The grantee/minus
+// case below is RED until the amend lands in store + secrets + handlers.
 func TestChunkVisibleMatrix(t *testing.T) {
 	viewers := matrixViewers()
 	cases := []struct {
@@ -291,7 +303,8 @@ func TestChunkVisibleMatrix(t *testing.T) {
 	}{
 		{"gm/minus", "gm", true, "alice", true},
 		{"owner/minus", "owner", true, "alice", true},
-		{"grantee/minus-denied", "grantee", true, "alice", false}, // FINDING-1
+		{"grantee/minus-widen", "grantee", true, "alice", true}, // WIDEN: RED until amend lands
+		{"pathgrant/minus-denied", "pathgrant", true, "alice", false},
 		{"other/minus-denied", "other", true, "alice", false},
 		{"guest/minus-denied", "guest", true, "alice", false},
 		{"revoked/minus-denied", "revoked", true, "alice", false},
@@ -378,17 +391,20 @@ func TestSearchSnippetNeverLeaks(t *testing.T) {
 	viewers := matrixViewers()
 
 	// cacheword lives only inside the `-` block of non-secret blocks.md.
-	denied := []string{"grantee", "other", "guest", "revoked", "preview"}
+	// Under WIDEN, the page owner AND editable-by holders get evidence;
+	// path-grant holders, party, guests, revoked, and GM-preview-as-player
+	// get zero rows (never a row with a redacted snippet).
+	denied := []string{"pathgrant", "other", "guest", "revoked", "preview"}
 	for _, viewer := range denied {
 		rows := searchPaths(t, ctx, st, "cacheword", viewers[viewer])
 		if len(rows) != 0 {
 			t.Fatalf("viewer=%s: secret-only match leaked rows %v", viewer, resultPaths(rows))
 		}
 	}
-	for _, viewer := range []string{"gm", "owner"} {
+	for _, viewer := range []string{"gm", "owner", "grantee"} {
 		rows := searchPaths(t, ctx, st, "cacheword", viewers[viewer])
 		if !containsPath(rows, "blocks.md") {
-			t.Fatalf("viewer=%s: owner/GM lost legitimate evidence, got %v", viewer, resultPaths(rows))
+			t.Fatalf("viewer=%s: WIDEN evidence missing, got %v", viewer, resultPaths(rows))
 		}
 	}
 
