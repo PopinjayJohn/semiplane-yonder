@@ -19,6 +19,8 @@ func LoadOrGenerateKey(dataDir string) ([32]byte, error) {
 }
 
 // SessionStoreSQL is the SQLite implementation of SessionStore.
+//
+//nolint:unused // Phase-0 stub: db consumed by Lane C methods in Phase 1.
 type SessionStoreSQL struct {
 	db *sql.DB
 }
