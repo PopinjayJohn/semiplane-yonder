@@ -608,9 +608,10 @@ func splitKey(s string) (key, val, rest string, err error) {
 				}
 			}
 		case inD:
-			if c == '\\' {
+			switch c {
+			case '\\':
 				i++
-			} else if c == '"' {
+			case '"':
 				inD = false
 			}
 		case c == '\'':
