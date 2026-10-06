@@ -28,6 +28,12 @@ go.work.sum
 # env file
 .env
 
+# OpenCode / OpenChamber local configs
+opencode.json
+opencode.jsonc
+.opencode/
+.openchamber/
+
 # Editor/IDE
 # .idea/
 # .vscode/
