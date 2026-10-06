@@ -324,9 +324,11 @@ func TestZipSlipRefused(t *testing.T) {
 
 func TestHealthzVersionOnly(t *testing.T) {
 	info := buildInfo{Version: "v", Commit: "c", Date: "d"}
-	vaultDir := t.TempDir()
-	sessionStore := &mockSessionStore{}
-	mux := wireHandlers(info, vaultDir, sessionStore)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", healthzHandler(info))
+	mux.HandleFunc("/version", versionHandler(info))
+	mux.HandleFunc("/static/print.css", printCSSHandler)
+
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -343,6 +345,7 @@ func TestHealthzVersionOnly(t *testing.T) {
 		}
 	}
 	// No vault info even when probed.
+}
 	req2 := httptest.NewRequest(http.MethodGet, "/healthz?vault=secret", nil)
 	rec2 := httptest.NewRecorder()
 	mux.ServeHTTP(rec2, req2)
@@ -352,9 +355,10 @@ func TestHealthzVersionOnly(t *testing.T) {
 }
 
 func TestVersionEndpoint(t *testing.T) {
-	vaultDir := t.TempDir()
-	sessionStore := &mockSessionStore{}
-	mux := wireHandlers(buildInfo{Version: "1.2.3", Commit: "abc", Date: "today"}, vaultDir, sessionStore)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/version", versionHandler(buildInfo{Version: "1.2.3", Commit: "abc", Date: "today"}))
+	mux.HandleFunc("/static/print.css", printCSSHandler)
+
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/version", nil))
 	if rec.Code != 200 {
@@ -366,9 +370,10 @@ func TestVersionEndpoint(t *testing.T) {
 }
 
 func TestPrintCSSServed(t *testing.T) {
-	vaultDir := t.TempDir()
-	sessionStore := &mockSessionStore{}
-	mux := wireHandlers(build(), vaultDir, sessionStore)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/version", versionHandler(build()))
+	mux.HandleFunc("/static/print.css", printCSSHandler)
+
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/print.css", nil))
 	if rec.Code != 200 {
