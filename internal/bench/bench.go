@@ -1,7 +1,8 @@
 // Package bench holds the P04 5k-file benchmark harness (Lane E2).
 // It runs Lane B's index migrations (never authors schema) against a scratch
-// database, then measures cold rebuild (bulk insert through the FTS triggers),
-// warm single-file rescan (one row rewrite), and ACL-filtered player search.
+// database, then measures cold rebuild (bulk explicit pages/blocks/blocks_fts
+// writes, one transaction per chunk), warm single-file rescan (one page
+// rewrite), and ACL-filtered player search.
 //
 // Run it with `make bench` (records internal/bench/results.json) or plain
 // `go test ./internal/bench/`. Honor the single-writer rule (pitfalls):
@@ -189,11 +190,23 @@ func seedPages(ctx context.Context, db *sql.DB, numFiles int, secrets map[string
 
 func insertChunk(ctx context.Context, tx *sql.Tx, start, end, total int, secrets map[string]bool) error {
 	pageStmt, err := tx.PrepareContext(ctx,
-		`INSERT INTO pages(path,title,content,secret,owner,updated_at,hash) VALUES(?,?,?,?,?,?,?)`)
+		`INSERT INTO pages(path,path_fold,title,content,secret,owner,updated_at,hash) VALUES(?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = pageStmt.Close() }()
+	blockStmt, err := tx.PrepareContext(ctx,
+		`INSERT INTO blocks(page_id,ordinal,secret,text) VALUES(?,?,?,?)`)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = blockStmt.Close() }()
+	ftsStmt, err := tx.PrepareContext(ctx,
+		`INSERT INTO blocks_fts(page_id,text,ordinal) VALUES(?,?,?)`)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = ftsStmt.Close() }()
 	linkStmt, err := tx.PrepareContext(ctx, `INSERT INTO links(source,target) VALUES(?,?)`)
 	if err != nil {
 		return err
@@ -209,7 +222,23 @@ func insertChunk(ctx context.Context, tx *sql.Tx, start, end, total int, secrets
 			secrets[path] = true
 		}
 		title := fmt.Sprintf("Note %d", i)
-		if _, err := pageStmt.ExecContext(ctx, path, title, pageBody(i), boolToInt(secret), owner, i, "hash"); err != nil {
+		body := pageBody(i)
+		if _, err := pageStmt.ExecContext(ctx, path, strings.ToLower(path), title, body, boolToInt(secret), owner, i, "hash"); err != nil {
+			return err
+		}
+		// Chunk-granular FTS (Lane B): ordinal 0 holds "title + tags" text,
+		// ordinals >= 1 hold body chunks. No triggers; writers insert the
+		// blocks and blocks_fts rows explicitly.
+		if _, err := blockStmt.ExecContext(ctx, path, 0, boolToInt(secret), title); err != nil {
+			return err
+		}
+		if _, err := ftsStmt.ExecContext(ctx, path, title, 0); err != nil {
+			return err
+		}
+		if _, err := blockStmt.ExecContext(ctx, path, 1, boolToInt(secret), body); err != nil {
+			return err
+		}
+		if _, err := ftsStmt.ExecContext(ctx, path, body, 1); err != nil {
 			return err
 		}
 		if i+1 < total {
@@ -229,7 +258,8 @@ func boolToInt(b bool) int {
 }
 
 // warmRescan rewrites a single page (the single-file rescan write path) and
-// re-reads it through FTS, exercising the update trigger.
+// re-reads it through FTS. No triggers: the page row plus its blocks and
+// blocks_fts rows are rewritten explicitly, like the real indexer does.
 func warmRescan(ctx context.Context, db *sql.DB, numFiles int) error {
 	path := fmt.Sprintf("notes/note-%04d.md", numFiles/2)
 	if _, err := db.ExecContext(ctx,
@@ -237,9 +267,31 @@ func warmRescan(ctx context.Context, db *sql.DB, numFiles int) error {
 		"Note edited", "edited body with dragon", 999999, path); err != nil {
 		return fmt.Errorf("warm rewrite: %w", err)
 	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM blocks WHERE page_id = ?`, path); err != nil {
+		return fmt.Errorf("warm rewrite: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM blocks_fts WHERE page_id = ?`, path); err != nil {
+		return fmt.Errorf("warm rewrite: %w", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO blocks(page_id,ordinal,secret,text) VALUES(?,?,0,?)`, path, 0, "Note edited"); err != nil {
+		return fmt.Errorf("warm rewrite: %w", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO blocks_fts(page_id,text,ordinal) VALUES(?,?,?)`, path, "Note edited", 0); err != nil {
+		return fmt.Errorf("warm rewrite: %w", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO blocks(page_id,ordinal,secret,text) VALUES(?,?,0,?)`, path, 1, "edited body with dragon"); err != nil {
+		return fmt.Errorf("warm rewrite: %w", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO blocks_fts(page_id,text,ordinal) VALUES(?,?,?)`, path, "edited body with dragon", 1); err != nil {
+		return fmt.Errorf("warm rewrite: %w", err)
+	}
 	var n int
 	if err := db.QueryRowContext(ctx,
-		`SELECT count(*) FROM pages_fts WHERE pages_fts MATCH 'edited'`).Scan(&n); err != nil {
+		`SELECT count(DISTINCT page_id) FROM blocks_fts WHERE blocks_fts MATCH 'edited'`).Scan(&n); err != nil {
 		return fmt.Errorf("warm reread: %w", err)
 	}
 	if n != 1 {
@@ -248,10 +300,12 @@ func warmRescan(ctx context.Context, db *sql.DB, numFiles int) error {
 	return nil
 }
 
-// matchTitles runs an FTS query and returns path/title/secret/owner rows.
+// matchTitles runs an FTS query over the chunk-granular blocks_fts table and
+// returns distinct path/title/secret/owner rows (one row per page even
+// though each page contributes two chunks).
 func matchTitles(ctx context.Context, db *sql.DB, term string) ([][4]string, error) {
 	rows, err := db.QueryContext(ctx,
-		`SELECT f.path, f.title, p.secret, p.owner FROM pages_fts f JOIN pages p ON p.path = f.path WHERE f.pages_fts MATCH ?`,
+		`SELECT DISTINCT p.path, p.title, p.secret, p.owner FROM blocks_fts JOIN pages p ON p.path = blocks_fts.page_id WHERE blocks_fts MATCH ?`,
 		term)
 	if err != nil {
 		return nil, err
@@ -269,8 +323,8 @@ func matchTitles(ctx context.Context, db *sql.DB, term string) ([][4]string, err
 }
 
 // filterForViewer is the v1 app-side ACL filter (P04): FTS matches, then
-// drop every secret row the viewer may not see. Page-level flags only;
-// chunk-level blocks.secret filtering lands with Lane B's blocks table.
+// drop every secret row the viewer may not see. Page-level flags only; the
+// seed writes identical flags to each chunk's blocks.secret.
 func filterForViewer(rows [][4]string, user string) [][4]string {
 	var out [][4]string
 	for _, r := range rows {
