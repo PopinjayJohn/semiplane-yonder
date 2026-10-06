@@ -164,31 +164,31 @@ func TestSecretsHelpersConformance(t *testing.T) {
 	if !found {
 		t.Fatalf("fixture lost its `-` block")
 	}
-	if !secrets.CanViewBlock(gm, minus, "alice") || !secrets.CanViewBlock(owner, minus, "alice") {
+	if !secrets.CanViewBlock(gm, minus, "alice", page.EditableBy) || !secrets.CanViewBlock(owner, minus, "alice", page.EditableBy) {
 		t.Fatalf("gm/owner must see `-` block")
 	}
-	// WIDEN: editable-by sees `-`. RED until the amend lands.
-	if !secrets.CanViewBlock(grantee, minus, "alice") {
+	// WIDEN (amend landed): editable-by sees `-`.
+	if !secrets.CanViewBlock(grantee, minus, "alice", page.EditableBy) {
 		t.Errorf("grantee WIDEN: CanViewBlock denied editable-by holder")
 	}
 	// Grants do NOT open `-`; party/guests never see it.
-	if secrets.CanViewBlock(pathgrant, minus, "alice") {
+	if secrets.CanViewBlock(pathgrant, minus, "alice", page.EditableBy) {
 		t.Fatalf("pathgrant: `-` block leaked to grant holder")
 	}
-	if secrets.CanViewBlock(other, minus, "alice") || secrets.CanViewBlock(nil, minus, "alice") {
+	if secrets.CanViewBlock(other, minus, "alice", page.EditableBy) || secrets.CanViewBlock(nil, minus, "alice", page.EditableBy) {
 		t.Fatalf("`-` block leaked to party/guest")
 	}
 
 	// Guest render path: `-` becomes a labeled placeholder, never content.
-	filtered, err := secrets.FilterBlocks(nil, page.Blocks, "alice")
+	filtered, err := secrets.FilterBlocks(nil, page.Blocks, "alice", page.EditableBy)
 	if err != nil {
 		t.Fatalf("FilterBlocks: %v", err)
 	}
 	if strings.Contains(blockTexts(filtered), "seven seven seven") {
 		t.Fatalf("FilterBlocks leaked `-` content to guest")
 	}
-	// WIDEN: editable-by keeps `-` through FilterBlocks. RED until amend.
-	filtered, err = secrets.FilterBlocks(grantee, page.Blocks, "alice")
+	// WIDEN (amend landed): editable-by keeps `-` through FilterBlocks.
+	filtered, err = secrets.FilterBlocks(grantee, page.Blocks, "alice", page.EditableBy)
 	if err != nil {
 		t.Fatalf("FilterBlocks: %v", err)
 	}

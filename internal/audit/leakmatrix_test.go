@@ -283,15 +283,10 @@ func TestPageVisibleMatrix(t *testing.T) {
 }
 
 // TestChunkVisibleMatrix pins block-level filtering to the gate-amended
-// p03 (WIDEN): `-` (default hidden) chunks are visible to GM + page owner +
-// editable-by holders; `+` chunks follow the page. Path grants do NOT open
-// `-` (identity-scoped only); party/guests/revoked never see `-`.
-//
-// IMPLEMENTATION GAP (lane report, not fixed here — no product code in this
-// lane): the merged tree still implements owner-only `-` visibility
-// (store.ChunkVisible takes only owner, and the brief's amended
-// editableByJSON parameter does not exist in the tree). The grantee/minus
-// case below is RED until the amend lands in store + secrets + handlers.
+// p03 (WIDEN, landed in the Phase-2 gate amend): `-` (default hidden) chunks
+// are visible to GM + page owner + editable-by holders; `+` chunks follow
+// the page. Path grants do NOT open `-` (identity-scoped only);
+// party/guests/revoked never see `-`.
 func TestChunkVisibleMatrix(t *testing.T) {
 	viewers := matrixViewers()
 	cases := []struct {
@@ -299,22 +294,23 @@ func TestChunkVisibleMatrix(t *testing.T) {
 		viewer      string
 		chunkSecret bool
 		owner       string
+		edBy        string
 		want        bool
 	}{
-		{"gm/minus", "gm", true, "alice", true},
-		{"owner/minus", "owner", true, "alice", true},
-		{"grantee/minus-widen", "grantee", true, "alice", true}, // WIDEN: RED until amend lands
-		{"pathgrant/minus-denied", "pathgrant", true, "alice", false},
-		{"other/minus-denied", "other", true, "alice", false},
-		{"guest/minus-denied", "guest", true, "alice", false},
-		{"revoked/minus-denied", "revoked", true, "alice", false},
-		{"preview/minus-denied", "preview", true, "alice", false},
-		{"guest/plus-follows-page", "guest", false, "alice", true},
-		{"other/plus-follows-page", "other", false, "alice", true},
+		{"gm/minus", "gm", true, "alice", `[]`, true},
+		{"owner/minus", "owner", true, "alice", `[]`, true},
+		{"grantee/minus-widen", "grantee", true, "alice", `["bob"]`, true},
+		{"pathgrant/minus-denied", "pathgrant", true, "alice", `["bob"]`, false},
+		{"other/minus-denied", "other", true, "alice", `["bob"]`, false},
+		{"guest/minus-denied", "guest", true, "alice", `["bob"]`, false},
+		{"revoked/minus-denied", "revoked", true, "alice", `["bob"]`, false},
+		{"preview/minus-denied", "preview", true, "alice", `["bob"]`, false},
+		{"guest/plus-follows-page", "guest", false, "alice", `[]`, true},
+		{"other/plus-follows-page", "other", false, "alice", `[]`, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := store.ChunkVisible(tc.chunkSecret, tc.owner, viewers[tc.viewer])
+			got := store.ChunkVisible(tc.chunkSecret, tc.owner, tc.edBy, viewers[tc.viewer])
 			if got != tc.want {
 				t.Fatalf("ChunkVisible(viewer=%s, secret=%v) = %v, want %v", tc.viewer, tc.chunkSecret, got, tc.want)
 			}
