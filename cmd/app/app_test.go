@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -11,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/semiplane/yonder/internal/auth"
 )
 
 func sha256Of(b []byte) string {
@@ -321,7 +324,8 @@ func TestZipSlipRefused(t *testing.T) {
 
 func TestHealthzVersionOnly(t *testing.T) {
 	info := buildInfo{Version: "v", Commit: "c", Date: "d"}
-	mux := newOpsMux(info, nil)
+	sessionStore := &mockSessionStore{}
+	mux := wireHandlers(info, "/tmp/doesnotexist", sessionStore)
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -455,3 +459,16 @@ func TestDispatchSubcommandFlags(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// mockSessionStore implements auth.SessionStore for tests that don't need real sessions.
+type mockSessionStore struct{}
+
+func (m *mockSessionStore) Create(ctx context.Context, s *auth.Session) (string, error) { return "", nil }
+func (m *mockSessionStore) Get(ctx context.Context, id string) (*auth.Session, error) { return nil, auth.ErrSessionNotFound }
+func (m *mockSessionStore) Update(ctx context.Context, s *auth.Session) error { return nil }
+func (m *mockSessionStore) Delete(ctx context.Context, id string) error { return nil }
+func (m *mockSessionStore) DeleteByUser(ctx context.Context, userID string) error { return nil }
+func (m *mockSessionStore) DeleteByVersion(ctx context.Context, version int) error { return nil }
+func (m *mockSessionStore) Touch(ctx context.Context, id string, idleAt, expiresAt int64) error { return nil }
+func (m *mockSessionStore) Revoke(ctx context.Context, id string) error { return nil }
+func (m *mockSessionStore) FindByCSRF(ctx context.Context, token string) (*auth.Session, error) { return nil, auth.ErrSessionNotFound }
