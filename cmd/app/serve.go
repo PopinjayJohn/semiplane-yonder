@@ -142,6 +142,9 @@ func buildRegistryHandler(routes []web.Route, sessionStore auth.SessionStore) ht
 	seen := make(map[string]bool)
 	for _, rt := range routes {
 		h := rt.Handler
+		if h == nil {
+			continue
+		}
 		// For Phase 2, let handlers resolve their own viewer (demo fallback).
 		// Real auth middleware lands in P11.
 		pattern := toStdlibPattern(rt.Path)
