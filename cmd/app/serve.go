@@ -7,7 +7,14 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
+
+	"github.com/semiplane/yonder/internal/auth"
+	_ "github.com/semiplane/yonder/internal/markdown" // ensure parser registration
+	"github.com/semiplane/yonder/internal/store"
+	"github.com/semiplane/yonder/internal/vault"
+	"github.com/semiplane/yonder/internal/web"
 )
 
 //go:embed static/print.css
@@ -15,13 +22,9 @@ var staticFS embed.FS
 
 // Ops HTTP surface owned by Lane E1 (P09): /healthz + /version expose the
 // binary version (ldflags-stamped) ONLY — never vault names, counts, or any
-// vault-derived data. All other paths fall through to the Phase-0 route
-// registry once Lane F1/F2 handlers land (currently a 501 placeholder).
-//
-// Contract note: ReadHandlers already registers /healthz + /version in the
-// frozen registry with stub handlers. E1 serves these two paths on its own
-// mux without touching internal/web (another lane's files). When F1
-// implements them, one registration must go (amend request in report).
+// vault-derived data. Read/write paths delegate to internal/web handlers
+// (Lane F1/F2). When F1/F2 handlers register /healthz + /version, the ops
+// mux must not double-register — see wireHandlers below.
 
 type buildInfo struct {
 	Version string `json:"version"`
@@ -66,21 +69,116 @@ func printCSSHandler(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(css)
 }
 
-// newOpsMux builds the E1 serve mux: ops endpoints first, then the registry
-// fallback (nil until Lane F1/F2 wire real handlers).
-func newOpsMux(info buildInfo, fallback http.Handler) *http.ServeMux {
+// wireHandlers builds the complete handler chain: ops endpoints (deduped),
+// then read/write handlers via the route registry.
+func wireHandlers(info buildInfo, vaultDir string, sessionStore auth.SessionStore) http.Handler {
+	// Build store, vault, and handlers.
+	indexPath := filepath.Join(filepath.Dir(vaultDir), filepath.Base(vaultDir)+".index.db")
+	appPath := filepath.Join(filepath.Dir(vaultDir), filepath.Base(vaultDir)+".app.db")
+	st, err := store.Open(indexPath, appPath)
+	if err != nil {
+		panic(err)
+	}
+	v, err := vault.NewVault(vaultDir)
+	if err != nil {
+		panic(err)
+	}
+	readH := web.ReadHandlers{Store: st, SessionStore: sessionStore}
+	writeH := web.WriteHandlers{Store: st, Vault: v, SessionStore: sessionStore}
+
+	reg := web.NewRouteRegistry()
+	readH.RegisterRoutes(reg)
+	writeH.RegisterRoutes(reg)
+
+	// Ops mux handles /healthz, /version, /static/print.css first,
+	// but ONLY if the registry doesn't already have them (F1 registers both).
 	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", healthzHandler(info))
-	mux.HandleFunc("/version", versionHandler(info))
-	mux.HandleFunc("/static/print.css", printCSSHandler)
-	if fallback != nil {
-		mux.Handle("/", fallback)
-	} else {
-		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			http.Error(w, "not wired yet (read/write handlers land in Phase 2)", http.StatusNotImplemented)
-		})
+	opsMux := http.NewServeMux()
+	opsMux.HandleFunc("/healthz", healthzHandler(info))
+	opsMux.HandleFunc("/version", versionHandler(info))
+	opsMux.HandleFunc("/static/print.css", printCSSHandler)
+
+	// Install ops handlers for paths NOT claimed by the registry.
+	regRoutes := reg.Routes()
+	claimed := make(map[string]bool)
+	for _, rt := range regRoutes {
+		claimed[rt.Path] = true
+	}
+	opsMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if claimed[r.URL.Path] {
+			// Registry owns it — fall through to registry handler.
+			http.NotFound(w, r)
+			return
+		}
+		// Serve ops endpoints.
+		opsMux.ServeHTTP(w, r)
+	})
+
+	// Build registry handler with middleware chain.
+	regHandler := reg.BuildHandler(sessionStore)
+	if regHandler == nil {
+		// Fallback: build from routes directly (Phase 2: BuildHandler is stub).
+		regHandler = buildRegistryHandler(regRoutes, sessionStore)
+	}
+
+	// Chain: ops-first for unclaimed paths, then registry.
+	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if claimed[r.URL.Path] {
+			regHandler.ServeHTTP(w, r)
+		} else {
+			opsMux.ServeHTTP(w, r)
+		}
+	}))
+	return mux
+}
+
+// buildRegistryHandler constructs an http.Handler from registered routes
+// with session/viewer middleware (inline until RouteRegistry.BuildHandler
+// is implemented). stdlib ServeMux (Go 1.22+) supports {name} and {name...}
+// only at pattern END; frozen routes use {path...} mid-pattern. We map them
+// to prefix patterns. Duplicate prefixes keep the first registered handler.
+func buildRegistryHandler(routes []web.Route, sessionStore auth.SessionStore) http.Handler {
+	mux := http.NewServeMux()
+	seen := make(map[string]bool)
+	for _, rt := range routes {
+		h := rt.Handler
+		if h == nil {
+			continue
+		}
+		// For Phase 2, let handlers resolve their own viewer (demo fallback).
+		// Real auth middleware lands in P11.
+		pattern := toStdlibPattern(rt.Path)
+		if seen[pattern] {
+			continue // skip duplicate prefix; first handler wins
+		}
+		seen[pattern] = true
+		mux.HandleFunc(pattern, h)
 	}
 	return mux
+}
+
+// toStdlibPattern converts frozen route patterns (using chi-style {path...}
+// mid-pattern) to stdlib ServeMux-compatible patterns (Go 1.22+).
+// Handlers extract the full path from r.URL.Path themselves.
+func toStdlibPattern(pattern string) string {
+	// Patterns with {path...} not at end → register the static prefix.
+	// Handlers do exact matching on r.URL.Path.
+	switch pattern {
+	case web.RoutePageView: // "/p/{path...}" → "/p/"
+		return "/p/"
+	case web.RoutePageEdit: // "/p/{path...}/edit" → handled by PageEdit via /p/
+		return "/p/"
+	case web.RoutePageHistory: // "/p/{path...}/history" → handled by PageView via /p/
+		return "/p/"
+	case web.RouteAssets: // "/assets/{path...}" → "/assets/"
+		return "/assets/"
+	case web.RouteVTT: // "/vtt/{mapID}" → "/vtt/"
+		return "/vtt/"
+	case web.RouteWizard: // "/wizard/{step}" → "/wizard/"
+		return "/wizard/"
+	default:
+		return pattern // exact patterns like /healthz, /search, /p/new, /upload, etc.
+	}
 }
 
 type serveOptions struct {
@@ -112,7 +210,12 @@ func runServe(opts serveOptions, shutdown <-chan os.Signal) error {
 	}
 	defer func() { _ = db.Close() }()
 
-	mux := newOpsMux(opts.info, nil) // registry fallback wires in Phase 2
+	sessionStore, err := auth.NewSessionStore(db)
+	if err != nil {
+		return err
+	}
+
+	mux := wireHandlers(opts.info, opts.vault, sessionStore)
 	server := &http.Server{
 		Addr:              opts.addr,
 		Handler:           mux,

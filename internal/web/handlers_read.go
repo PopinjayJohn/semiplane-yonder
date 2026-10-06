@@ -1,10 +1,25 @@
 package web
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"html"
+	"log/slog"
 	"net/http"
+	"os"
+	"path"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
 
+	"github.com/a-h/templ"
 	"github.com/semiplane/yonder/internal/auth"
+	"github.com/semiplane/yonder/internal/markdown"
+	"github.com/semiplane/yonder/internal/secrets"
 	"github.com/semiplane/yonder/internal/store"
+	"github.com/semiplane/yonder/web/templates"
 )
 
 // ReadHandlers contains all read-path HTTP handlers.
@@ -104,57 +119,772 @@ func (h *ReadHandlers) RegisterRoutes(reg *RouteRegistry) {
 	})
 }
 
-// Healthz returns health check endpoint.
+// Version is the binary version reported by /version (E1 stamps it via
+// ldflags; "dev" until then). Version endpoint exposes the version ONLY.
+var Version = "dev"
+
+// VaultDir names the vault root for ACL-checked asset serving. Set by wiring
+// (Phase 2; E1's runServe passes its --vault). Empty = assets unavailable.
+var VaultDir = ""
+
+// demoUsers are hardcoded stand-ins for auth (real auth is P11, Lane C).
+// `?as=gm` is the GM; any other `?as=<name>` is that player; absent = guest.
+// Ownership is resolved dynamically from page frontmatter (owner /
+// editable-by), so no per-page hardcoding is needed.
+var demoUsers = map[string]*auth.Viewer{
+	"gm":   {UserID: "gm", IsGM: true},
+	"mira": {UserID: "mira"},
+	"bram": {UserID: "bram"},
+	"cass": {UserID: "cass"},
+}
+
+// viewerFromRequest resolves the effective viewer: real auth context first
+// (P11 middleware, via auth.ViewerFromContext), hardcoded demo users second.
+// GM-only `preview_as` impersonation filters as the previewed user, renders a
+// persistent banner, and is logged (Phase 0c contract).
+func viewerFromRequest(r *http.Request) *auth.Viewer {
+	if v, ok := auth.ViewerFromContext(r.Context()); ok && v != nil {
+		return v
+	}
+	as := strings.TrimSpace(r.URL.Query().Get("as"))
+	if as == "" || strings.EqualFold(as, "guest") {
+		return nil // guest (also stands in for revoked sessions)
+	}
+	var v *auth.Viewer
+	if u, ok := demoUsers[strings.ToLower(as)]; ok {
+		cp := *u
+		v = &cp
+	} else {
+		v = &auth.Viewer{UserID: as}
+	}
+	if preview := strings.TrimSpace(r.URL.Query().Get("preview_as")); preview != "" && v.IsGM {
+		v.PreviewAs = preview
+		slog.Info("gm preview", "gm", v.UserID, "as", preview, "path", r.URL.Path)
+	}
+	return v
+}
+
+// asParam preserves the demo identity across links. Empty for guests and for
+// real-auth requests (no `as` query present).
+func asParam(r *http.Request, v *auth.Viewer) string {
+	as := strings.TrimSpace(r.URL.Query().Get("as"))
+	if as == "" || v == nil {
+		return ""
+	}
+	q := "?as=" + urlQueryEscape(as)
+	if v.PreviewAs != "" {
+		q += "&preview_as=" + urlQueryEscape(v.PreviewAs)
+	}
+	return q
+}
+
+func urlQueryEscape(s string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(s, "%", "%25"), "&", "%26")
+}
+
+// cleanPagePath normalizes a vault-relative page ID and rejects traversal.
+// Lookup is case-insensitive elsewhere; display preserves source case.
+func cleanPagePath(p string) (string, bool) {
+	p = strings.ReplaceAll(p, "\\", "/")
+	p = strings.TrimPrefix(strings.TrimSpace(p), "/")
+	if p == "" || strings.ContainsRune(p, 0) {
+		return "", false
+	}
+	c := path.Clean(p)
+	if c == "." || c == ".." || strings.HasPrefix(c, "../") {
+		return "", false
+	}
+	return c, true
+}
+
+// loadFilteredPage is the single funnel for page reads: index lookup, parse,
+// server-side secret filter, then link/embed post-processing. Any failure —
+// missing page, unauthorized secret, bad path — returns an error the caller
+// maps to a UNIFORM 404 (no title, path confirmation, or distinctive timing).
+func loadFilteredPage(ctx context.Context, st store.Store, viewer *auth.Viewer, pagePath string) (*markdown.Page, error) {
+	sp, err := st.PageGet(ctx, pagePath)
+	if err != nil {
+		return nil, secrets.ErrNotFound
+	}
+	page, err := markdown.Parse(ctx, sp.Content, sp.Path)
+	if err != nil {
+		return nil, secrets.ErrNotFound
+	}
+	filtered, err := secrets.Filter(viewer, page)
+	if err != nil {
+		return nil, err
+	}
+	postProcessLinks(ctx, st, viewer, filtered)
+	return filtered, nil
+}
+
+// postProcessLinks rewrites wikilink hrefs to read-path routes, redacts links
+// pointing at secret pages the viewer cannot see (alias ALWAYS dropped), and
+// expands page embeds one level (nested embeds stay links: no cycles).
+// Image embeds get ACL-checked /assets srcs. Operates on already-filtered HTML.
+func postProcessLinks(ctx context.Context, st store.Store, viewer *auth.Viewer, page *markdown.Page) {
+	asQ := ""
+	if viewer != nil && viewer.UserID != "" {
+		asQ = "?as=" + urlQueryEscape(viewer.UserID)
+		if viewer.PreviewAs != "" {
+			asQ += "&preview_as=" + urlQueryEscape(viewer.PreviewAs)
+		}
+	}
+	htmlOut := page.HTML
+	for _, l := range page.Links {
+		target := strings.TrimSpace(l.Target)
+		if target == "" {
+			continue
+		}
+		base := target
+		if i := strings.LastIndex(base, "#"); i >= 0 {
+			base = base[:i]
+		}
+		anchorPrefix := `<a class="wikilink" data-target="` + html.EscapeString(target) + `"`
+		i := strings.Index(htmlOut, anchorPrefix)
+		if i < 0 {
+			continue
+		}
+		end := strings.Index(htmlOut[i:], "</a>")
+		if end < 0 {
+			continue
+		}
+		end += i + len("</a>")
+		if secretTarget(ctx, st, viewer, base) {
+			htmlOut = htmlOut[:i] + `<span class="redacted" role="note" aria-label="Redacted secret link">` +
+				secrets.RedactedPage + `</span>` + htmlOut[end:]
+			continue
+		}
+		alias := l.Alias
+		if alias == "" {
+			alias = target
+		}
+		hrefPath := base
+		if sp := resolveTarget(ctx, st, target); sp != nil {
+			hrefPath = sp.Path
+		}
+		rebuilt := `<a class="wikilink" data-target="` + html.EscapeString(target) +
+			`" href="/p/` + html.EscapeString(hrefPath) + asQ + `">` + html.EscapeString(alias) + `</a>`
+		htmlOut = htmlOut[:i] + rebuilt + htmlOut[end:]
+	}
+	for _, e := range page.Embeds {
+		target := strings.TrimSpace(e.Target)
+		if target == "" {
+			continue
+		}
+		spanPrefix := `<span class="embed embed-page" data-target="` + html.EscapeString(target) + `"`
+		if i := strings.Index(htmlOut, spanPrefix); i >= 0 {
+			end := strings.Index(htmlOut[i:], "</span>")
+			if end < 0 {
+				continue
+			}
+			end += i + len("</span>")
+			htmlOut = htmlOut[:i] + expandEmbed(ctx, st, viewer, target) + htmlOut[end:]
+		}
+	}
+	htmlOut = rewriteAssetSrcs(htmlOut)
+	page.HTML = htmlOut
+}
+
+// secretTarget reports whether target names a secret page the viewer may not
+// see. Unknown targets (dangling links) are NOT secret: they render as links.
+func secretTarget(ctx context.Context, st store.Store, viewer *auth.Viewer, target string) bool {
+	sp := resolveTarget(ctx, st, target)
+	if sp == nil {
+		return false
+	}
+	return sp.Secret && !secrets.CanViewPage(viewer, sp.Secret, sp.Path, sp.Owner, sp.EditableBy)
+}
+
+// resolveTarget maps a wikilink target to an index row. Targets are usually
+// extensionless (`[[cinder-pact]]` → `cinder-pact.md`); lookup is
+// case-insensitive (store.PageGet folds).
+func resolveTarget(ctx context.Context, st store.Store, target string) *store.Page {
+	base := strings.TrimSpace(strings.TrimPrefix(target, "./"))
+	if i := strings.LastIndex(base, "#"); i >= 0 {
+		base = base[:i]
+	}
+	if base == "" {
+		return nil
+	}
+	for _, cand := range []string{base, base + ".md", base + ".markdown"} {
+		if sp, err := st.PageGet(ctx, cand); err == nil {
+			return sp
+		}
+	}
+	return nil
+}
+
+// expandEmbed renders a `![[page]]` transclusion: redacted span when the
+// viewer may not see the target, else the target's filtered body (depth 1).
+func expandEmbed(ctx context.Context, st store.Store, viewer *auth.Viewer, target string) string {
+	sp := resolveTarget(ctx, st, target)
+	if sp == nil {
+		return `<span class="redacted" role="note" aria-label="Redacted secret link">` + secrets.RedactedPage + `</span>`
+	}
+	embedded, err := markdown.Parse(ctx, sp.Content, sp.Path)
+	if err != nil {
+		return `<span class="redacted" role="note" aria-label="Redacted secret link">` + secrets.RedactedPage + `</span>`
+	}
+	filtered, err := secrets.Filter(viewer, embedded)
+	if err != nil {
+		return `<span class="redacted" role="note" aria-label="Redacted secret link">` + secrets.RedactedPage + `</span>`
+	}
+	return `<div class="embed-expanded" data-target="` + html.EscapeString(target) + `">` + filtered.HTML + `</div>`
+}
+
+// rewriteAssetSrcs points renderer-relative image srcs at the ACL-checked
+// /assets handler. Absolute URLs and roots are left alone.
+func rewriteAssetSrcs(htmlOut string) string {
+	const prefix = `<img class="embed" src="`
+	var b strings.Builder
+	b.Grow(len(htmlOut))
+	rest := htmlOut
+	for {
+		i := strings.Index(rest, prefix)
+		if i < 0 {
+			b.WriteString(rest)
+			break
+		}
+		b.WriteString(rest[:i+len(prefix)])
+		rest = rest[i+len(prefix):]
+		end := strings.Index(rest, `"`)
+		if end < 0 {
+			b.WriteString(rest)
+			break
+		}
+		src := rest[:end]
+		if !strings.HasPrefix(src, "/") && !strings.Contains(src, "://") {
+			src = "/assets/" + src
+		}
+		b.WriteString(src)
+		rest = rest[end:]
+	}
+	return b.String()
+}
+
+// navEntries builds the secret-filtered vault tree for the shell sidebar.
+// Secret titles/paths are dropped for unauthorized viewers — never redacted
+// here (a redacted row still signals existence in a listing).
+func navEntries(ctx context.Context, st store.Store, viewer *auth.Viewer, active string) []templates.NavEntry {
+	pages, err := st.PageList(ctx, store.PageListOptions{IncludeSecret: true, Limit: 500})
+	if err != nil {
+		return nil
+	}
+	var out []templates.NavEntry
+	for _, p := range pages {
+		if p.Secret && !secrets.CanViewPage(viewer, p.Secret, p.Path, p.Owner, p.EditableBy) {
+			continue
+		}
+		out = append(out, templates.NavEntry{
+			Path:   p.Path,
+			Title:  p.Title,
+			Secret: p.Secret,
+			Active: strings.EqualFold(p.Path, active),
+		})
+	}
+	return out
+}
+
+// visibleBacklinks resolves backlink sources to filtered {path, title} rows.
+func visibleBacklinks(ctx context.Context, st store.Store, viewer *auth.Viewer, pagePath string) []templates.Backlink {
+	srcs, err := st.Backlinks(ctx, pagePath)
+	if err != nil {
+		return nil
+	}
+	var out []templates.Backlink
+	for _, s := range srcs {
+		if len(out) >= 50 {
+			break
+		}
+		sp, err := st.PageGet(ctx, s)
+		if err != nil {
+			continue
+		}
+		if sp.Secret && !secrets.CanViewPage(viewer, sp.Secret, sp.Path, sp.Owner, sp.EditableBy) {
+			continue
+		}
+		out = append(out, templates.Backlink{Path: sp.Path, Title: sp.Title})
+	}
+	return out
+}
+
+func renderShell(w http.ResponseWriter, r *http.Request, status int, data templates.PageData, viewer *auth.Viewer, body templ.Component) {
+	slog.Info("read", "path", r.URL.Path, "user", viewerLabel(viewer))
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// Read output is per-viewer: never shared-cache, never stored.
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.WriteHeader(status)
+	_ = templates.Shell(data, viewer, body).Render(r.Context(), w)
+}
+
+func viewerLabel(v *auth.Viewer) string {
+	if v == nil || v.UserID == "" {
+		return "guest"
+	}
+	if v.PreviewAs != "" {
+		return v.UserID + " preview-as " + v.PreviewAs
+	}
+	return v.UserID
+}
+
+// Healthz returns health check endpoint (version only; E1's ops mux owns the
+// canonical registration — see amend note in the final report).
 func (h *ReadHandlers) Healthz(w http.ResponseWriter, r *http.Request) {
-	// not implemented
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "version": Version})
 }
 
-// Version returns version endpoint.
+// Version returns version endpoint (version only, never vault data).
 func (h *ReadHandlers) Version(w http.ResponseWriter, r *http.Request) {
-	// not implemented
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(map[string]string{"version": Version})
 }
 
-// PageView renders a page view.
+// PageView renders a page view: uniform 404 for missing OR unauthorized
+// secret pages; everything else secret-filtered server-side.
 func (h *ReadHandlers) PageView(w http.ResponseWriter, r *http.Request) {
-	// not implemented
+	viewer := viewerFromRequest(r)
+	raw := strings.TrimPrefix(r.URL.Path, "/p/")
+	pagePath, ok := cleanPagePath(raw)
+	if !ok {
+		h.notFound(w, r, viewer)
+		return
+	}
+	page, err := loadFilteredPage(r.Context(), h.Store, viewer, pagePath)
+	if err != nil {
+		h.notFound(w, r, viewer)
+		return
+	}
+	data := templates.PageData{
+		Title:       page.Title,
+		Path:        page.Path,
+		BodyHTML:    page.HTML,
+		TOC:         page.TOC,
+		Backlinks:   visibleBacklinks(r.Context(), h.Store, viewer, page.Path),
+		Nav:         navEntries(r.Context(), h.Store, viewer, page.Path),
+		Secret:      page.Secret,
+		Owner:       page.Owner,
+		Quarantined: page.Quarantined,
+		Quarantine:  page.QuarantineReason,
+		ViewerLabel: viewerLabel(viewer),
+		AsParam:     asParam(r, viewer),
+	}
+	if viewer != nil {
+		data.PreviewAs = viewer.PreviewAs
+	}
+	renderShell(w, r, http.StatusOK, data, viewer, templates.PageBody(data))
 }
 
-// Search handles search requests.
+func (h *ReadHandlers) notFound(w http.ResponseWriter, r *http.Request, viewer *auth.Viewer) {
+	data := templates.PageData{
+		Title:       "Not found",
+		Nav:         navEntries(r.Context(), h.Store, viewer, ""),
+		ViewerLabel: viewerLabel(viewer),
+		AsParam:     asParam(r, viewer),
+	}
+	if viewer != nil {
+		data.PreviewAs = viewer.PreviewAs
+	}
+	renderShell(w, r, http.StatusNotFound, data, viewer, templates.NotFound())
+}
+
+// Search handles search requests. The store filters by viewer ACL and cuts
+// snippets from visible chunks only; a page-level re-check here is
+// defense-in-depth (fail closed: drop on any doubt).
 func (h *ReadHandlers) Search(w http.ResponseWriter, r *http.Request) {
-	// not implemented
+	viewer := viewerFromRequest(r)
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	var hits []templates.SearchHit
+	if q != "" {
+		results, err := h.Store.Search(r.Context(), q, store.SearchOptions{Viewer: viewer, Limit: 20})
+		if err == nil {
+			for _, res := range results {
+				sp, err := h.Store.PageGet(r.Context(), res.Path)
+				if err != nil {
+					continue
+				}
+				if sp.Secret && !secrets.CanViewPage(viewer, sp.Secret, sp.Path, sp.Owner, sp.EditableBy) {
+					continue
+				}
+				hits = append(hits, templates.SearchHit{
+					Path:    res.Path,
+					Title:   res.Title,
+					Snippet: res.Snippet,
+					Secret:  res.Secret,
+				})
+			}
+		}
+	}
+	if strings.Contains(r.Header.Get("Accept"), "application/json") {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "private, no-store")
+		_ = json.NewEncoder(w).Encode(hits)
+		return
+	}
+	data := templates.PageData{
+		Title:       "Search",
+		Nav:         navEntries(r.Context(), h.Store, viewer, ""),
+		ViewerLabel: viewerLabel(viewer),
+		AsParam:     asParam(r, viewer),
+	}
+	if viewer != nil {
+		data.PreviewAs = viewer.PreviewAs
+	}
+	renderShell(w, r, http.StatusOK, data, viewer, templates.SearchBody(q, hits, data.AsParam))
 }
 
-// Graph returns the page graph.
+// graphNode / graphEdge are the JSON graph (secret-filtered: invisible pages
+// and their edges are dropped, never redacted).
+type graphNode struct {
+	ID     string `json:"id"`
+	Title  string `json:"title"`
+	Secret bool   `json:"secret"`
+}
+
+type graphEdge struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+// Graph returns the page graph, secret-filtered server-side.
 func (h *ReadHandlers) Graph(w http.ResponseWriter, r *http.Request) {
-	// not implemented
+	viewer := viewerFromRequest(r)
+	pages, err := h.Store.PageList(r.Context(), store.PageListOptions{IncludeSecret: true, Limit: 1000})
+	if err != nil {
+		http.Error(w, "graph unavailable", http.StatusInternalServerError)
+		return
+	}
+	visible := map[string]string{}
+	var nodes []graphNode
+	for _, p := range pages {
+		if p.Secret && !secrets.CanViewPage(viewer, p.Secret, p.Path, p.Owner, p.EditableBy) {
+			continue
+		}
+		visible[p.Path] = p.Title
+		nodes = append(nodes, graphNode{ID: p.Path, Title: p.Title, Secret: p.Secret})
+	}
+	var edges []graphEdge
+	for id := range visible {
+		targets, err := h.Store.ForwardLinks(r.Context(), id)
+		if err != nil {
+			continue
+		}
+		for _, t := range targets {
+			if _, ok := visible[t]; ok {
+				edges = append(edges, graphEdge{From: id, To: t})
+			}
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "private, no-store")
+	_ = json.NewEncoder(w).Encode(map[string]any{"nodes": nodes, "edges": edges})
 }
 
-// Autocomplete returns autocomplete suggestions.
+// Autocomplete returns title suggestions, secret-filtered (invisible secret
+// pages are excluded, never redacted: a redacted row leaks existence).
 func (h *ReadHandlers) Autocomplete(w http.ResponseWriter, r *http.Request) {
-	// not implemented
+	viewer := viewerFromRequest(r)
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	type suggestion struct {
+		Title string `json:"title"`
+		Path  string `json:"path"`
+	}
+	out := []suggestion{}
+	if q != "" {
+		results, err := h.Store.Search(r.Context(), q, store.SearchOptions{Viewer: viewer, Limit: 8})
+		if err == nil {
+			for _, res := range results {
+				sp, err := h.Store.PageGet(r.Context(), res.Path)
+				if err != nil {
+					continue
+				}
+				if sp.Secret && !secrets.CanViewPage(viewer, sp.Secret, sp.Path, sp.Owner, sp.EditableBy) {
+					continue
+				}
+				out = append(out, suggestion{Title: res.Title, Path: res.Path})
+			}
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "private, no-store")
+	_ = json.NewEncoder(w).Encode(out)
 }
 
-// Assets serves vault assets through ACL-checked handler.
+// Assets serves vault assets through the ACL-checked handler (never a raw
+// static mount — pitfalls). Bundle rule: an asset sitting beside pages is
+// served when at least one same-directory page is visible to the viewer (or
+// the directory holds no pages: public attachments). Markdown sources are
+// never served here. Traversal outside the vault is rejected.
 func (h *ReadHandlers) Assets(w http.ResponseWriter, r *http.Request) {
-	// not implemented
+	viewer := viewerFromRequest(r)
+	raw := strings.TrimPrefix(r.URL.Path, "/assets/")
+	assetPath, ok := cleanPagePath(raw)
+	if !ok || VaultDir == "" {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if strings.HasSuffix(strings.ToLower(assetPath), ".md") {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if !assetVisible(r.Context(), h.Store, viewer, assetPath) {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	fsPath := filepath.Join(VaultDir, filepath.FromSlash(assetPath))
+	if rel, err := filepath.Rel(VaultDir, fsPath); err != nil || strings.HasPrefix(rel, "..") {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	f, err := os.Open(fsPath)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	defer func() { _ = f.Close() }()
+	fi, err := f.Stat()
+	if err != nil || fi.IsDir() {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	// Never sniff SVG as image (pitfalls): serve svg as text with sandbox.
+	lower := strings.ToLower(assetPath)
+	if strings.HasSuffix(lower, ".svg") || strings.HasSuffix(lower, ".svgz") {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	} else {
+		var head [512]byte
+		n, _ := f.Read(head[:])
+		w.Header().Set("Content-Type", http.DetectContentType(head[:n]))
+		_, _ = f.Seek(0, 0)
+	}
+	w.Header().Set("Content-Security-Policy", "sandbox")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+	http.ServeContent(w, r, path.Base(assetPath), fi.ModTime(), f)
 }
 
-// SSE handles Server-Sent Events for live updates.
+// assetVisible implements the page-bundle rule for vault assets.
+func assetVisible(ctx context.Context, st store.Store, viewer *auth.Viewer, assetPath string) bool {
+	dir := path.Dir(assetPath)
+	if dir == "." {
+		dir = ""
+	}
+	prefix := dir
+	if prefix != "" {
+		prefix += "/"
+	}
+	pages, err := st.PageList(ctx, store.PageListOptions{Prefix: prefix, IncludeSecret: true, Limit: 100})
+	if err != nil {
+		return false
+	}
+	// PageList prefix-matches recursively; keep same-directory pages only.
+	sameDir := 0
+	for _, p := range pages {
+		if path.Dir(p.Path) != dir {
+			continue
+		}
+		sameDir++
+		if !p.Secret || secrets.CanViewPage(viewer, p.Secret, p.Path, p.Owner, p.EditableBy) {
+			return true
+		}
+	}
+	return sameDir == 0
+}
+
+// SSE handles Server-Sent Events for live updates (P01 hello: GM `-`/`+`
+// flips propagate to subscribed viewers, each re-filtered server-side).
+// Hello carries only what the viewer may see: secret titles ride the stream
+// solely to authorized viewers; everyone else gets visible:false.
 func (h *ReadHandlers) SSE(w http.ResponseWriter, r *http.Request) {
-	// not implemented
+	if r.Method == http.MethodPost {
+		h.publishFlip(w, r)
+		return
+	}
+	viewer := viewerFromRequest(r)
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	pagePath, _ := cleanPagePath(r.URL.Query().Get("path"))
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	sub := hub.subscribe()
+	defer hub.unsubscribe(sub)
+	if _, err := fmt.Fprintf(w, "event: hello\ndata: %s\n\n", helloPayload(r.Context(), h.Store, viewer, pagePath)); err != nil {
+		return
+	}
+	flusher.Flush()
+	ticker := time.NewTicker(20 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case flipped := <-sub.ch:
+			if pagePath != "" && flipped != "" && !strings.EqualFold(flipped, pagePath) {
+				continue
+			}
+			if _, err := fmt.Fprintf(w, "event: secret-flip\ndata: %s\n\n", helloPayload(r.Context(), h.Store, viewer, flipped)); err != nil {
+				return
+			}
+			flusher.Flush()
+		case <-ticker.C:
+			_, _ = w.Write([]byte(": heartbeat\n\n"))
+			flusher.Flush()
+		}
+	}
 }
 
-// Me returns the current user's sheet/dashboard.
+func helloPayload(ctx context.Context, st store.Store, viewer *auth.Viewer, pagePath string) string {
+	type payload struct {
+		Path    string `json:"path"`
+		Visible bool   `json:"visible"`
+		Title   string `json:"title"`
+		Secret  bool   `json:"secret"`
+	}
+	p := payload{Visible: false, Title: secrets.RedactedTitle}
+	if pagePath != "" && st != nil {
+		if page, err := loadFilteredPage(ctx, st, viewer, pagePath); err == nil {
+			p = payload{Path: page.Path, Visible: true, Title: page.Title, Secret: page.Secret}
+		}
+	} else if pagePath == "" {
+		p = payload{Visible: true}
+	}
+	b, _ := json.Marshal(p)
+	return string(b)
+}
+
+// publishFlip ingests GM `-`/`+` flips (POST /events, GM-only, no preview).
+// The flip itself lands via the write path (Lane F2); this broadcast only
+// wakes subscribers, each of which re-reads + re-filters server-side.
+func (h *ReadHandlers) publishFlip(w http.ResponseWriter, r *http.Request) {
+	viewer := viewerFromRequest(r)
+	if viewer == nil || !viewer.IsGM || viewer.PreviewAs != "" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	pagePath, ok := cleanPagePath(r.Form.Get("path"))
+	if !ok {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	slog.Info("secret flip broadcast", "gm", viewer.UserID, "path", pagePath)
+	hub.publish(pagePath)
+	w.WriteHeader(http.StatusAccepted)
+}
+
+// Me returns the current viewer's page (P11 will own this; minimal here).
 func (h *ReadHandlers) Me(w http.ResponseWriter, r *http.Request) {
-	// not implemented
+	viewer := viewerFromRequest(r)
+	if viewer == nil || viewer.UserID == "" {
+		http.Error(w, "login required", http.StatusUnauthorized)
+		return
+	}
+	data := templates.PageData{
+		Title:       "Me",
+		Nav:         navEntries(r.Context(), h.Store, viewer, ""),
+		ViewerLabel: viewerLabel(viewer),
+		AsParam:     asParam(r, viewer),
+	}
+	renderShell(w, r, http.StatusOK, data, viewer, templates.Placeholder("Me", "Logged in as "+viewerLabel(viewer)+". Character sheets land in Phase 3 (Lane I1)."))
 }
 
-// Dashboard returns the GM dashboard.
+// Dashboard returns the GM dashboard placeholder (real dashboard is Lane I2).
 func (h *ReadHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
-	// not implemented
+	viewer := viewerFromRequest(r)
+	if viewer == nil || !viewer.IsGM || viewer.PreviewAs != "" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	data := templates.PageData{
+		Title:       "Dashboard",
+		Nav:         navEntries(r.Context(), h.Store, viewer, ""),
+		ViewerLabel: viewerLabel(viewer),
+		AsParam:     asParam(r, viewer),
+	}
+	renderShell(w, r, http.StatusOK, data, viewer, templates.Placeholder("Dashboard", "The GM dashboard lands in Phase 3 (Lane I2)."))
 }
 
-// VTT returns the VTT view.
+// VTT returns the VTT placeholder (real VTT is Lane K, Phase 4).
 func (h *ReadHandlers) VTT(w http.ResponseWriter, r *http.Request) {
-	// not implemented
+	viewer := viewerFromRequest(r)
+	if viewer == nil {
+		http.Error(w, "login required", http.StatusUnauthorized)
+		return
+	}
+	data := templates.PageData{
+		Title:       "Table",
+		Nav:         navEntries(r.Context(), h.Store, viewer, ""),
+		ViewerLabel: viewerLabel(viewer),
+		AsParam:     asParam(r, viewer),
+	}
+	renderShell(w, r, http.StatusOK, data, viewer, templates.Placeholder("Table", "The virtual tabletop lands in Phase 4 (Lane K)."))
+}
+
+// flipHub fans out secret-flip broadcasts to SSE subscribers. Payloads carry
+// only page paths; each connection re-reads + re-filters before writing, so
+// no secret content crosses viewers here.
+type flipHub struct {
+	mu   sync.Mutex
+	subs map[*flipSub]struct{}
+}
+
+type flipSub struct {
+	ch chan string
+}
+
+var hub = &flipHub{subs: map[*flipSub]struct{}{}}
+
+func (f *flipHub) subscribe() *flipSub {
+	s := &flipSub{ch: make(chan string, 4)}
+	f.mu.Lock()
+	f.subs[s] = struct{}{}
+	f.mu.Unlock()
+	return s
+}
+
+func (f *flipHub) unsubscribe(s *flipSub) {
+	f.mu.Lock()
+	delete(f.subs, s)
+	f.mu.Unlock()
+}
+
+func (f *flipHub) publish(pagePath string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for s := range f.subs {
+		select {
+		case s.ch <- pagePath:
+		default: // slow subscriber: drop, never block the broadcaster
+		}
+	}
+}
+
+// NewMux builds an http.ServeMux from the read registry for wiring (E1 calls
+// this as the registry fallback; POST /events doubles as the GM flip
+// broadcast — SSE plumbing owned by this lane's SSE task).
+func (h *ReadHandlers) NewMux() *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", h.Healthz)
+	mux.HandleFunc("/version", h.Version)
+	mux.HandleFunc("/p/", h.PageView)
+	mux.HandleFunc("/search", h.Search)
+	mux.HandleFunc("/graph", h.Graph)
+	mux.HandleFunc("/autocomplete", h.Autocomplete)
+	mux.HandleFunc("/assets/", h.Assets)
+	mux.HandleFunc("/events", h.SSE)
+	mux.HandleFunc("/me", h.Me)
+	mux.HandleFunc("/dashboard", h.Dashboard)
+	mux.HandleFunc("/vtt/", h.VTT)
+	return mux
 }

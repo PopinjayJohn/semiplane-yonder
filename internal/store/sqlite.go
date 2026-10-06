@@ -288,7 +288,7 @@ func (s *sqliteStore) Search(ctx context.Context, query string, opts SearchOptio
 			if h.ordinal > 0 {
 				chunkSecret = chunkSecretOf(ctx, s, pid, h.ordinal, h.secret)
 			}
-			if !ChunkVisible(chunkSecret, h0.owner, opts.Viewer) {
+			if !ChunkVisible(chunkSecret, h0.owner, h0.editableBy, opts.Viewer) {
 				continue
 			}
 			snippet = cutSnippet(h.text, q)
