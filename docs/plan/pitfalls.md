@@ -43,3 +43,16 @@
 - Flags > env > defaults; session key 0600, never logged; version stamped via ldflags with template compat check.
 - Windows: separators, case-insensitivity, reserved names (`CON`, `:`), long paths, firewall note for `:8080`.
 - Uploads: MIME-sniff (not extension), stream to temp, EXIF strip, SVG blocklist, 5/10MB caps.
+
+## Phase 1 gate additions
+- goldmark fragments `[` into its own Text node, so `> [!secret]` never sits in one node → match markers against full paragraph text, strip across leading nodes, abort on structured inlines (Lane A).
+- `Block.Lines()` panics on inline nodes (Link/Image/AutoLink) → resolve positions via nearest ancestor block, never call `Lines()` on inlines (Lane A).
+- Go map iteration randomizes validation order → sort frontmatter keys before validating so quarantine reasons stay deterministic for goldens (Lane A).
+- `argon2.Key` is Argon2i, not Argon2id — same PHC label, different output → both seed and verify sides must use `argon2.IDKey`; cross-verify E1 seed under C at the gate (E1/C).
+- Go `flag` stops parsing at the first positional → subcommands must bind `--vault/--data-dir` themselves (E1).
+- FTS5 `ordinal UNINDEXED` columns silently break `MATCH` if queried → MATCH only indexed columns, carry ordinals as payload (Lane B).
+- `http.DetectContentType` returns `text/plain` for bare `<svg` → SVG blocklist needs its own prefix check, not the sniffer (Lane E2).
+- Bare `gofmt -l .` in a check target never fails → gate on `test -z "$(gofmt -l .)"` (Lane E2).
+- `:memory:` SQLite does not survive `database/sql` pooling → file-backed temp DBs in tests (Lane E2).
+- `make check`'s `git diff --exit-code` is worktree-global; shared lane checkouts fail from siblings' dirt → scope cleanliness claims to `git diff <base>..<lane> --stat`, and always `git branch --show-current` before commit; prefer isolated worktrees over `checkout` in shared trees (D1/A/B/E1/E2).
+- Migration runner tests must follow the schema owner's current SQL (B owns contents, E2 runs them) → E2's FTS sanity rewritten for chunk-granular `blocks_fts` + `path_fold`, no triggers (gate).
