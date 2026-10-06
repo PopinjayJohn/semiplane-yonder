@@ -156,17 +156,17 @@ func toStdlibPattern(pattern string) string {
 	// Patterns with {path...} not at end → register the static prefix.
 	// Handlers do exact matching on r.URL.Path.
 	switch pattern {
-	case web.RoutePageView:      // "/p/{path...}" → "/p/"
+	case web.RoutePageView: // "/p/{path...}" → "/p/"
 		return "/p/"
-	case web.RoutePageEdit:      // "/p/{path...}/edit" → handled by PageEdit via /p/
+	case web.RoutePageEdit: // "/p/{path...}/edit" → handled by PageEdit via /p/
 		return "/p/"
-	case web.RoutePageHistory:   // "/p/{path...}/history" → handled by PageView via /p/
+	case web.RoutePageHistory: // "/p/{path...}/history" → handled by PageView via /p/
 		return "/p/"
-	case web.RouteAssets:        // "/assets/{path...}" → "/assets/"
+	case web.RouteAssets: // "/assets/{path...}" → "/assets/"
 		return "/assets/"
-	case web.RouteVTT:           // "/vtt/{mapID}" → "/vtt/"
+	case web.RouteVTT: // "/vtt/{mapID}" → "/vtt/"
 		return "/vtt/"
-	case web.RouteWizard:        // "/wizard/{step}" → "/wizard/"
+	case web.RouteWizard: // "/wizard/{step}" → "/wizard/"
 		return "/wizard/"
 	default:
 		return pattern // exact patterns like /healthz, /search, /p/new, /upload, etc.
