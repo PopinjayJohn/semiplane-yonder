@@ -1,0 +1,4 @@
+# Vendored JS pins (Lane E1 owns in Phase 1). Format: name version sha256 url
+# Placeholders for Phase 0 — real datastar.js + CodeMirror pins + checksums + committed fallback land in Lane E1.
+# datastar <version> <sha256> <url>
+# codemirror <version> <sha256> <url>

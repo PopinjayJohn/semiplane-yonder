@@ -1,0 +1,13 @@
+# goreleaser stub (Phase 0). Full 3-OS snapshot lands in Lane E1/E2 (Phase 1).
+version: 2
+project_name: yonder
+builds:
+  - id: yonder
+    main: ./cmd/app
+    binary: yonder
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+snapshot:
+  version_template: "{{ .Tag }}-next"

@@ -1,8 +1,8 @@
 # Milestones + Phased Implementation (parallel-subagent order)
 
 ## Status (single source — phase agents read this, humans update it)
-- Current phase: **Phase 0** (not started)
-- Gates: G0 pending · G1 pending · G2 pending · G3 pending · G4 pending
+- Current phase: **Phase 1** (G0 GO — 0b `89407c0` + 0c `b71908a`/`16b8cb4` reviewed clean, merged; lanes ready, none dispatched yet)
+- Gates: G0 **GO** · G1 pending · G2 pending · G3 pending · G4 pending
 - Lanes: none dispatched yet
 - Rule: the phase agent runs the phase named here and dispatches exactly its lanes
   (briefs in `docs/plan/lanes/`). Advance `Current phase` only on its gate's GO.
