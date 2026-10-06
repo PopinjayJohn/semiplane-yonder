@@ -25,8 +25,10 @@ type Route struct {
 	AuthRequired   bool
 }
 
-// Middleware represents a middleware function.
-type Middleware func(http.HandlerFunc, *auth.Viewer) http.HandlerFunc
+// Middleware represents a middleware function (standard net/http shape).
+// The authenticated Viewer is carried in the request context (see auth package:
+// WithViewer / ViewerFromContext); middleware must not take Viewer as a param.
+type Middleware func(http.Handler) http.Handler
 
 // NewRouteRegistry creates a new route registry.
 func NewRouteRegistry() *RouteRegistry {

@@ -10,8 +10,13 @@ import (
 // Hooks: intent + phase (pre-roll, post-roll, interpret).
 // Layers compose: base → overlay → homebrew (damage: sum, advantage: cancel, crit: narrowest-wins).
 // Full modifier list pinned in log.
+//
+// Contract decision (Phase 0): Engine.Evaluate is canonical (stateful stack:
+// LoadBase/LoadOverlay/LoadHomebrew + optionals). This package-level function
+// is a convenience wrapper over a default engine for call sites without an
+// Engine handle; Lane H2 may remove it via explicit amend if it causes confusion.
 func Evaluate(ctx context.Context, intent Intent) (*Modifiers, error) {
-	return nil, nil // not implemented
+	return NewEngine().Evaluate(ctx, intent)
 }
 
 // Intent represents a ruleset intent envelope.

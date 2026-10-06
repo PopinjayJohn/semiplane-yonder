@@ -36,6 +36,9 @@ type Plugin interface {
 }
 
 // Registry manages plugin registration and lifecycle.
+// Layering: web owns the frozen Route/SlotComponent types and registries;
+// plugins is a consumer that registers into them (never the reverse — web
+// never imports plugins, so no cycle). Lane I2 owns this package.
 type Registry struct {
 	plugins  map[string]Plugin
 	enabled  map[string]bool
@@ -54,97 +57,51 @@ func NewRegistry(slotReg *web.SlotRegistry, routeReg *web.RouteRegistry) *Regist
 }
 
 // Register registers a plugin.
+// Phase 0 stub: no logic (Lane I2 implements in Phase 3).
 func (r *Registry) Register(p Plugin) error {
-	if _, exists := r.plugins[p.ID()]; exists {
-		return ErrPluginExists
-	}
-	r.plugins[p.ID()] = p
-	return nil
+	return nil // not implemented
 }
 
 // Enable enables a plugin.
+// Phase 0 stub: no logic (Lane I2 implements in Phase 3).
 func (r *Registry) Enable(ctx context.Context, id string) error {
-	p, ok := r.plugins[id]
-	if !ok {
-		return ErrPluginNotFound
-	}
-	if r.enabled[id] {
-		return nil
-	}
-	if err := p.Init(ctx, r); err != nil {
-		return err
-	}
-	// Register slots - plugin returns SlotComponent with SlotName field
-	for _, slot := range p.Slots() {
-		r.slotReg.Register(slot.SlotName, slot)
-	}
-	// Register routes
-	for _, route := range p.Routes() {
-		r.routeReg.Register(route)
-	}
-	r.enabled[id] = true
-	return p.OnEnable(ctx)
+	return nil // not implemented
 }
 
 // Disable disables a plugin.
+// Phase 0 stub: no logic (Lane I2 implements in Phase 3).
 func (r *Registry) Disable(ctx context.Context, id string) error {
-	p, ok := r.plugins[id]
-	if !ok {
-		return ErrPluginNotFound
-	}
-	if !r.enabled[id] {
-		return nil
-	}
-	r.enabled[id] = false
-	return p.OnDisable(ctx)
+	return nil // not implemented
 }
 
 // Get returns a plugin by ID.
+// Phase 0 stub.
 func (r *Registry) Get(id string) (Plugin, bool) {
-	p, ok := r.plugins[id]
-	return p, ok
+	return nil, false // not implemented
 }
 
 // List returns all registered plugins.
+// Phase 0 stub.
 func (r *Registry) List() []Plugin {
-	result := make([]Plugin, 0, len(r.plugins))
-	for _, p := range r.plugins {
-		result = append(result, p)
-	}
-	return result
+	return nil // not implemented
 }
 
 // Enabled returns all enabled plugins.
+// Phase 0 stub.
 func (r *Registry) Enabled() []Plugin {
-	result := make([]Plugin, 0)
-	for id, p := range r.plugins {
-		if r.enabled[id] {
-			result = append(result, p)
-		}
-	}
-	return result
+	return nil // not implemented
 }
 
 // CSS returns concatenated CSS for all enabled plugins.
+// Phase 0 stub.
 func (r *Registry) CSS() string {
-	var css string
-	for id := range r.enabled {
-		if r.enabled[id] {
-			css += r.plugins[id].CSS() + "\n"
-		}
-	}
-	return css
+	return "" // not implemented
 }
 
 // JS returns concatenated JS for all enabled plugins.
+// Phase 0 stub.
 func (r *Registry) JS() string {
-	var js string
-	for id := range r.enabled {
-		if r.enabled[id] {
-			js += r.plugins[id].JS() + "\n"
-		}
-	}
-	return js
+	return "" // not implemented
 }
 
 // ErrPluginExists is returned when registering a duplicate plugin.
@@ -202,25 +159,9 @@ func (r *FeatureRegistry) Register(f FeatureFlag) {
 }
 
 // Enable enables a feature.
+// Phase 0 stub (Lane I2 implements in Phase 3).
 func (r *FeatureRegistry) Enable(id string) error {
-	f, ok := r.features[id]
-	if !ok {
-		return ErrFeatureNotFound
-	}
-	// Check conflicts
-	for _, conflict := range f.Conflicts {
-		if r.enabled[conflict] {
-			return ErrFeatureConflict
-		}
-	}
-	// Check requires
-	for _, req := range f.Requires {
-		if !r.enabled[req] {
-			return ErrFeatureMissingDependency
-		}
-	}
-	r.enabled[id] = true
-	return nil
+	return nil // not implemented
 }
 
 // Disable disables a feature.

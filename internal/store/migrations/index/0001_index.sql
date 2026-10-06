@@ -1,5 +1,6 @@
--- Initial schema for index database
--- This is a placeholder - Lane B owns migration content
+-- 0001 (index target): index database schema (disposable, rebuilt via reindex temp+rename).
+-- Lane B owns contents; runner (Lane E2) applies only to <name>.index.db.
+-- App tables live in migrations/app/ against <name>.app.db. Each target versions independently from 1.
 
 CREATE TABLE IF NOT EXISTS pages (
     path TEXT PRIMARY KEY,

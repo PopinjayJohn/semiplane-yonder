@@ -4,10 +4,25 @@ import (
 	"context"
 )
 
+// viewerContextKey is the request-context key carrying the Viewer.
+// Middleware uses WithViewer to inject; handlers use ViewerFromContext.
+type viewerContextKey struct{}
+
+// WithViewer returns a context carrying the Viewer.
+func WithViewer(ctx context.Context, v *Viewer) context.Context {
+	return context.WithValue(ctx, viewerContextKey{}, v)
+}
+
+// ViewerFromContext returns the Viewer from the context, if present.
+func ViewerFromContext(ctx context.Context) (*Viewer, bool) {
+	v, ok := ctx.Value(viewerContextKey{}).(*Viewer)
+	return v, ok
+}
+
 // Viewer represents the authenticated context for a request.
 // All fields are frozen after Phase 0c - changes require explicit amend.
 type Viewer struct {
-	// UserID is the authenticated user's ID (empty for guests)
+	// UserID is the authenticated username (users.name; empty for guests)
 	UserID string
 	// IsGM indicates if the viewer has GM privileges
 	IsGM bool
@@ -15,8 +30,10 @@ type Viewer struct {
 	OwnedSlugs []string
 	// Grants are explicit ACL grants for this viewer (editable-by, etc.)
 	Grants []string
-	// PreviewAs allows GM to impersonate another viewer (bannered + logged, GM-only)
-	PreviewAs *Viewer
+	// PreviewAs is the impersonated user ID for GM preview (GM-only, bannered
+	// + logged). Empty = no impersonation. String (not nested Viewer) so
+	// impersonation cannot chain.
+	PreviewAs string
 }
 
 // SessionStore defines the interface for session persistence.
@@ -30,7 +47,7 @@ type SessionStore interface {
 	Update(ctx context.Context, session *Session) error
 	// Delete removes a session by ID.
 	Delete(ctx context.Context, id string) error
-	// DeleteByUser removes all sessions for a user.
+	// DeleteByUser removes all sessions for a user (by username).
 	DeleteByUser(ctx context.Context, userID string) error
 	// CleanupExpired removes expired sessions (called periodically).
 	CleanupExpired(ctx context.Context) error
@@ -38,7 +55,8 @@ type SessionStore interface {
 
 // Session represents an authenticated session.
 type Session struct {
-	ID        string
+	ID string
+	// UserID is the username (users.name).
 	UserID    string
 	CreatedAt int64
 	ExpiresAt int64

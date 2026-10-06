@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/semiplane/yonder/internal/auth"
 	"github.com/semiplane/yonder/internal/dice"
@@ -77,15 +78,16 @@ func main() {
 	}
 	defer s.Close()
 
-	// Run migrations
-	migrator := store.NewMigrationRunner(s.DB())
-	if err := migrator.Run(ctx); err != nil {
+	// Run app migrations (<name>.app.db; never rebuilt). Index schema
+	// (migrations/index/) is applied by the reindex path to a temp DB.
+	migrator := store.NewMigrationRunner(s.AppDB())
+	if err := migrator.RunApp(ctx); err != nil {
 		slog.Error("migrations", "error", err)
 		os.Exit(1)
 	}
 
-	// Initialize session store
-	sessionStore, err := auth.NewSessionStore(s.DB())
+	// Initialize session store (auth_sessions lives in the app DB per P04)
+	sessionStore, err := auth.NewSessionStore(s.AppDB())
 	if err != nil {
 		slog.Error("session store init", "error", err)
 		os.Exit(1)
@@ -98,9 +100,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Initialize dice transport
+	// Initialize dice transport (dice_logs lives in the app DB per P04)
 	roller := dice.NewRoller()
-	diceStore := dice.NewLogStore(s.DB())
+	diceStore := dice.NewLogStore(s.AppDB())
 	_ = dice.NewTransportService(roller, diceStore, dice.DefaultTransportConfig())
 
 	// Initialize ruleset engine
@@ -149,7 +151,7 @@ func main() {
 
 	<-ctx.Done()
 	slog.Info("shutting down")
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
 	server.Shutdown(shutdownCtx)
 }

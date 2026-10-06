@@ -7,9 +7,15 @@ import (
 	"github.com/semiplane/yonder/internal/auth"
 )
 
-// Store defines the interface for the SQLite index database.
-// The index DB is disposable (rebuilt from vault on reindex).
-// The app DB (auth, ownership, VTT live state) is separate and migrated.
+// Store defines the interface for the SQLite databases.
+// Two files per process (Phase 0c, P04):
+//   - <name>.index.db — disposable index (pages, blocks, links, tags, optionals),
+//     rebuilt from vault via reindex (temp + rename).
+//   - <name>.app.db — migrated app state (users, auth_sessions, login_attempts,
+//     edits_log, characters, sessions, dice_logs, vtt_*), never rebuilt.
+//
+// Migrations in migrations/*.sql cover the app DB (Lane B owns contents,
+// Lane E2 owns the runner); the index DB is rebuilt, not migrated.
 type Store interface {
 	// Page operations
 	PageGet(ctx context.Context, path string) (*Page, error)
@@ -33,19 +39,27 @@ type Store interface {
 	// Transaction support for batch operations
 	Transact(ctx context.Context, fn func(tx Store) error) error
 
-	// Database access for migrations
-	DB() *sql.DB
+	// IndexDB returns the disposable index database (<name>.index.db).
+	IndexDB() *sql.DB
+
+	// AppDB returns the migrated app database (<name>.app.db).
+	AppDB() *sql.DB
 
 	// Close closes the database connections.
 	Close() error
 }
 
 // NewStore creates a new store instance with index and app databases.
+// Files: <data-dir>/<name>.index.db (disposable) + <data-dir>/<name>.app.db
+// (migrated). dataDir defaults to sibling <vault>-data/ (never inside vault).
 func NewStore(dataDir, vaultPath string) (Store, error) {
 	return nil, nil // not implemented
 }
 
-// Page represents an indexed markdown page.
+// Page represents an indexed markdown page (index DB row).
+// Intentional projection of markdown.Page (not a shared type): Lane B owns
+// this index shape and uses markdown.Parse fakes in Phase 1, never importing
+// Lane A's package. Lane F1 owns the parse→index conversion at write time.
 type Page struct {
 	Path        string
 	Title       string
@@ -75,7 +89,9 @@ type SearchOptions struct {
 	IncludeSecret bool
 }
 
-// SearchResult represents a search hit.
+// SearchResult represents a search hit (index-DB projection).
+// secrets.SearchResult mirrors this shape for filtering for the same
+// lane-isolation reason as Page above; Lane F1 converts at the read path.
 type SearchResult struct {
 	Path    string
 	Title   string

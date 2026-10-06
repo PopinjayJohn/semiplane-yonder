@@ -54,8 +54,11 @@ func (s *SessionStoreSQL) CleanupExpired(ctx context.Context) error {
 }
 
 // User represents a user account.
+// Username is the primary key (users.name): immutable, no rename in v1
+// (Phase 0c; ownership transfer via transfer-ownership CLI). There is no
+// separate numeric ID — Session.UserID, Viewer.UserID, and auth_sessions.user_id
+// all carry the username.
 type User struct {
-	ID           string
 	Username     string
 	PasswordHash string // argon2id PHC
 	IsGM         bool
@@ -66,13 +69,12 @@ type User struct {
 	LockedUntil  int64
 }
 
-// UserStore defines the interface for user persistence.
+// UserStore defines the interface for user persistence (keyed by username).
 type UserStore interface {
 	Create(ctx context.Context, user *User) error
-	GetByID(ctx context.Context, id string) (*User, error)
 	GetByUsername(ctx context.Context, username string) (*User, error)
 	Update(ctx context.Context, user *User) error
-	Delete(ctx context.Context, id string) error
+	Delete(ctx context.Context, username string) error
 	List(ctx context.Context) ([]*User, error)
 }
 
