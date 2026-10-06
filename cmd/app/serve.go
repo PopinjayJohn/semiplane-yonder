@@ -136,14 +136,19 @@ func wireHandlers(info buildInfo, vaultDir string, sessionStore auth.SessionStor
 // with session/viewer middleware (inline until RouteRegistry.BuildHandler
 // is implemented). stdlib ServeMux (Go 1.22+) supports {name} and {name...}
 // only at pattern END; frozen routes use {path...} mid-pattern. We map them
-// to prefix patterns and let handlers do exact matching via r.URL.Path.
+// to prefix patterns. Duplicate prefixes keep the first registered handler.
 func buildRegistryHandler(routes []web.Route, sessionStore auth.SessionStore) http.Handler {
 	mux := http.NewServeMux()
+	seen := make(map[string]bool)
 	for _, rt := range routes {
 		h := rt.Handler
 		// For Phase 2, let handlers resolve their own viewer (demo fallback).
 		// Real auth middleware lands in P11.
 		pattern := toStdlibPattern(rt.Path)
+		if seen[pattern] {
+			continue // skip duplicate prefix; first handler wins
+		}
+		seen[pattern] = true
 		mux.HandleFunc(pattern, h)
 	}
 	return mux
