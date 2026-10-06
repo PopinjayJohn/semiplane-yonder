@@ -70,7 +70,7 @@ func hashPasswordWithParams(password string, p ArgonParams) (string, error) {
 	if _, err := rand.Read(salt); err != nil {
 		return "", fmt.Errorf("auth: salt generation: %w", err)
 	}
-	key := argon2.Key([]byte(password), salt, p.Time, p.Memory, p.Threads, p.KeyLen)
+	key := argon2.IDKey([]byte(password), salt, p.Time, p.Memory, p.Threads, p.KeyLen)
 	b64 := base64.RawStdEncoding
 	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
 		argon2.Version, p.Memory, p.Time, p.Threads,
@@ -92,7 +92,7 @@ func VerifyPassword(password, encoded string) (needsRehash bool, err error) {
 	if len(password) > MaxPasswordBytes {
 		return false, ErrInvalidCredentials
 	}
-	derived := argon2.Key([]byte(password), salt, p.Time, p.Memory, p.Threads, uint32(len(key)))
+	derived := argon2.IDKey([]byte(password), salt, p.Time, p.Memory, p.Threads, uint32(len(key)))
 	if subtle.ConstantTimeCompare(derived, key) != 1 {
 		return false, ErrInvalidCredentials
 	}
