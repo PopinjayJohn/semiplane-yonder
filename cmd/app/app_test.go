@@ -469,6 +469,7 @@ func (m *mockSessionStore) Update(ctx context.Context, s *auth.Session) error { 
 func (m *mockSessionStore) Delete(ctx context.Context, id string) error { return nil }
 func (m *mockSessionStore) DeleteByUser(ctx context.Context, userID string) error { return nil }
 func (m *mockSessionStore) DeleteByVersion(ctx context.Context, version int) error { return nil }
+func (m *mockSessionStore) CleanupExpired(ctx context.Context) error { return nil }
 func (m *mockSessionStore) Touch(ctx context.Context, id string, idleAt, expiresAt int64) error { return nil }
 func (m *mockSessionStore) Revoke(ctx context.Context, id string) error { return nil }
 func (m *mockSessionStore) FindByCSRF(ctx context.Context, token string) (*auth.Session, error) { return nil, auth.ErrSessionNotFound }
