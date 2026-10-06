@@ -252,7 +252,7 @@ func (s *tagParser) Parse(parent ast.Node, block text.Reader, pc parser.Context)
 	// First char must be a letter or underscore (never a bare number:
 	// `#123` is not a tag).
 	r, _ := utf8.DecodeRune(line[1:])
-	if r == utf8.RuneError || !(unicode.IsLetter(r) || r == '_') {
+	if r == utf8.RuneError || (!unicode.IsLetter(r) && r != '_') {
 		return nil
 	}
 	i := 1
@@ -435,10 +435,12 @@ func (r *obsidianRenderer) renderWikilink(w util.BufWriter, source []byte, n ast
 	if alias == "" {
 		alias = node.Target
 	}
-	fmt.Fprintf(w, `<a class="wikilink" data-target="%s" href="%s">%s</a>`,
+	if _, err := fmt.Fprintf(w, `<a class="wikilink" data-target="%s" href="%s">%s</a>`,
 		html.EscapeString(node.Target),
 		html.EscapeString(wikilinkHref(node.Target)),
-		html.EscapeString(alias))
+		html.EscapeString(alias)); err != nil {
+		return ast.WalkStop, err
+	}
 	return ast.WalkSkipChildren, nil
 }
 
@@ -475,17 +477,23 @@ func (r *obsidianRenderer) renderEmbed(w util.BufWriter, source []byte, n ast.No
 	lower := strings.ToLower(base)
 	switch {
 	case strings.HasSuffix(lower, ".canvas"):
-		fmt.Fprintf(w, `<div class="callout callout-unsupported" data-callout="unsupported"><div class="callout-title">Unsupported content</div><p>Canvas embeds are not rendered in v1.</p></div>`)
+		if _, err := fmt.Fprintf(w, `<div class="callout callout-unsupported" data-callout="unsupported"><div class="callout-title">Unsupported content</div><p>Canvas embeds are not rendered in v1.</p></div>`); err != nil {
+			return ast.WalkStop, err
+		}
 	case hasImageExt(lower):
-		fmt.Fprintf(w, `<img class="embed" src="%s" alt="%s" />`,
-			html.EscapeString(base), html.EscapeString(alt))
+		if _, err := fmt.Fprintf(w, `<img class="embed" src="%s" alt="%s" />`,
+			html.EscapeString(base), html.EscapeString(alt)); err != nil {
+			return ast.WalkStop, err
+		}
 	default:
 		// Page embed: transclusion needs secret filtering + store, so Lane A
 		// marks it and Lane F1 expands it at the read path. A span keeps
 		// inline context valid HTML.
-		fmt.Fprintf(w, `<span class="embed embed-page" data-target="%s"><a class="wikilink" data-target="%s" href="%s">%s</a></span>`,
+		if _, err := fmt.Fprintf(w, `<span class="embed embed-page" data-target="%s"><a class="wikilink" data-target="%s" href="%s">%s</a></span>`,
 			html.EscapeString(target), html.EscapeString(target),
-			html.EscapeString(wikilinkHref(target)), html.EscapeString(alt))
+			html.EscapeString(wikilinkHref(target)), html.EscapeString(alt)); err != nil {
+			return ast.WalkStop, err
+		}
 	}
 	return ast.WalkSkipChildren, nil
 }
@@ -503,9 +511,11 @@ func (r *obsidianRenderer) renderTag(w util.BufWriter, source []byte, n ast.Node
 	if !entering {
 		return ast.WalkContinue, nil
 	}
-	fmt.Fprintf(w, `<a class="tag" data-tag="%s" href="#tag/%s">#%s</a>`,
+	if _, err := fmt.Fprintf(w, `<a class="tag" data-tag="%s" href="#tag/%s">#%s</a>`,
 		html.EscapeString(node.Tag), html.EscapeString(node.Tag),
-		html.EscapeString(node.Tag))
+		html.EscapeString(node.Tag)); err != nil {
+		return ast.WalkStop, err
+	}
 	return ast.WalkSkipChildren, nil
 }
 
@@ -524,7 +534,9 @@ func (r *obsidianRenderer) renderCallout(w util.BufWriter, source []byte, n ast.
 		if id, ok := node.Params["id"]; ok && id != "" {
 			attrs += fmt.Sprintf(` data-optional-id="%s"`, html.EscapeString(id))
 		}
-		fmt.Fprintf(w, "<div %s>\n", attrs)
+		if _, err := fmt.Fprintf(w, "<div %s>\n", attrs); err != nil {
+			return ast.WalkStop, err
+		}
 		return ast.WalkContinue, nil
 	}
 	_, _ = w.WriteString("</div>\n")
@@ -540,8 +552,10 @@ func (r *obsidianRenderer) renderUnsupported(w util.BufWriter, source []byte, n 
 	if i := strings.IndexByte(lang, ' '); i >= 0 {
 		lang = lang[:i]
 	}
-	fmt.Fprintf(w, `<div class="callout callout-unsupported" data-callout="unsupported"><div class="callout-title">Unsupported content</div><p>%s blocks are not rendered in v1. The source is preserved.</p></div>`+"\n",
-		html.EscapeString(lang))
+	if _, err := fmt.Fprintf(w, `<div class="callout callout-unsupported" data-callout="unsupported"><div class="callout-title">Unsupported content</div><p>%s blocks are not rendered in v1. The source is preserved.</p></div>`+"\n",
+		html.EscapeString(lang)); err != nil {
+		return ast.WalkStop, err
+	}
 	return ast.WalkSkipChildren, nil
 }
 
