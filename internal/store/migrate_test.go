@@ -73,22 +73,33 @@ func TestRunIndexFreshIncludesFTS(t *testing.T) {
 	if err := NewMigrationRunner(db).RunIndex(ctx, db); err != nil {
 		t.Fatalf("RunIndex: %v", err)
 	}
-	for _, table := range []string{"pages", "assets", "links", "pages_fts_insert"} {
+	for _, table := range []string{"pages", "assets", "links", "blocks", "blocks_fts"} {
 		if !tableExists(t, ctx, db, table) {
 			t.Errorf("missing index object %s after RunIndex", table)
 		}
 	}
 
-	// FTS5 sanity (P01 spike): triggers keep pages_fts in sync, porter
-	// stemming matches inflections.
+	// FTS5 sanity (P01 spike): Lane B's chunk-granular FTS has no triggers;
+	// writers insert pages/blocks/blocks_fts rows explicitly in one
+	// transaction. Porter stemming matches inflections.
 	if _, err := db.ExecContext(ctx,
-		`INSERT INTO pages(path,title,content,secret,owner,updated_at,hash) VALUES(?,?,?,0,?,0,?)`,
-		"notes/trip.md", "Running trip", "we were running up the hills", "gm", "h"); err != nil {
+		`INSERT INTO pages(path,path_fold,title,content,secret,owner,updated_at,hash) VALUES(?,?,?,?,0,?,0,?)`,
+		"notes/trip.md", "notes/trip.md", "Running trip", "we were running up the hills", "gm", "h"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO blocks(page_id,ordinal,secret,text) VALUES(?,?,0,?)`,
+		"notes/trip.md", 1, "we were running up the hills"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO blocks_fts(page_id,text,ordinal) VALUES(?,?,?)`,
+		"notes/trip.md", "we were running up the hills", 1); err != nil {
 		t.Fatal(err)
 	}
 	var n int
 	if err := db.QueryRowContext(ctx,
-		`SELECT count(*) FROM pages_fts WHERE pages_fts MATCH 'run'`).Scan(&n); err != nil {
+		`SELECT count(*) FROM blocks_fts WHERE blocks_fts MATCH 'run'`).Scan(&n); err != nil {
 		t.Fatalf("fts match: %v", err)
 	}
 	if n != 1 {
