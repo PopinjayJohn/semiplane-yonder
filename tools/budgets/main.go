@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/semiplane/yonder/internal/uploads"
 )
@@ -136,6 +137,29 @@ func checkTemplates(root string) {
 	pass("rendered-page", fmt.Sprintf("templates total %d bytes in %d files", total, count))
 }
 
+// checkPluginCSS enforces the 20KB per-plugin CSS cap (P06/P10). Plugin style
+// locations land with the plugin lanes; until a *.css file exists under a
+// plugin dir this reports SKIP.
+func checkPluginCSS(root string) {
+	var offenders []string
+	for _, dir := range []string{"web/static/plugins", "internal/plugins"} {
+		_ = filepath.Walk(filepath.Join(root, dir), func(p string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() || !strings.HasSuffix(info.Name(), ".css") {
+				return nil
+			}
+			if info.Size() > maxPluginCSSBytes {
+				offenders = append(offenders, fmt.Sprintf("%s (%d bytes)", p, info.Size()))
+			}
+			return nil
+		})
+	}
+	if len(offenders) > 0 {
+		fail("plugin-css-cap", "over 20KB: "+strings.Join(offenders, ", "))
+		return
+	}
+	skip("plugin-css-cap", "no plugin CSS yet (I2); 20KB cap enforced when plugins land")
+}
+
 func main() {
 	root, err := repoRoot()
 	if err != nil {
@@ -145,6 +169,7 @@ func main() {
 	checkUploadCaps()
 	checkStaticWeight(root)
 	checkTemplates(root)
+	checkPluginCSS(root)
 	if failures > 0 {
 		os.Exit(1)
 	}

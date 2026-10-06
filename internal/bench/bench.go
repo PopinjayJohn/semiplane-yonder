@@ -193,12 +193,12 @@ func insertChunk(ctx context.Context, tx *sql.Tx, start, end, total int, secrets
 	if err != nil {
 		return err
 	}
-	defer pageStmt.Close()
+	defer func() { _ = pageStmt.Close() }()
 	linkStmt, err := tx.PrepareContext(ctx, `INSERT INTO links(source,target) VALUES(?,?)`)
 	if err != nil {
 		return err
 	}
-	defer linkStmt.Close()
+	defer func() { _ = linkStmt.Close() }()
 
 	for i := start; i < end; i++ {
 		path := fmt.Sprintf("notes/note-%04d.md", i)
@@ -256,7 +256,7 @@ func matchTitles(ctx context.Context, db *sql.DB, term string) ([][4]string, err
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out [][4]string
 	for rows.Next() {
 		var path, title, secret, owner string
