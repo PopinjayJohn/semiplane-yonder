@@ -1,0 +1,127 @@
+{
+  "path": "basic.md",
+  "title": "Basic Page",
+  "secret": false,
+  "tags": [
+    "quest/intro",
+    "lore"
+  ],
+  "frontmatter": {
+    "status": "active",
+    "tags": [
+      "quest",
+      "intro"
+    ],
+    "title": "Basic Page"
+  },
+  "links": [
+    {
+      "Target": "Home",
+      "Alias": "the Homepage",
+      "Secret": false,
+      "Position": {
+        "Line": 7,
+        "Column": 14,
+        "Offset": 76
+      }
+    },
+    {
+      "Target": "Other Page",
+      "Alias": "",
+      "Secret": false,
+      "Position": {
+        "Line": 9,
+        "Column": 22,
+        "Offset": 120
+      }
+    },
+    {
+      "Target": "https://example.com",
+      "Alias": "link",
+      "Secret": false,
+      "Position": {
+        "Line": 9,
+        "Column": 1,
+        "Offset": 99
+      }
+    }
+  ],
+  "embeds": [],
+  "toc": [
+    {
+      "Level": 1,
+      "Title": "Welcome to the Homepage",
+      "Anchor": "welcome-to-the-homepage",
+      "Secret": false
+    },
+    {
+      "Level": 2,
+      "Title": "Tasks \u0026 Tables",
+      "Anchor": "tasks-tables",
+      "Secret": false
+    }
+  ],
+  "blocks": [
+    {
+      "Type": "heading",
+      "Content": "Welcome to the Homepage",
+      "Level": 1,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 7,
+        "Column": 3,
+        "Offset": 65
+      }
+    },
+    {
+      "Type": "paragraph",
+      "Content": "This paragraph links Other Page and an external link,\nplus tags #quest/intro and #lore. Not a tag: #123 or foo#bar.",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 9,
+        "Column": 1,
+        "Offset": 99
+      }
+    },
+    {
+      "Type": "heading",
+      "Content": "Tasks \u0026 Tables",
+      "Level": 2,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 12,
+        "Column": 4,
+        "Offset": 246
+      }
+    },
+    {
+      "Type": "paragraph",
+      "Content": "A footnote here.",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 22,
+        "Column": 1,
+        "Offset": 382
+      }
+    },
+    {
+      "Type": "paragraph",
+      "Content": "The footnote text.",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 24,
+        "Column": 7,
+        "Offset": 410
+      }
+    }
+  ],
+  "quarantined": false
+}

@@ -1,0 +1,97 @@
+{
+  "path": "quests/Edge.md",
+  "title": "Edge Cases",
+  "secret": false,
+  "tags": [
+    "tag-hits",
+    "lore/deep-dive",
+    "a1",
+    "under_score",
+    "tag"
+  ],
+  "frontmatter": {
+    "optional": {
+      "id": "side-quest"
+    },
+    "sheet": {
+      "hp": 24,
+      "level": 3
+    },
+    "tags": [
+      "edge"
+    ],
+    "title": "Edge Cases"
+  },
+  "links": [],
+  "embeds": [
+    {
+      "Target": "my%20pic.png",
+      "Alt": "image with spaces",
+      "Secret": false,
+      "Position": {
+        "Line": 14,
+        "Column": 1,
+        "Offset": 204
+      }
+    }
+  ],
+  "toc": [
+    {
+      "Level": 1,
+      "Title": "Edge [[Unclosed link and #tag-hits",
+      "Anchor": "edge-unclosed-link-and-tag-hits",
+      "Secret": false
+    }
+  ],
+  "blocks": [
+    {
+      "Type": "heading",
+      "Content": "Edge [[Unclosed link and #tag-hits",
+      "Level": 1,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 10,
+        "Column": 3,
+        "Offset": 104
+      }
+    },
+    {
+      "Type": "paragraph",
+      "Content": "Tag edges: #lore/deep-dive #a1 #under_score #123 #tag/ ok.",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 12,
+        "Column": 1,
+        "Offset": 142
+      }
+    },
+    {
+      "Type": "paragraph",
+      "Content": "image with spaces",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 14,
+        "Column": 1,
+        "Offset": 204
+      }
+    },
+    {
+      "Type": "secret",
+      "Content": "uppercase marker\nbody",
+      "Level": 0,
+      "Secret": true,
+      "Children": null,
+      "Position": {
+        "Line": 16,
+        "Column": 3,
+        "Offset": 244
+      }
+    }
+  ],
+  "quarantined": false
+}

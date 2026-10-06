@@ -1,0 +1,119 @@
+{
+  "path": "unsupported.md",
+  "title": "Research Notes",
+  "secret": false,
+  "frontmatter": {
+    "tags": [
+      "research"
+    ],
+    "title": "Research Notes"
+  },
+  "links": [],
+  "embeds": [
+    {
+      "Target": "battle-map.canvas",
+      "Alt": "",
+      "Secret": false,
+      "Position": {
+        "Line": 20,
+        "Column": 1,
+        "Offset": 243
+      }
+    }
+  ],
+  "toc": [
+    {
+      "Level": 1,
+      "Title": "Open Quests",
+      "Anchor": "open-quests",
+      "Secret": false
+    }
+  ],
+  "blocks": [
+    {
+      "Type": "heading",
+      "Content": "Open Quests",
+      "Level": 1,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 6,
+        "Column": 3,
+        "Offset": 50
+      }
+    },
+    {
+      "Type": "unsupported",
+      "Content": "dataview",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 9,
+        "Column": 1,
+        "Offset": 75
+      }
+    },
+    {
+      "Type": "paragraph",
+      "Content": "Some prose between.",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 14,
+        "Column": 1,
+        "Offset": 141
+      }
+    },
+    {
+      "Type": "unsupported",
+      "Content": "dataviewjs",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 17,
+        "Column": 1,
+        "Offset": 176
+      }
+    },
+    {
+      "Type": "paragraph",
+      "Content": "battle-map.canvas",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 20,
+        "Column": 1,
+        "Offset": 243
+      }
+    },
+    {
+      "Type": "paragraph",
+      "Content": "Regular code still renders:",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 22,
+        "Column": 1,
+        "Offset": 267
+      }
+    },
+    {
+      "Type": "code",
+      "Content": "fmt.Println(\"hello\")",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 25,
+        "Column": 1,
+        "Offset": 302
+      }
+    }
+  ],
+  "quarantined": false
+}

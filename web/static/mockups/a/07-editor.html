@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A-07 Editor — Variant A still</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to page content</a>
+<div class="shell">
+  <header class="topbar">
+    <span class="campaign">The Ashfall Compact</span>
+    <div class="slot" data-slot="header-right" style="margin:0; padding:0.2rem 0.6rem;">
+      <span class="userbox" style="margin:0;"><span>Signed in as <b>Mira (owner)</b></span></span>
+    </div>
+  </header>
+  <div class="cols">
+    <nav class="tree" aria-label="Vault tree">
+      <div class="slot" data-slot="sidebar-left">
+        <b>Vault tree</b>
+        <ul>
+          <li><a href="01-shell.html">Welcome to Ashfall</a></li>
+          <li class="here"><a href="07-editor.html" aria-current="page">Editing: The Cinder Pact</a></li>
+        </ul>
+      </div>
+    </nav>
+    <main class="page" id="main" tabindex="-1" style="max-width:56rem;">
+      <p class="still-nav">Variant A still 7 of 7: <a href="06-vtt.html">← VTT-lite</a> · <a href="../index.html">all stills</a> · <a href="a11y.html">a11y pre-check</a></p>
+      <h1>Editing: The Cinder Pact <span class="badge secret">Secret · owner + GM</span></h1>
+      <div class="editor">
+        <div>
+          <h2>Markdown (still)</h2>
+          <pre>---
+secret: true
+owner: mira
+---
+
+The pact binds the bearer.
+
+&gt; [!secret]-
+&gt; The ember is under the <span class="del">second</span> <span class="add">third</span> flagstone.
+
+&gt; [!secret]+
+&gt; Bearers dream of crows.
+
+&gt; [!unsupported]
+&gt; A future callout renders as a labeled placeholder.</pre>
+        </div>
+        <div class="preview">
+          <h2>Preview (still, no live update)</h2>
+          <p>The pact binds the bearer.</p>
+          <div class="secret-block-shown"><p><span class="block-tag">[secret −]</span> The ember is under the <span class="del">second</span> <span class="add">third</span> flagstone.</p></div>
+          <div class="secret-block-shown"><p><span class="block-tag">[secret +]</span> Bearers dream of crows.</p></div>
+          <div class="secret-block-hidden"><p><span class="block-tag">[unsupported callout]</span> Rendered as a labeled placeholder box.</p></div>
+        </div>
+      </div>
+      <div class="still-note"><span class="del">− red strikethrough</span> / <span class="add">+ green bold</span> diff styling is backed by “−/+” text glyphs, never color-only.</div>
+    </main>
+    <aside class="context" aria-label="Backlinks and secrets">
+      <div class="slot" data-slot="sidebar-right">
+        <b>Cheatsheet</b>
+        <p><code>[!secret]-</code> hidden from party · <code>[!secret]+</code> shown · unknown callouts placeholder.</p>
+      </div>
+    </aside>
+  </div>
+  <footer class="colophon">
+    <div class="slot" data-slot="footer">Ashfall Compact · static mockup A-07 · side-by-side markdown + preview image</div>
+  </footer>
+</div>
+</body>
+</html>

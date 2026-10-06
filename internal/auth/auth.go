@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
+	"fmt"
 )
 
 // viewerContextKey is the request-context key carrying the Viewer.
@@ -70,5 +72,9 @@ type Session struct {
 // Pure function - no side effects, no I/O.
 // Provided by Lane C (auth), wired by Lane E1 (binary/ops).
 func GenerateKey() ([32]byte, error) {
-	return [32]byte{}, nil // not implemented
+	var key [32]byte
+	if _, err := rand.Read(key[:]); err != nil {
+		return [32]byte{}, fmt.Errorf("auth: generate key: %w", err)
+	}
+	return key, nil
 }

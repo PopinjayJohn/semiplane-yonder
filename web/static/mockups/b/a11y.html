@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>B-a11y — A11y pre-check, Variant B</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to page content</a>
+<div class="shell">
+  <header class="topnav"><span class="brand">The Ashfall Compact</span><nav class="primary" aria-label="Primary"><a href="../index.html">All stills</a></nav></header>
+  <div class="layout" style="grid-template-columns:minmax(0,1fr);">
+    <main class="sheet-col" id="main" tabindex="-1" style="max-width:50rem;">
+      <p class="still-nav"><a href="../index.html">← all stills</a> · Variant B a11y pre-check (static review, no interaction tests per p00)</p>
+      <h1>A11y pre-check — Variant B (Focused)</h1>
+      <table style="width:100%; border-collapse:collapse;">
+        <thead><tr><th scope="col" style="text-align:left; border-bottom:2px solid #101828;">Check</th><th scope="col" style="text-align:left; border-bottom:2px solid #101828;">Result in stills</th></tr></thead>
+        <tbody>
+          <tr><th scope="row" style="text-align:left; border-bottom:1px solid #c9d3e0; padding:0.4rem;">Landmarks</th><td style="border-bottom:1px solid #c9d3e0; padding:0.4rem;">Pass — <code>header / nav aria-label “Primary” / main#main / details-drawer (native disclosure) / footer</code> on every still.</td></tr>
+          <tr><th scope="row" style="text-align:left; border-bottom:1px solid #c9d3e0; padding:0.4rem;">Skip link + focus visible</th><td style="border-bottom:1px solid #c9d3e0; padding:0.4rem;">Pass — skip link first; <code>:focus-visible</code> 3px solid #0b4fc4 (3:1 vs white).</td></tr>
+          <tr><th scope="row" style="text-align:left; border-bottom:1px solid #c9d3e0; padding:0.4rem;">Text contrast 4.5:1</th><td style="border-bottom:1px solid #c9d3e0; padding:0.4rem;">Pass — body #101828/white ≈ 17:1; soft #344054/white ≈ 9:1; secret white on #7a1f1f ≈ 9:1; open white on #14532d ≈ 7.5:1; primary-button white on #0b4fc4 ≈ 7:1.</td></tr>
+          <tr><th scope="row" style="text-align:left; border-bottom:1px solid #c9d3e0; padding:0.4rem;">Never color-only</th><td style="border-bottom:1px solid #c9d3e0; padding:0.4rem;">Pass — same badge/redaction/fog/diff/token-text scheme as A; drawer state announced by native <code>details/summary</code>.</td></tr>
+          <tr><th scope="row" style="text-align:left; border-bottom:1px solid #c9d3e0; padding:0.4rem;">Keyboard path</th><td style="border-bottom:1px solid #c9d3e0; padding:0.4rem;">Documented — skip → top-nav links → main → page-actions buttons → drawer <code>summary</code> (Enter/Space toggles natively) → drawer links → footer. Token list is a real &lt;ol&gt; of links (B-06). Phone still (B-08): sheet table → full-width action buttons → collapsed drawer.</td></tr>
+          <tr><th scope="row" style="text-align:left; padding:0.4rem;">Reduced motion / touch</th><td style="padding:0.4rem;">Pass — <code>prefers-reduced-motion</code> reset; nav links/buttons ≥44px (phone actions ≥52px); tokens 48px.</td></tr>
+        </tbody>
+      </table>
+      <h2>Known risks for build phase (F1)</h2>
+      <ul>
+        <li>Top-nav IA must fit the full vault: search/autocomplete quality decides whether dropping the tree is viable — a build-phase prototype question, not settled by stills.</li>
+        <li>Drawer <code>details</code> open-state persistence across SSE morphs needs a focus-retention decision in F1.</li>
+      </ul>
+    </main>
+  </div>
+  <footer class="colophon"><div class="slot" data-slot="footer">Ashfall Compact · static mockup B-a11y</div></footer>
+</div>
+</body>
+</html>

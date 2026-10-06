@@ -52,12 +52,9 @@ type Store interface {
 	Close() error
 }
 
-// NewStore creates a new store instance with index and app databases.
+// NewStore is implemented in sqlite.go (Open over index + app files).
 // Files: <data-dir>/<name>.index.db (disposable) + <data-dir>/<name>.app.db
 // (migrated). dataDir defaults to sibling <vault>-data/ (never inside vault).
-func NewStore(dataDir, vaultPath string) (Store, error) {
-	return nil, nil // not implemented
-}
 
 // Page represents an indexed markdown page (index DB row).
 // Intentional projection of markdown.Page (not a shared type): Lane B owns
