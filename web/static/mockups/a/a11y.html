@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A-a11y — A11y pre-check, Variant A</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to page content</a>
+<div class="shell">
+  <header class="topbar"><span class="campaign">The Ashfall Compact</span><nav aria-label="Still pages" style="font-size:0.85rem;"><a href="../index.html" style="color:#fff;">All stills</a></nav></header>
+  <div class="cols" style="grid-template-columns: minmax(0, 1fr);">
+    <main class="page" id="main" tabindex="-1" style="max-width:50rem;">
+      <p class="still-nav"><a href="../index.html">← all stills</a> · Variant A a11y pre-check (static review, no interaction tests per p00)</p>
+      <h1>A11y pre-check — Variant A (Obsidian-like)</h1>
+      <table style="width:100%; border-collapse:collapse; font-size:0.95rem;">
+        <thead><tr><th scope="col" style="text-align:left; border-bottom:2px solid #1a1a1a;">Check</th><th scope="col" style="text-align:left; border-bottom:2px solid #1a1a1a;">Result in stills</th></tr></thead>
+        <tbody>
+          <tr><th scope="row" style="text-align:left; border-bottom:1px solid #d8d4c8; padding:0.4rem;">Landmarks</th><td style="border-bottom:1px solid #d8d4c8; padding:0.4rem;">Pass — <code>header / nav aria-label “Vault tree” / main#main / aside / footer</code> on every still.</td></tr>
+          <tr><th scope="row" style="text-align:left; border-bottom:1px solid #d8d4c8; padding:0.4rem;">Skip link + focus visible</th><td style="border-bottom:1px solid #d8d4c8; padding:0.4rem;">Pass — skip link first in tab order; <code>:focus-visible</code> 3px solid #1a56db (3:1 vs white).</td></tr>
+          <tr><th scope="row" style="text-align:left; border-bottom:1px solid #d8d4c8; padding:0.4rem;">Text contrast 4.5:1</th><td style="border-bottom:1px solid #d8d4c8; padding:0.4rem;">Pass — body #1a1a1a/white ≈ 17:1; soft #444/white ≈ 9.7:1; badge white on #8f1d1d ≈ 8:1, on #1e6b34 ≈ 5.9:1; redacted white on #3a3a3a ≈ 11:1.</td></tr>
+          <tr><th scope="row" style="text-align:left; border-bottom:1px solid #d8d4c8; padding:0.4rem;">Never color-only</th><td style="border-bottom:1px solid #d8d4c8; padding:0.4rem;">Pass — SECRET/OPEN/RESTRICTED text + lock icon; redaction says “redacted”; fog labeled “FOG — hidden”; diff uses −/+ glyphs + words; tokens carry text initials.</td></tr>
+          <tr><th scope="row" style="text-align:left; border-bottom:1px solid #d8d4c8; padding:0.4rem;">Keyboard path</th><td style="border-bottom:1px solid #d8d4c8; padding:0.4rem;">Documented — skip → tree links → main (tabindex −1 target) → page-actions buttons → backlink links → footer. Token list is a real &lt;ol&gt; of links (A-06). Drawer: n/a (no collapse in A).</td></tr>
+          <tr><th scope="row" style="text-align:left; padding:0.4rem;">Reduced motion</th><td style="padding:0.4rem;">Pass — <code>prefers-reduced-motion</code> kills transitions/animations; stills have none anyway.</td></tr>
+        </tbody>
+      </table>
+      <h2>Known risks for build phase (F1)</h2>
+      <ul>
+        <li>Three fixed columns will squeeze <code>main</code> below 320px on narrow phones — collapse order (tree → drawer → single column) must be decided at build; stills picture desktop only.</li>
+        <li>Dense tree + dual sidebars raise sidebar noise for new players (noted as con in pick).</li>
+      </ul>
+    </main>
+  </div>
+  <footer class="colophon"><div class="slot" data-slot="footer">Ashfall Compact · static mockup A-a11y</div></footer>
+</div>
+</body>
+</html>

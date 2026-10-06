@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>B-07 Editor — Variant B still</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to page content</a>
+<div class="shell">
+  <header class="topnav">
+    <span class="brand">The Ashfall Compact</span>
+    <nav class="primary" aria-label="Primary">
+      <a href="01-shell.html">Read</a>
+      <a href="06-vtt.html">Table</a>
+      <a href="04-character.html">Characters</a>
+    </nav>
+    <div class="slot" data-slot="header-right" style="margin:0 0 0 auto; padding:0.2rem 0.6rem; color:#fff;">Mira (owner)</div>
+  </header>
+  <div class="layout">
+    <main class="sheet-col" id="main" tabindex="-1">
+      <p class="still-nav">Variant B still 7 of 8: <a href="06-vtt.html">← VTT-lite</a> · <a href="../index.html">all stills</a> · next: <a href="08-mobile-sheet.html">one-handed phone still</a></p>
+      <h1>Editing: The Cinder Pact <span class="badge secret">Secret · owner + GM</span></h1>
+      <div class="editor-stack">
+        <div>
+          <h2>Markdown (still)</h2>
+          <pre>---
+secret: true
+owner: mira
+---
+
+The pact binds the bearer.
+
+&gt; [!secret]-
+&gt; The ember is under the <span class="del">second</span> <span class="add">third</span> flagstone.
+
+&gt; [!secret]+
+&gt; Bearers dream of crows.
+
+&gt; [!unsupported]
+&gt; A future callout renders as a labeled placeholder.</pre>
+        </div>
+        <div class="preview">
+          <h2>Preview (still, no live update)</h2>
+          <p>The pact binds the bearer.</p>
+          <div class="notice secret-shown"><p style="margin:0;"><span class="block-tag">[secret −]</span> The ember is under the <span class="del">second</span> <span class="add">third</span> flagstone.</p></div>
+          <div class="notice secret-shown"><p style="margin:0;"><span class="block-tag">[secret +]</span> Bearers dream of crows.</p></div>
+          <div class="notice"><p style="margin:0;"><span class="block-tag">[unsupported callout]</span> Rendered as a labeled placeholder box.</p></div>
+        </div>
+      </div>
+      <div class="still-note">Stacked (not side-by-side): editor collapses to one column on narrow screens. Diff marked with −/+ glyphs + words.</div>
+    </main>
+    <details class="drawer">
+      <summary>Cheatsheet (collapsed still)</summary>
+      <div class="slot" data-slot="sidebar-right">
+        <p><code>[!secret]-</code> hidden from party · <code>[!secret]+</code> shown · unknown callouts placeholder.</p>
+      </div>
+    </details>
+  </div>
+  <footer class="colophon">
+    <div class="slot" data-slot="footer">Ashfall Compact · static mockup B-07</div>
+  </footer>
+</div>
+</body>
+</html>
