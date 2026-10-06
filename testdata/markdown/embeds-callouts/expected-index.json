@@ -1,0 +1,172 @@
+{
+  "path": "embeds-callouts.md",
+  "title": "Embeds and Optionals",
+  "secret": false,
+  "frontmatter": {
+    "tags": [
+      "maps"
+    ],
+    "title": "Embeds and Optionals"
+  },
+  "links": [
+    {
+      "Target": "Dungeon#Entrance",
+      "Alias": "the entrance",
+      "Secret": false,
+      "Position": {
+        "Line": 12,
+        "Column": 5,
+        "Offset": 118
+      }
+    },
+    {
+      "Target": "Dragon",
+      "Alias": "",
+      "Secret": false,
+      "Position": {
+        "Line": 15,
+        "Column": 50,
+        "Offset": 256
+      }
+    },
+    {
+      "Target": "Wikilink In Callout Title",
+      "Alias": "title link",
+      "Secret": false,
+      "Position": {
+        "Line": 21,
+        "Column": 12,
+        "Offset": 379
+      }
+    }
+  ],
+  "embeds": [
+    {
+      "Target": "world-map.png",
+      "Alt": "",
+      "Secret": false,
+      "Position": {
+        "Line": 8,
+        "Column": 1,
+        "Offset": 62
+      }
+    },
+    {
+      "Target": "Session Notes",
+      "Alt": "notes alias",
+      "Secret": false,
+      "Position": {
+        "Line": 10,
+        "Column": 1,
+        "Offset": 82
+      }
+    }
+  ],
+  "toc": [
+    {
+      "Level": 1,
+      "Title": "Map Room",
+      "Anchor": "map-room",
+      "Secret": false
+    }
+  ],
+  "blocks": [
+    {
+      "Type": "heading",
+      "Content": "Map Room",
+      "Level": 1,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 6,
+        "Column": 3,
+        "Offset": 52
+      }
+    },
+    {
+      "Type": "paragraph",
+      "Content": "world-map.png",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 8,
+        "Column": 1,
+        "Offset": 62
+      }
+    },
+    {
+      "Type": "paragraph",
+      "Content": "notes alias",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 10,
+        "Column": 1,
+        "Offset": 82
+      }
+    },
+    {
+      "Type": "paragraph",
+      "Content": "See the entrance for details.",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 12,
+        "Column": 1,
+        "Offset": 114
+      }
+    },
+    {
+      "Type": "optional",
+      "Content": "dragon-lair",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 14,
+        "Column": 3,
+        "Offset": 168
+      }
+    },
+    {
+      "Type": "callout",
+      "Content": "Nested outerNested inner callout\nwith a title link nearby.",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 19,
+        "Column": 3,
+        "Offset": 310
+      }
+    },
+    {
+      "Type": "callout",
+      "Content": "Nested inner callout\nwith a title link nearby.",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 20,
+        "Column": 5,
+        "Offset": 339
+      }
+    },
+    {
+      "Type": "optional",
+      "Content": "forest-encounter",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 17,
+        "Column": 1,
+        "Offset": 269
+      }
+    }
+  ],
+  "quarantined": false
+}
