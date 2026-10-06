@@ -1,9 +1,9 @@
 # Milestones + Phased Implementation (parallel-subagent order)
 
 ## Status (single source — phase agents read this, humans update it)
-- Current phase: **Phase 2** (G1 GO — Phase 1 lanes A/B/C/D1/E1/E2 merged as `phase/1-wiki-foundations`; `make check` green, G1 demo checklist passed)
-- Gates: G0 **GO** · G1 **GO** · G2 pending · G3 pending · G4 pending
-- Lanes: Phase 1 done (`lane/A-parser`, `lane/B-index`, `lane/C-auth`, `lane/D1-design`, `lane/E1-ops`, `lane/E2-gates`); Phase 2 (F1/F2/G) ready, none dispatched yet
+- Current phase: **Phase 3** (G2 GO — Phase 2 lanes F1/F2/G merged as `phase/2-wiki-wiring`; `make check` green, G2/M1 demo checklist passed)
+- Gates: G0 **GO** · G1 **GO** · G2 **GO** · G3 pending · G4 pending
+- Lanes: Phase 2 done (`lane/F1-read`, `lane/F2-write`, `lane/G-audit`); Phase 3 (H1/H2/I1/I2) ready, none dispatched yet
 - Rule: the phase agent runs the phase named here and dispatches exactly its lanes
   (briefs in `docs/plan/lanes/`). Advance `Current phase` only on its gate's GO.
 
