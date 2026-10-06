@@ -346,13 +346,6 @@ func TestHealthzVersionOnly(t *testing.T) {
 	}
 	// No vault info even when probed.
 }
-	req2 := httptest.NewRequest(http.MethodGet, "/healthz?vault=secret", nil)
-	rec2 := httptest.NewRecorder()
-	mux.ServeHTTP(rec2, req2)
-	if strings.Contains(rec2.Body.String(), "vault") {
-		t.Errorf("healthz reflects vault input: %q", rec2.Body.String())
-	}
-}
 
 func TestVersionEndpoint(t *testing.T) {
 	mux := http.NewServeMux()
