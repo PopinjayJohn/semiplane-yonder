@@ -157,10 +157,10 @@ type pageACL struct {
 
 func (a *pageACL) secret() bool { return a == nil || a.secretSelf || a.above }
 
-// cleanPagePath validates a vault-relative page path: Windows-safe +
+// cleanWritePath validates a vault-relative page path: Windows-safe +
 // traversal-checked via vault.CleanRel, .md only, never a conflict file or
 // dotfile (both reserved patterns the indexer hides).
-func cleanPagePath(raw string) (string, error) {
+func cleanWritePath(raw string) (string, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return "", fmt.Errorf("empty page path")
@@ -798,7 +798,7 @@ func (h *WriteHandlers) PageEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	raw := editPathOf(r)
-	rel, err := cleanPagePath(raw)
+	rel, err := cleanWritePath(raw)
 	if err != nil {
 		writeDenied(w, http.StatusBadRequest, "bad page path: "+err.Error())
 		return
@@ -904,7 +904,7 @@ func (h *WriteHandlers) PageSave(w http.ResponseWriter, r *http.Request) {
 	if raw == "" {
 		raw = r.FormValue("path")
 	}
-	rel, err := cleanPagePath(raw)
+	rel, err := cleanWritePath(raw)
 	if err != nil {
 		writeDenied(w, http.StatusBadRequest, "bad page path: "+err.Error())
 		return
@@ -1118,7 +1118,7 @@ func (h *WriteHandlers) PageCreate(w http.ResponseWriter, r *http.Request) {
 	if !strings.Contains(name, ".") {
 		name += ".md"
 	}
-	rel, err := cleanPagePath(parent + "/" + name)
+	rel, err := cleanWritePath(parent + "/" + name)
 	if err != nil {
 		writeDenied(w, http.StatusBadRequest, "bad page path: "+err.Error())
 		return
@@ -1190,7 +1190,7 @@ func (h *WriteHandlers) PageRevert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	raw := revertPathOf(r)
-	rel, err := cleanPagePath(raw)
+	rel, err := cleanWritePath(raw)
 	if err != nil {
 		writeDenied(w, http.StatusBadRequest, "bad page path: "+err.Error())
 		return

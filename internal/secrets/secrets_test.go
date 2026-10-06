@@ -104,7 +104,8 @@ func TestLeakMatrix(t *testing.T) {
 	}
 }
 
-// TestBlockVisibility: `-` (Secret=true) visible to GM + page owner only;
+// TestBlockVisibility: `-` (Secret=true) visible to GM + page owner +
+// editable-by holders (p03; gate-amended Phase 2);
 // `+` (Secret=false) follows the page gate.
 func TestBlockVisibility(t *testing.T) {
 	minux := markdown.Block{Type: "secret", Content: "hidden", Secret: true}
@@ -119,7 +120,7 @@ func TestBlockVisibility(t *testing.T) {
 		{"gm plus", gmViewer, plus, true},
 		{"owner minus", ownerViewer, minux, true},
 		{"owner plus", ownerViewer, plus, true},
-		{"editable minus", editableViewer, minux, false},
+		{"editable minus", editableViewer, minux, true},
 		{"editable plus", editableViewer, plus, true},
 		{"other minus", otherViewer, minux, false},
 		{"other plus", otherViewer, plus, true},
@@ -129,7 +130,7 @@ func TestBlockVisibility(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := CanViewBlock(tc.viewer, tc.block, "mira"); got != tc.want {
+			if got := CanViewBlock(tc.viewer, tc.block, "mira", []string{"bram"}); got != tc.want {
 				t.Errorf("CanViewBlock() = %v, want %v", got, tc.want)
 			}
 		})

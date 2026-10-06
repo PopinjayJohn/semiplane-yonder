@@ -237,10 +237,10 @@ func TestOwnerAndGMReadSecret(t *testing.T) {
 	if !strings.Contains(owner, "third flagstone") {
 		t.Errorf("owner must see `-` block content")
 	}
-	// Editable-by sees the page but NOT `-` blocks.
+	// Editable-by sees the page AND `-` blocks (p03; gate-amended Phase 2).
 	ed := get(t, h, "/p/cinder-pact.md?as=bram").Body.String()
-	if strings.Contains(ed, "third flagstone") {
-		t.Errorf("editable-by must not see `-` block content")
+	if !strings.Contains(ed, "third flagstone") {
+		t.Errorf("editable-by must see `-` block content")
 	}
 	if !strings.Contains(ed, "Signed at midnight") {
 		t.Errorf("editable-by must see non-secret body")

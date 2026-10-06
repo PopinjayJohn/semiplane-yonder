@@ -60,11 +60,13 @@ func CanViewPage(viewer *auth.Viewer, secret bool, pagePath, owner string, edita
 }
 
 // CanViewBlock returns true if the viewer can see a secret block.
-// `> [!secret]-` (default, Block.Secret=true) is visible to GM + page owner
-// only; `+` (Block.Secret=false) follows the page gate. Editable-by-non-owner
-// and other players never see `-` blocks.
-func CanViewBlock(viewer *auth.Viewer, block markdown.Block, pageOwner string) bool {
-	return store.ChunkVisible(block.Secret, pageOwner, viewer)
+// `> [!secret]-` (default, Block.Secret=true) is visible to GM, the page
+// owner, and `editable-by` holders (p03; gate-amended Phase 2); `+`
+// (Block.Secret=false) follows the page gate. Other players and guests never
+// see `-` blocks. Grants-holders (path-scoped page read) do NOT see `-`.
+func CanViewBlock(viewer *auth.Viewer, block markdown.Block, pageOwner string, editableBy []string) bool {
+	eb, _ := json.Marshal(editableBy)
+	return store.ChunkVisible(block.Secret, pageOwner, string(eb), viewer)
 }
 
 // Filter applies secret filtering to a page based on the viewer's permissions.
@@ -80,11 +82,11 @@ func Filter(viewer *auth.Viewer, page *markdown.Page) (*markdown.Page, error) {
 		return nil, ErrNotFound
 	}
 	out := *page
-	out.Blocks = filterBlocks(viewer, page.Blocks, page.Owner)
-	out.TOC = filterTOC(viewer, page.TOC, page.Owner)
-	out.Links = filterLinks(viewer, page.Links, page.Owner)
-	out.Embeds = filterEmbeds(viewer, page.Embeds, page.Owner)
-	out.HTML = scrubHTML(viewer, page.HTML, page.Owner)
+	out.Blocks = filterBlocks(viewer, page.Blocks, page.Owner, page.EditableBy)
+	out.TOC = filterTOC(viewer, page.TOC, page.Owner, page.EditableBy)
+	out.Links = filterLinks(viewer, page.Links, page.Owner, page.EditableBy)
+	out.Embeds = filterEmbeds(viewer, page.Embeds, page.Owner, page.EditableBy)
+	out.HTML = scrubHTML(viewer, page.HTML, page.Owner, page.EditableBy)
 	return &out, nil
 }
 
@@ -93,14 +95,14 @@ func Filter(viewer *auth.Viewer, page *markdown.Page) (*markdown.Page, error) {
 // with a placeholder (Type "secret-redacted") so renderers emit the labeled
 // notice box instead of the contents — or silence a screen reader can't tell
 // from missing content.
-func FilterBlocks(viewer *auth.Viewer, blocks []markdown.Block, pageOwner string) ([]markdown.Block, error) {
-	return filterBlocks(viewer, blocks, pageOwner), nil
+func FilterBlocks(viewer *auth.Viewer, blocks []markdown.Block, pageOwner string, editableBy []string) ([]markdown.Block, error) {
+	return filterBlocks(viewer, blocks, pageOwner, editableBy), nil
 }
 
-func filterBlocks(viewer *auth.Viewer, blocks []markdown.Block, pageOwner string) []markdown.Block {
+func filterBlocks(viewer *auth.Viewer, blocks []markdown.Block, pageOwner string, editableBy []string) []markdown.Block {
 	out := make([]markdown.Block, 0, len(blocks))
 	for _, b := range blocks {
-		if CanViewBlock(viewer, b, pageOwner) {
+		if CanViewBlock(viewer, b, pageOwner, editableBy) {
 			out = append(out, b)
 			continue
 		}
@@ -112,30 +114,33 @@ func filterBlocks(viewer *auth.Viewer, blocks []markdown.Block, pageOwner string
 	return out
 }
 
-func filterTOC(viewer *auth.Viewer, toc []markdown.TOCEntry, pageOwner string) []markdown.TOCEntry {
+func filterTOC(viewer *auth.Viewer, toc []markdown.TOCEntry, pageOwner string, editableBy []string) []markdown.TOCEntry {
 	out := make([]markdown.TOCEntry, 0, len(toc))
+	eb, _ := json.Marshal(editableBy)
 	for _, e := range toc {
-		if store.ChunkVisible(e.Secret, pageOwner, viewer) {
+		if store.ChunkVisible(e.Secret, pageOwner, string(eb), viewer) {
 			out = append(out, e)
 		}
 	}
 	return out
 }
 
-func filterLinks(viewer *auth.Viewer, links []markdown.Link, pageOwner string) []markdown.Link {
+func filterLinks(viewer *auth.Viewer, links []markdown.Link, pageOwner string, editableBy []string) []markdown.Link {
 	out := make([]markdown.Link, 0, len(links))
+	eb, _ := json.Marshal(editableBy)
 	for _, l := range links {
-		if store.ChunkVisible(l.Secret, pageOwner, viewer) {
+		if store.ChunkVisible(l.Secret, pageOwner, string(eb), viewer) {
 			out = append(out, l)
 		}
 	}
 	return out
 }
 
-func filterEmbeds(viewer *auth.Viewer, embeds []markdown.Embed, pageOwner string) []markdown.Embed {
+func filterEmbeds(viewer *auth.Viewer, embeds []markdown.Embed, pageOwner string, editableBy []string) []markdown.Embed {
 	out := make([]markdown.Embed, 0, len(embeds))
+	eb, _ := json.Marshal(editableBy)
 	for _, e := range embeds {
-		if store.ChunkVisible(e.Secret, pageOwner, viewer) {
+		if store.ChunkVisible(e.Secret, pageOwner, string(eb), viewer) {
 			out = append(out, e)
 		}
 	}
@@ -176,10 +181,9 @@ func isEffectiveGM(viewer *auth.Viewer) bool {
 // stay: they are owner-visible content for anyone past the page gate.
 // The renderer emits `<div class="callout callout-secret" ...>`; only divs
 // WITHOUT data-fold="expand" are hidden-from-party.
-func scrubHTML(viewer *auth.Viewer, html, pageOwner string) string {
-	userID, isGM := effectiveUser(viewer)
-	if isGM || (userID != "" && pageOwner != "" && strings.EqualFold(pageOwner, userID)) {
-		return html // GM + page owner see all blocks; nothing to scrub
+func scrubHTML(viewer *auth.Viewer, html, pageOwner string, editableBy []string) string {
+	if canSeeHidden(viewer, pageOwner, editableBy) {
+		return html // GM + page owner + editable-by see all blocks; nothing to scrub
 	}
 	const marker = `class="callout callout-secret"`
 	var b strings.Builder
@@ -267,6 +271,28 @@ func effectiveUser(viewer *auth.Viewer) (string, bool) {
 		return viewer.PreviewAs, false
 	}
 	return viewer.UserID, viewer.IsGM
+}
+
+// canSeeHidden reports whether the viewer bypasses `-` scrubbing: GM, page
+// owner, or an `editable-by` holder (p03; gate-amended Phase 2). Preview
+// sessions filter as the previewed user, never as GM.
+func canSeeHidden(viewer *auth.Viewer, pageOwner string, editableBy []string) bool {
+	userID, isGM := effectiveUser(viewer)
+	if isGM {
+		return true
+	}
+	if userID == "" {
+		return false
+	}
+	if pageOwner != "" && strings.EqualFold(pageOwner, userID) {
+		return true
+	}
+	for _, u := range editableBy {
+		if strings.EqualFold(u, userID) {
+			return true
+		}
+	}
+	return false
 }
 
 // SearchResult represents a search hit (mirrored from store for filtering).

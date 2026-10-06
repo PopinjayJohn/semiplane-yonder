@@ -115,9 +115,17 @@ func PageVisible(secret bool, pagePath, owner string, editableByJSON string, v *
 }
 
 // ChunkVisible reports whether a single block chunk may be shown. Secret
-// blocks (`> [!secret]-`, default hidden) are visible to the page owner and
-// GM; `+` (owner-visible default... i.e. non-secret) chunks follow the page.
-func ChunkVisible(chunkSecret bool, owner string, v *auth.Viewer) bool {
+// blocks (`> [!secret]-`, default hidden) are visible to GM, the page owner,
+// and `editable-by` holders (p03: `-` is "visible to GM + page owner /
+// editable-by when hidden from party"; p03 wins over spec §4's "owner-visible"
+// shorthand per the spec's own conflict rule). `+` (owner-visible default...
+// i.e. non-secret) chunks follow the page.
+// Identity-scoped only: unlike PageVisible there is deliberately NO
+// owned-slugs/grants fallback — path-scoped rights confer page read, never
+// hidden-block content. (Gate amend, Phase 2: the write-path editor serves raw
+// source to editable-by holders, so denying `-` on reads was bypassable;
+// widening is the only coherent model.)
+func ChunkVisible(chunkSecret bool, owner, editableByJSON string, v *auth.Viewer) bool {
 	if !chunkSecret {
 		return true
 	}
@@ -125,5 +133,18 @@ func ChunkVisible(chunkSecret bool, owner string, v *auth.Viewer) bool {
 	if isGM {
 		return true
 	}
-	return userID != "" && owner != "" && strings.EqualFold(owner, userID)
+	if userID == "" {
+		return false
+	}
+	if owner != "" && strings.EqualFold(owner, userID) {
+		return true
+	}
+	var list []string
+	_ = json.Unmarshal([]byte(editableByJSON), &list)
+	for _, u := range list {
+		if strings.EqualFold(u, userID) {
+			return true
+		}
+	}
+	return false
 }
