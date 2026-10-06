@@ -351,7 +351,8 @@ func TestHealthzVersionOnly(t *testing.T) {
 }
 
 func TestVersionEndpoint(t *testing.T) {
-	mux := newOpsMux(buildInfo{Version: "1.2.3", Commit: "abc", Date: "today"}, nil)
+	sessionStore := &mockSessionStore{}
+	mux := wireHandlers(buildInfo{Version: "1.2.3", Commit: "abc", Date: "today"}, "/tmp/doesnotexist", sessionStore)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/version", nil))
 	if rec.Code != 200 {
@@ -363,7 +364,8 @@ func TestVersionEndpoint(t *testing.T) {
 }
 
 func TestPrintCSSServed(t *testing.T) {
-	mux := newOpsMux(build(), nil)
+	sessionStore := &mockSessionStore{}
+	mux := wireHandlers(build(), "/tmp/doesnotexist", sessionStore)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/print.css", nil))
 	if rec.Code != 200 {
