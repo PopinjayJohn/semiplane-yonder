@@ -324,8 +324,9 @@ func TestZipSlipRefused(t *testing.T) {
 
 func TestHealthzVersionOnly(t *testing.T) {
 	info := buildInfo{Version: "v", Commit: "c", Date: "d"}
+	vaultDir := t.TempDir()
 	sessionStore := &mockSessionStore{}
-	mux := wireHandlers(info, "/tmp/doesnotexist", sessionStore)
+	mux := wireHandlers(info, vaultDir, sessionStore)
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -351,8 +352,9 @@ func TestHealthzVersionOnly(t *testing.T) {
 }
 
 func TestVersionEndpoint(t *testing.T) {
+	vaultDir := t.TempDir()
 	sessionStore := &mockSessionStore{}
-	mux := wireHandlers(buildInfo{Version: "1.2.3", Commit: "abc", Date: "today"}, "/tmp/doesnotexist", sessionStore)
+	mux := wireHandlers(buildInfo{Version: "1.2.3", Commit: "abc", Date: "today"}, vaultDir, sessionStore)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/version", nil))
 	if rec.Code != 200 {
@@ -364,8 +366,9 @@ func TestVersionEndpoint(t *testing.T) {
 }
 
 func TestPrintCSSServed(t *testing.T) {
+	vaultDir := t.TempDir()
 	sessionStore := &mockSessionStore{}
-	mux := wireHandlers(build(), "/tmp/doesnotexist", sessionStore)
+	mux := wireHandlers(build(), vaultDir, sessionStore)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/print.css", nil))
 	if rec.Code != 200 {
