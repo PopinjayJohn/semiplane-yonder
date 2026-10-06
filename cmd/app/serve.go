@@ -134,16 +134,43 @@ func wireHandlers(info buildInfo, vaultDir string, sessionStore auth.SessionStor
 
 // buildRegistryHandler constructs an http.Handler from registered routes
 // with session/viewer middleware (inline until RouteRegistry.BuildHandler
-// is implemented).
+// is implemented). stdlib ServeMux (Go 1.22+) supports {name} and {name...}
+// only at pattern END; frozen routes use {path...} mid-pattern. We map them
+// to prefix patterns and let handlers do exact matching via r.URL.Path.
 func buildRegistryHandler(routes []web.Route, sessionStore auth.SessionStore) http.Handler {
 	mux := http.NewServeMux()
 	for _, rt := range routes {
 		h := rt.Handler
 		// For Phase 2, let handlers resolve their own viewer (demo fallback).
 		// Real auth middleware lands in P11.
-		mux.HandleFunc(rt.Path, h)
+		pattern := toStdlibPattern(rt.Path)
+		mux.HandleFunc(pattern, h)
 	}
 	return mux
+}
+
+// toStdlibPattern converts frozen route patterns (using chi-style {path...}
+// mid-pattern) to stdlib ServeMux-compatible patterns (Go 1.22+).
+// Handlers extract the full path from r.URL.Path themselves.
+func toStdlibPattern(pattern string) string {
+	// Patterns with {path...} not at end → register the static prefix.
+	// Handlers do exact matching on r.URL.Path.
+	switch pattern {
+	case web.RoutePageView:      // "/p/{path...}" → "/p/"
+		return "/p/"
+	case web.RoutePageEdit:      // "/p/{path...}/edit" → handled by PageEdit via /p/
+		return "/p/"
+	case web.RoutePageHistory:   // "/p/{path...}/history" → handled by PageView via /p/
+		return "/p/"
+	case web.RouteAssets:        // "/assets/{path...}" → "/assets/"
+		return "/assets/"
+	case web.RouteVTT:           // "/vtt/{mapID}" → "/vtt/"
+		return "/vtt/"
+	case web.RouteWizard:        // "/wizard/{step}" → "/wizard/"
+		return "/wizard/"
+	default:
+		return pattern // exact patterns like /healthz, /search, /p/new, /upload, etc.
+	}
 }
 
 type serveOptions struct {
