@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>P00 mockups — Variant A vs B</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; line-height: 1.6; max-width: 52rem; margin: 0 auto; padding: 1rem; color: #101828; }
+  :focus-visible { outline: 3px solid #0b4fc4; outline-offset: 2px; }
+  .skip { position: absolute; left: .5rem; top: -4rem; background: #101828; color: #fff; padding: .5rem 1rem; }
+  .skip:focus { top: .5rem; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid #c9d3e0; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  @media (max-width: 640px) { .cols2 { grid-template-columns: 1fr; } }
+  .card { border: 2px solid #101828; border-radius: 8px; padding: .75rem 1rem; }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header><p style="margin:0; font-size:.85rem;">P00 UI prototype · static stills · <nav aria-label="Variants" style="display:inline;"><a href="#va">Variant A</a> · <a href="#vb">Variant B</a></nav></p></header>
+<main id="main" tabindex="-1">
+  <h1>P00 UI prototype — A vs B stills</h1>
+  <p>Static hardcoded HTML/CSS. No backend, no JS, no templ. Open A and B side-by-side to compare.</p>
+  <div class="cols2">
+    <section class="card" aria-labelledby="va">
+      <h2 id="va">Variant A — Obsidian-like</h2>
+      <p>Dense 3-column: vault tree · page · backlinks. GM-power-user.</p>
+      <ol>
+        <li><a href="a/01-shell.html">A-01 shell + non-secret (guest)</a></li>
+        <li><a href="a/02-secret-owner.html">A-02 secret (owner/GM)</a></li>
+        <li><a href="a/03-secret-guest.html">A-03 secret (party/guest wall)</a></li>
+        <li><a href="a/04-character.html">A-04 character + subpage</a></li>
+        <li><a href="a/05-sheet.html">A-05 sheet slot ×2 styles</a></li>
+        <li><a href="a/06-vtt.html">A-06 VTT-lite</a></li>
+        <li><a href="a/07-editor.html">A-07 editor</a></li>
+        <li><a href="a/a11y.html">A-a11y pre-check</a></li>
+      </ol>
+    </section>
+    <section class="card" aria-labelledby="vb">
+      <h2 id="vb">Variant B — Focused ★ winner</h2>
+      <p>Top nav + single column + collapsible drawer. Mobile-first.</p>
+      <ol>
+        <li><a href="b/01-shell.html">B-01 shell + non-secret (guest)</a></li>
+        <li><a href="b/02-secret-owner.html">B-02 secret (owner/GM)</a></li>
+        <li><a href="b/03-secret-guest.html">B-03 secret (party/guest wall)</a></li>
+        <li><a href="b/04-character.html">B-04 character + subpage</a></li>
+        <li><a href="b/05-sheet.html">B-05 sheet slot ×2 styles</a></li>
+        <li><a href="b/06-vtt.html">B-06 VTT-lite</a></li>
+        <li><a href="b/07-editor.html">B-07 editor</a></li>
+        <li><a href="b/08-mobile-sheet.html">B-08 one-handed phone sheet</a></li>
+        <li><a href="b/a11y.html">B-a11y pre-check</a></li>
+      </ol>
+    </section>
+  </div>
+
+  <h2>Written pick (3 pros / 3 cons each)</h2>
+  <h3>Winner: B (Focused) — F1/F2 build on this shell; A becomes theme-plugin candidate</h3>
+  <table>
+    <thead><tr><th scope="col">Variant A pros</th><th scope="col">Variant A cons</th></tr></thead>
+    <tbody>
+      <tr><td>Fastest GM navigation: persistent tree + backlinks rail, zero clicks to jump.</td><td>Sidebar noise: two always-visible rails overwhelm new players and guests.</td></tr>
+      <tr><td>Densest sheet/VTT scan: 3-stat grid + side initiative suit power users.</td><td>No mobile story: 3 fixed columns squeeze the page below 320px; phone would need a redesign, not a reflow.</td></tr>
+      <tr><td>Secret context always visible: right rail shows access/backlinks without opening anything.</td><td>Secret badge competes with two rails for attention; redaction less prominent in a busy frame.</td></tr>
+    </tbody>
+  </table>
+  <table>
+    <thead><tr><th scope="col">Variant B pros</th><th scope="col">Variant B cons</th></tr></thead>
+    <tbody>
+      <tr><td>Mobile proven: single column reflows; B-08 shows one-handed sheet + ≥48px targets.</td><td>Tree-less navigation bets everything on search/autocomplete quality (build-phase risk).</td></tr>
+      <tr><td>Lowest sidebar noise: collapsed drawer = zero chrome for new players; secret states read at a glance.</td><td>GM power users lose one-click tree jumps; drawer toggling adds a step per lookup.</td></tr>
+      <tr><td>Keyboard path simplest: linear order (nav → main → actions → drawer summary → footer) with native details/summary.</td><td>Drawer open-state persistence across SSE morphs needs a focus-retention decision in F1.</td></tr>
+    </tbody>
+  </table>
+  <p>Decisive factor: G1 requires mobile stills and the product serves new players on phones; only B proves that. A’s density survives as a theme plugin (3-column override), which is exactly what p00 prescribes for the loser.</p>
+<footer><p style="font-size:.85rem;">P00 mockup hub · hardcoded stills · winner: Variant B (Focused).</p></footer>
+</main>
+</body>
+</html>

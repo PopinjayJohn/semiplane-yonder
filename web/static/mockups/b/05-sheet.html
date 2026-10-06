@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>B-05 Sheet slot, two visual styles — Variant B still</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to page content</a>
+<div class="shell">
+  <header class="topnav">
+    <span class="brand">The Ashfall Compact</span>
+    <nav class="primary" aria-label="Primary">
+      <a href="01-shell.html">Read</a>
+      <a href="06-vtt.html">Table</a>
+      <a href="04-character.html">Characters</a>
+    </nav>
+    <div class="slot" data-slot="header-right" style="margin:0 0 0 auto; padding:0.2rem 0.6rem; color:#fff;">GM</div>
+  </header>
+  <div class="layout" style="max-width:80rem;">
+    <main class="sheet-col" id="main" tabindex="-1" style="max-width:60rem;">
+      <p class="still-nav">Variant B still 5 of 8: <a href="04-character.html">← character</a> · <a href="../index.html">all stills</a> · next: <a href="06-vtt.html">VTT-lite</a></p>
+      <h1>Sheet slot: same data, two styles</h1>
+      <h2>Style 1 — ledger rows (default, linear)</h2>
+      <div class="sheet-card">
+        <div class="slot" data-slot="sheet-header" style="margin:0.5rem;">
+          <div class="sheet-head"><h2>Mira Ashdown — Emberbearer 3</h2></div>
+          <table>
+            <tbody>
+              <tr><th scope="row">Might (STR)</th><td>14 (+2)</td></tr>
+              <tr><th scope="row">Guile (DEX)</th><td>16 (+3)</td></tr>
+              <tr><th scope="row">Focus (WIS)</th><td>12 (+1)</td></tr>
+              <tr><th scope="row">Health</th><td>24 / 28 HP · AC 15</td></tr>
+              <tr><th scope="row">Ember die</th><td>d8 (2 charges)</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <h2>Style 2 — big-tap chips (thumb-friendly)</h2>
+      <div class="sheet-card">
+        <div class="slot" data-slot="sheet-header" style="margin:0.5rem;">
+          <div class="sheet-head"><h2>Mira Ashdown — Emberbearer 3</h2></div>
+          <div style="display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:0.5rem; padding:0.75rem;">
+            <button class="btn" type="button" tabindex="0">STR 14 (+2)</button>
+            <button class="btn" type="button" tabindex="0">DEX 16 (+3)</button>
+            <button class="btn" type="button" tabindex="0">WIS 12 (+1)</button>
+            <button class="btn" type="button" tabindex="0">HP 24/28</button>
+            <button class="btn" type="button" tabindex="0">AC 15</button>
+            <button class="btn" type="button" tabindex="0">Ember d8</button>
+          </div>
+        </div>
+      </div>
+      <div class="still-note">Style 2 chips are ≥44px tall with text labels. Both fit <code>sheet-header</code>; see <a href="08-mobile-sheet.html">B-08 one-handed phone still</a>.</div>
+    </main>
+    <details class="drawer">
+      <summary>Reading (collapsed still)</summary>
+      <div class="slot" data-slot="sidebar-right">
+        <p>Ledger reads best one-handed; chips trade density for tap size.</p>
+      </div>
+    </details>
+  </div>
+  <footer class="colophon">
+    <div class="slot" data-slot="footer">Ashfall Compact · static mockup B-05</div>
+  </footer>
+</div>
+</body>
+</html>

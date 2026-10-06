@@ -1,0 +1,284 @@
+/* Variant A — "Obsidian-like" dense 3-column stills.
+   Static mockup only: no JS, no backend. Hardcoded content. */
+@layer core {
+  :root {
+    --bg: #ffffff;
+    --bg-rail: #f4f2ec;
+    --bg-panel: #faf9f6;
+    --ink: #1a1a1a;
+    --ink-soft: #444444;
+    --ink-faint: #5c5c5c;
+    --line: #d8d4c8;
+    --accent: #1a56db;
+    --accent-ink: #ffffff;
+    --secret-bg: #8f1d1d;
+    --secret-ink: #ffffff;
+    --ok-bg: #1e6b34;
+    --ok-ink: #ffffff;
+    --redact-bg: #3a3a3a;
+    --redact-ink: #ffffff;
+    --focus: #1a56db;
+    --slot-line: #8a6d2b;
+    --slot-bg: rgba(138, 109, 43, 0.08);
+  }
+
+  * { box-sizing: border-box; }
+
+  html { font-size: 16px; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: Georgia, "Times New Roman", serif;
+    line-height: 1.5;
+  }
+
+  /* Skip link: first tab stop, visible on focus (keyboard path). */
+  .skip {
+    position: absolute;
+    left: 0.5rem;
+    top: -4rem;
+    background: var(--ink);
+    color: #fff;
+    padding: 0.5rem 1rem;
+    z-index: 100;
+  }
+  .skip:focus { top: 0.5rem; }
+
+  :focus-visible {
+    outline: 3px solid var(--focus);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+
+  /* ---- Shell: header / 3-col / footer ---- */
+  .shell { min-height: 100vh; display: flex; flex-direction: column; }
+
+  header.topbar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.5rem 1rem;
+    background: var(--ink);
+    color: #fff;
+  }
+  header.topbar a { color: #fff; }
+  .campaign { font-weight: bold; font-size: 1.1rem; }
+  .userbox { margin-left: auto; display: flex; gap: 0.75rem; align-items: center; font-size: 0.9rem; }
+  .preview-toggle {
+    border: 2px solid #fff;
+    background: transparent;
+    color: #fff;
+    padding: 0.35rem 0.7rem;
+    font: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+
+  .cols {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 240px minmax(0, 1fr) 260px;
+    gap: 0;
+    align-items: stretch;
+  }
+
+  nav.tree {
+    background: var(--bg-rail);
+    border-right: 1px solid var(--line);
+    padding: 0.75rem;
+    font-size: 0.9rem;
+  }
+  nav.tree ul { list-style: none; margin: 0.25rem 0 1rem; padding-left: 1rem; }
+  nav.tree > ul { padding-left: 0; }
+  nav.tree a { color: var(--ink); }
+  nav.tree .here > a { font-weight: bold; }
+
+  main.page { padding: 1.25rem 1.5rem; max-width: 44rem; }
+  main.page h1 { margin-top: 0; font-size: 1.6rem; }
+
+  aside.context {
+    background: var(--bg-panel);
+    border-left: 1px solid var(--line);
+    padding: 0.75rem;
+    font-size: 0.9rem;
+  }
+
+  footer.colophon {
+    border-top: 1px solid var(--line);
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+    color: var(--ink-soft);
+    background: var(--bg-panel);
+  }
+
+  /* ---- Slot proof boxes: labeled dashed outlines ---- */
+  .slot {
+    position: relative;
+    border: 2px dashed var(--slot-line);
+    background: var(--slot-bg);
+    border-radius: 4px;
+    padding: 0.6rem;
+    margin: 0.4rem 0;
+  }
+  .slot::before {
+    content: "slot: " attr(data-slot);
+    position: absolute;
+    top: -0.75em;
+    left: 0.5rem;
+    background: var(--ink);
+    color: #fff;
+    font-family: monospace;
+    font-size: 0.7rem;
+    padding: 0 0.4rem;
+    border-radius: 3px;
+    line-height: 1.5;
+  }
+
+  /* ---- Secret UX: badge + redaction, never color-only ---- */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 0.75rem;
+    font-weight: bold;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 0.2rem 0.55rem;
+    border-radius: 3px;
+    border: 2px solid currentcolor;
+  }
+  .badge svg { width: 0.9em; height: 0.9em; flex: none; }
+  .badge.secret { background: var(--secret-bg); border-color: var(--secret-bg); color: var(--secret-ink); }
+  .badge.open { background: var(--ok-bg); border-color: var(--ok-bg); color: var(--ok-ink); }
+  .badge.guest { background: #fff; color: var(--ink); border-color: var(--ink); }
+
+  .redacted {
+    background: var(--redact-bg);
+    color: var(--redact-ink);
+    font-family: monospace;
+    font-size: 0.85em;
+    padding: 0.1rem 0.45rem;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+
+  .secret-block-hidden {
+    border: 2px solid var(--ink);
+    padding: 0.5rem 0.75rem;
+    margin: 0.75rem 0;
+    font-size: 0.9rem;
+    background: #fff;
+  }
+  .secret-block-shown {
+    border: 2px solid var(--secret-bg);
+    border-left-width: 8px;
+    padding: 0.5rem 0.75rem;
+    margin: 0.75rem 0;
+    background: #fdf3f3;
+    color: var(--ink);
+  }
+  .secret-block-shown p, .secret-block-hidden p { margin: 0.25rem 0; }
+  .block-tag {
+    font-family: monospace;
+    font-size: 0.75rem;
+    font-weight: bold;
+  }
+
+  /* ---- Page furniture ---- */
+  .crumbs { font-size: 0.85rem; color: var(--ink-soft); margin-bottom: 0.5rem; }
+  .crumbs a { color: var(--ink-soft); }
+  .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 0.75rem 0; }
+  .btn {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 0.85rem;
+    padding: 0.45rem 0.8rem;
+    border: 2px solid var(--ink);
+    background: #fff;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .btn.primary { background: var(--ink); color: #fff; }
+  .backlinks { list-style: none; padding-left: 0; }
+  .backlinks li { margin-bottom: 0.4rem; }
+  .backlinks a { color: var(--accent); }
+
+  /* ---- Sheet still ---- */
+  .sheet { border: 2px solid var(--ink); margin: 1rem 0; }
+  .sheet-head { background: var(--ink); color: #fff; padding: 0.6rem 1rem; }
+  .sheet-head h2 { margin: 0; font-size: 1.2rem; }
+  .sheet-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; padding: 0.75rem 1rem; }
+  .stat { border: 1px solid var(--line); padding: 0.4rem 0.6rem; text-align: center; }
+  .stat b { display: block; font-size: 1.3rem; }
+
+  /* ---- VTT-lite still ---- */
+  .vtt { display: grid; grid-template-columns: 1fr 180px; gap: 0.75rem; margin: 1rem 0; }
+  .map {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    background:
+      repeating-conic-gradient(#cfcaba 0 25%, #bdb7a4 0 50%) 0 0 / 48px 48px;
+    border: 2px solid var(--ink);
+  }
+  .fog {
+    position: absolute;
+    inset: 0 0 0 55%;
+    background: rgba(26, 26, 26, 0.82);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: monospace;
+    font-size: 0.8rem;
+  }
+  .token {
+    position: absolute;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 3px solid #fff;
+    outline: 2px solid var(--ink);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: Arial, Helvetica, sans-serif;
+    font-weight: bold;
+    font-size: 0.8rem;
+    color: #fff;
+  }
+  .token.t1 { left: 12%; top: 20%; background: #1a56db; }
+  .token.t2 { left: 30%; top: 55%; background: #1e6b34; }
+  .token.t3 { left: 48%; top: 30%; background: #8f1d1d; }
+  .dice-tray { border: 2px solid var(--ink); padding: 0.6rem; font-size: 0.9rem; }
+  .dice-tray ul { list-style: none; padding: 0; margin: 0.4rem 0; font-family: monospace; }
+
+  /* ---- Editor still ---- */
+  .editor { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin: 1rem 0; }
+  .editor pre {
+    border: 2px solid var(--ink);
+    padding: 0.75rem;
+    margin: 0;
+    font-size: 0.85rem;
+    background: #fff;
+    white-space: pre-wrap;
+  }
+  .editor .preview { border: 2px solid var(--ink); padding: 0.75rem; background: var(--bg-panel); }
+  .del { color: #8f1d1d; font-weight: bold; }
+  .add { color: #1e6b34; font-weight: bold; }
+
+  .still-note {
+    border-top: 1px solid var(--line);
+    margin-top: 1.5rem;
+    padding-top: 0.75rem;
+    font-size: 0.85rem;
+    color: var(--ink-soft);
+    font-family: Arial, Helvetica, sans-serif;
+  }
+  .still-nav { font-family: Arial, Helvetica, sans-serif; font-size: 0.85rem; margin-bottom: 1rem; }
+  .still-nav a { color: var(--accent); }
+}

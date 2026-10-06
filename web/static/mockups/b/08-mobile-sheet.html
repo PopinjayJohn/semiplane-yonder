@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>B-08 One-handed phone sheet — Variant B still</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip" href="#phone-main">Skip to sheet content</a>
+<div class="shell">
+  <header class="topnav">
+    <span class="brand">Ashfall</span>
+    <nav class="primary" aria-label="Primary">
+      <a href="01-shell.html">Read</a>
+      <a href="06-vtt.html">Table</a>
+      <a href="04-character.html" aria-current="page">Sheet</a>
+    </nav>
+    <div class="slot" data-slot="header-right" style="margin:0 0 0 auto; padding:0.2rem 0.6rem; color:#fff;">Mira</div>
+  </header>
+  <div class="layout" style="grid-template-columns:minmax(0,1fr); max-width:60rem;">
+    <main class="sheet-col" id="main" tabindex="-1" style="max-width:60rem;">
+      <p class="still-nav">Variant B still 8 of 8: <a href="07-editor.html">← editor</a> · <a href="../index.html">all stills</a> · <a href="a11y.html">a11y pre-check</a></p>
+      <h1>One-handed phone sheet (390px frame, hardcoded)</h1>
+      <p>Thumb zone: primary actions stacked full-width at the bottom of the frame; sheet stats as ≥52px rows; drawer collapsed by default on narrow widths.</p>
+      <div class="phone">
+        <main id="phone-main">
+          <p class="crumbs">characters / <b>mira</b></p>
+          <h1 style="font-size:1.3rem;">Mira Ashdown <span class="badge secret">Secret</span></h1>
+          <div class="slot" data-slot="sheet-header">
+            <table style="width:100%; border-collapse:collapse;">
+              <tbody>
+                <tr><th scope="row" style="text-align:left; padding:0.7rem 0.4rem; border-bottom:1px solid #c9d3e0;">HP</th><td style="padding:0.7rem 0.4rem; border-bottom:1px solid #c9d3e0;"><b>24 / 28</b></td></tr>
+                <tr><th scope="row" style="text-align:left; padding:0.7rem 0.4rem; border-bottom:1px solid #c9d3e0;">AC</th><td style="padding:0.7rem 0.4rem; border-bottom:1px solid #c9d3e0;"><b>15</b></td></tr>
+                <tr><th scope="row" style="text-align:left; padding:0.7rem 0.4rem; border-bottom:1px solid #c9d3e0;">STR / DEX / WIS</th><td style="padding:0.7rem 0.4rem; border-bottom:1px solid #c9d3e0;">+2 / +3 / +1</td></tr>
+                <tr><th scope="row" style="text-align:left; padding:0.7rem 0.4rem;">Ember die</th><td style="padding:0.7rem 0.4rem;">d8 · 2 charges</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="slot" data-slot="page-actions">
+            <div class="big-actions">
+              <button class="btn primary" type="button" tabindex="0">Roll d20 (thumb)</button>
+              <button class="btn" type="button" tabindex="0">Spend ember die</button>
+              <button class="btn" type="button" tabindex="0">Short rest</button>
+            </div>
+          </div>
+          <details class="drawer">
+            <summary>Links &amp; secrets</summary>
+            <div class="slot" data-slot="sidebar-right"><p style="margin:0;">Drawer collapsed on phones; opens below the sheet, never covering it.</p></div>
+          </details>
+        </main>
+      </div>
+      <div class="still-note">Frame is 390px wide; all tap targets ≥48px; order: sheet → actions → collapsed drawer, reachable one-handed by scroll + Tab.</div>
+    </main>
+  </div>
+  <footer class="colophon">
+    <div class="slot" data-slot="footer">Ashfall Compact · static mockup B-08 · one-handed sheet + tap-size actions</div>
+  </footer>
+</div>
+</body>
+</html>

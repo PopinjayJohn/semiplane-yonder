@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A-05 Sheet slot, two visual styles — Variant A still</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to page content</a>
+<div class="shell">
+  <header class="topbar">
+    <span class="campaign">The Ashfall Compact</span>
+    <div class="slot" data-slot="header-right" style="margin:0; padding:0.2rem 0.6rem;">
+      <span class="userbox" style="margin:0;"><span>Signed in as <b>GM</b></span></span>
+    </div>
+  </header>
+  <div class="cols">
+    <nav class="tree" aria-label="Vault tree">
+      <div class="slot" data-slot="sidebar-left">
+        <b>Vault tree</b>
+        <ul>
+          <li><a href="01-shell.html">Welcome to Ashfall</a></li>
+          <li class="here"><a href="05-sheet.html" aria-current="page">Sheet slot compare</a></li>
+        </ul>
+      </div>
+    </nav>
+    <main class="page" id="main" tabindex="-1" style="max-width:56rem;">
+      <p class="still-nav">Variant A still 5 of 7: <a href="04-character.html">← character</a> · <a href="../index.html">all stills</a> · next: <a href="06-vtt.html">VTT-lite</a></p>
+      <h1>Sheet slot: same data, two styles</h1>
+      <h2>Style 1 — stat grid (dense, GM scan)</h2>
+      <div class="sheet">
+        <div class="slot" data-slot="sheet-header" style="margin:0.5rem;">
+          <div class="sheet-head"><h2>Mira Ashdown — Emberbearer 3</h2></div>
+          <div class="sheet-grid">
+            <div class="stat"><span>STR</span><b>14 (+2)</b></div>
+            <div class="stat"><span>DEX</span><b>16 (+3)</b></div>
+            <div class="stat"><span>WIS</span><b>12 (+1)</b></div>
+            <div class="stat"><span>HP</span><b>24 / 28</b></div>
+            <div class="stat"><span>AC</span><b>15</b></div>
+            <div class="stat"><span>Ember die</span><b>d8</b></div>
+          </div>
+        </div>
+      </div>
+      <h2>Style 2 — ledger rows (linear, narrow screens)</h2>
+      <div class="sheet">
+        <div class="slot" data-slot="sheet-header" style="margin:0.5rem;">
+          <div class="sheet-head"><h2>Mira Ashdown — Emberbearer 3</h2></div>
+          <table style="width:100%; border-collapse:collapse; font-size:0.95rem;">
+            <tbody>
+              <tr><th scope="row" style="text-align:left; border-bottom:1px solid #d8d4c8; padding:0.4rem;">Might (STR)</th><td style="border-bottom:1px solid #d8d4c8; padding:0.4rem;">14 (+2)</td></tr>
+              <tr><th scope="row" style="text-align:left; border-bottom:1px solid #d8d4c8; padding:0.4rem;">Guile (DEX)</th><td style="border-bottom:1px solid #d8d4c8; padding:0.4rem;">16 (+3)</td></tr>
+              <tr><th scope="row" style="text-align:left; border-bottom:1px solid #d8d4c8; padding:0.4rem;">Focus (WIS)</th><td style="border-bottom:1px solid #d8d4c8; padding:0.4rem;">12 (+1)</td></tr>
+              <tr><th scope="row" style="text-align:left; border-bottom:1px solid #d8d4c8; padding:0.4rem;">Health</th><td style="border-bottom:1px solid #d8d4c8; padding:0.4rem;">24 / 28 HP · AC 15</td></tr>
+              <tr><th scope="row" style="text-align:left; padding:0.4rem;">Ember die</th><td style="padding:0.4rem;">d8 (2 charges)</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="still-note">Same frontmatter data, two presentations. Style 2’s table uses real &lt;th scope=row&gt; for screen readers.</div>
+    </main>
+    <aside class="context" aria-label="Backlinks and secrets">
+      <div class="slot" data-slot="sidebar-right">
+        <b>Reading</b>
+        <p>Grid wins at desktop width; ledger wins when the right rail collapses. Both fit <code>sheet-header</code>.</p>
+      </div>
+    </aside>
+  </div>
+  <footer class="colophon">
+    <div class="slot" data-slot="footer">Ashfall Compact · static mockup A-05</div>
+  </footer>
+</div>
+</body>
+</html>
