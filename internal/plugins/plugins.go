@@ -151,11 +151,9 @@ func NewFeatureRegistry() *FeatureRegistry {
 }
 
 // Register registers a feature flag.
+// Phase 0 stub (Lane I2 implements in Phase 3).
 func (r *FeatureRegistry) Register(f FeatureFlag) {
-	r.features[f.ID] = f
-	if f.Default {
-		r.enabled[f.ID] = true
-	}
+	// not implemented
 }
 
 // Enable enables a feature.
@@ -165,22 +163,21 @@ func (r *FeatureRegistry) Enable(id string) error {
 }
 
 // Disable disables a feature.
+// Phase 0 stub (Lane I2 implements in Phase 3).
 func (r *FeatureRegistry) Disable(id string) {
-	r.enabled[id] = false
+	// not implemented
 }
 
 // IsEnabled returns true if a feature is enabled.
+// Phase 0 stub (Lane I2 implements in Phase 3).
 func (r *FeatureRegistry) IsEnabled(id string) bool {
-	return r.enabled[id]
+	return false // not implemented
 }
 
 // List returns all feature flags.
+// Phase 0 stub (Lane I2 implements in Phase 3).
 func (r *FeatureRegistry) List() []FeatureFlag {
-	result := make([]FeatureFlag, 0, len(r.features))
-	for _, f := range r.features {
-		result = append(result, f)
-	}
-	return result
+	return nil // not implemented
 }
 
 var (

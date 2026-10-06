@@ -14,8 +14,10 @@ import (
 //   - <name>.app.db — migrated app state (users, auth_sessions, login_attempts,
 //     edits_log, characters, sessions, dice_logs, vtt_*), never rebuilt.
 //
-// Migrations in migrations/*.sql cover the app DB (Lane B owns contents,
-// Lane E2 owns the runner); the index DB is rebuilt, not migrated.
+// Migrations in migrations/{index,app}/*.sql (Lane B owns contents, Lane E2
+// owns the runner): index/ → <name>.index.db applied at reindex build time,
+// app/ → <name>.app.db applied at serve/migrate time. Independent
+// user_version streams from 1.
 type Store interface {
 	// Page operations. Paths are vault-relative posix page IDs: lookup is
 	// case-insensitive, display preserves source case (Phase 0c).

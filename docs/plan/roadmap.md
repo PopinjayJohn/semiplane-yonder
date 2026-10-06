@@ -1,7 +1,7 @@
 # Milestones + Phased Implementation (parallel-subagent order)
 
 ## Status (single source — phase agents read this, humans update it)
-- Current phase: **Phase 0** (0b G0-reviewed clean, committed as `89407c0`; 0c in progress on `phase/0c-model`, uncommitted)
+- Current phase: **Phase 0** (0b G0-reviewed clean, committed as `89407c0`; 0c committed as `b71908a`, under review — update on merge)
 - Gates: G0 pending (0c review outstanding) · G1 pending · G2 pending · G3 pending · G4 pending
 - Lanes: none dispatched yet
 - Rule: the phase agent runs the phase named here and dispatches exactly its lanes
