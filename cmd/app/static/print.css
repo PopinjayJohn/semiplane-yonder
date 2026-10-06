@@ -1,0 +1,79 @@
+/* yonder print stylesheet — player-safe handouts (Lane E1).
+ *
+ * Enforcement is server-side: secrets are filtered before render (never
+ * rely on CSS to hide secret content — hidden here means already-redacted
+ * placeholders). This file only controls print presentation: hide
+ * interactive chrome, expand collapsed content, keep everything legible in
+ * black-on-white, and never signal meaning by color alone.
+ *
+ * Served by the binary at /static/print.css (cacheable, offline-first).
+ */
+
+@media print {
+  /* Interactive chrome never prints. */
+  header nav,
+  aside,
+  footer nav,
+  .no-print,
+  form,
+  button,
+  input,
+  select,
+  textarea,
+  dialog,
+  [data-dice-tray],
+  [data-token-controls] {
+    display: none !important;
+  }
+
+  /* Single-column handout flow. */
+  main {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Expand collapsed sections so nothing is lost on paper. */
+  details {
+    display: block;
+  }
+  details > summary {
+    list-style: none;
+  }
+  details > summary::after {
+    content: " (expanded for print)";
+    font-style: italic;
+  }
+
+  /* Redacted placeholders stay visible as text, not color. */
+  .secret-redacted {
+    border: 1px solid #000;
+    padding: 0.1em 0.4em;
+  }
+  .secret-redacted::before {
+    content: "[redacted] ";
+    font-weight: bold;
+  }
+
+  /* Never color-only: badges keep their text labels; links print targets. */
+  a {
+    color: #000;
+    text-decoration: underline;
+  }
+  a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 0.85em;
+  }
+
+  body {
+    background: #fff;
+    color: #000;
+    font-size: 12pt;
+    line-height: 1.5;
+  }
+
+  /* Keep headings with their content; avoid orphan map/token blocks. */
+  h1, h2, h3, figure, table {
+    break-inside: avoid;
+  }
+}
