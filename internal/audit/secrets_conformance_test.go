@@ -1,18 +1,24 @@
-// Conformance of the frozen secrets.* signatures against p03.
+// Conformance of the real secrets.* implementation against the
+// gate-amended p03 (WIDEN): editable-by-non-owner SEES `-` blocks (page,
+// snippet, embed, TOC, HTML scrub paths); path-grant holders (NOT
+// editable-by) read the page but NOT `-` blocks; other-player/guest/revoked
+// get ErrNotFound (uniform 404 upstream), never titles/paths/snippets.
 //
-// Lane F1 owns internal/secrets (Filter + read handlers). This file asserts
-// the p03 spec through the frozen signatures — GM/owner/editable-by read
-// secret pages and `-` blocks; other-player/guest/revoked get uniform-404
-// semantics (no titles, no paths, no snippets) — but SKIPS while F1's
-// implementation is still the Phase-0 stub (Filter returns nil, nil).
+// Cells asserting WIDEN are marked; where the merged product code still
+// denies editable-by, the cell is RED — the finding, owned by the amend
+// implementers. This lane carries no product code (red line).
 //
-// Integration delta: delete the secretsImplemented gate (keep the cases)
-// once origin/lane/F1-read compiles; the same cases then run for real.
-// NEVER copy F1's code into this branch to satisfy them.
+// Signature note: the integration tree keeps the original
+// CanViewBlock(viewer, block, pageOwner) / FilterBlocks(viewer, blocks,
+// pageOwner) / ChunkVisible(secret, owner, viewer) shapes — the brief's
+// amended editableBy parameters do not exist in the tree. Tests call the
+// real signatures; threading page editable-by through the block paths is
+// part of the pending amend work.
 package audit
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -40,17 +46,18 @@ Public intro line.
 > Alice sees this expanded.
 `
 
-// secretsImplemented detects the Phase-0 stub without panicking on its
-// nil, nil return. False => F1 has not landed; conformance skips.
-func secretsImplemented(t *testing.T) bool {
-	t.Helper()
-	page, err := markdown.Parse(context.Background(), conformanceSecretMD, "secret.md")
-	if err != nil || page == nil {
-		t.Fatalf("fixture must parse: %v", err)
+func conformanceViewers() map[string]*auth.Viewer {
+	return map[string]*auth.Viewer{
+		"gm":      {UserID: "gm", IsGM: true},
+		"owner":   {UserID: "alice", OwnedSlugs: []string{"secret.md"}},
+		"grantee": {UserID: "bob"},
+		// pathgrant is scoped to secret.md without being editable-by.
+		"pathgrant": {UserID: "dave", Grants: []string{"secret.md"}},
+		"other":     {UserID: "carol"},
+		"guest":     nil,
+		"revoked":   nil,
+		"preview":   {UserID: "gm", IsGM: true, PreviewAs: "carol"},
 	}
-	v := &auth.Viewer{UserID: "alice", OwnedSlugs: []string{"secret.md"}}
-	got, err := secrets.Filter(v, page)
-	return err == nil && got != nil
 }
 
 func conformancePage(t *testing.T) *markdown.Page {
@@ -62,102 +69,131 @@ func conformancePage(t *testing.T) *markdown.Page {
 	return page
 }
 
-// TestSecretsFilterConformance asserts p03 through secrets.Filter once F1
-// implements it. Skipped until then (see secretsImplemented).
+func blockTexts(blocks []markdown.Block) string {
+	var b strings.Builder
+	for _, blk := range blocks {
+		b.WriteString("\x00" + blk.Type + "\x00" + blk.Content)
+	}
+	return b.String()
+}
+
+// TestSecretsFilterConformance asserts p03 through secrets.Filter.
 func TestSecretsFilterConformance(t *testing.T) {
-	if !secretsImplemented(t) {
-		t.Skip("F1 not implemented: secrets.Filter is still the Phase-0 stub; enable when origin/lane/F1-read compiles")
-	}
 	page := conformancePage(t)
-	viewers := map[string]*auth.Viewer{
-		"gm":      {UserID: "gm", IsGM: true},
-		"owner":   {UserID: "alice", OwnedSlugs: []string{"secret.md"}},
-		"grantee": {UserID: "bob"},
-		"other":   {UserID: "carol"},
-		"guest":   nil,
-		"revoked": nil,
-		"preview": {UserID: "gm", IsGM: true, PreviewAs: "carol"},
-	}
-	// Readers see the secret content; non-readers must see no secret text,
-	// no secret title, and no secret blocks (exact carrier — error, nil, or
-	// redacted copy — is F1's choice; leakage is not).
-	for _, name := range []string{"gm", "owner", "grantee"} {
+	viewers := conformanceViewers()
+
+	// GM + owner read everything, `-` included.
+	for _, name := range []string{"gm", "owner"} {
 		got, err := secrets.Filter(viewers[name], page)
 		if err != nil || got == nil {
 			t.Fatalf("viewer=%s: legitimate read blocked (err=%v)", name, err)
 		}
-		if !strings.Contains(got.Content, "seven seven seven") && !strings.Contains(got.HTML, "seven seven seven") {
-			t.Fatalf("viewer=%s: secret content missing after filter", name)
+		if !strings.Contains(blockTexts(got.Blocks), "seven seven seven") {
+			t.Fatalf("viewer=%s: `-` block missing after filter", name)
+		}
+		if !strings.Contains(got.HTML, "seven seven seven") {
+			t.Fatalf("viewer=%s: `-` HTML missing after filter", name)
 		}
 	}
+
+	// WIDEN: editable-by reads `-` through every render path.
+	// RED until the amend lands in secrets.Filter's block paths.
+	got, err := secrets.Filter(viewers["grantee"], page)
+	if err != nil || got == nil {
+		t.Fatalf("grantee: page gate blocked editable-by holder (err=%v)", err)
+	}
+	if !strings.Contains(blockTexts(got.Blocks), "seven seven seven") {
+		t.Errorf("grantee WIDEN: `-` block withheld from editable-by holder")
+	}
+	if !strings.Contains(got.HTML, "seven seven seven") {
+		t.Errorf("grantee WIDEN: `-` HTML scrubbed for editable-by holder")
+	}
+
+	// Path-grant holder reads the page but NOT `-` blocks.
+	got, err = secrets.Filter(viewers["pathgrant"], page)
+	if err != nil || got == nil {
+		t.Fatalf("pathgrant: page gate blocked grant holder (err=%v)", err)
+	}
+	if strings.Contains(blockTexts(got.Blocks), "seven seven seven") {
+		t.Fatalf("pathgrant: `-` block leaked to grant holder")
+	}
+
+	// Non-readers get ErrNotFound (uniform 404 upstream), never content.
 	for _, name := range []string{"other", "guest", "revoked", "preview"} {
 		got, err := secrets.Filter(viewers[name], page)
-		if err != nil || got == nil {
-			continue // denied outright: uniform-404 compatible
+		if !errors.Is(err, secrets.ErrNotFound) || got != nil {
+			t.Fatalf("viewer=%s: want ErrNotFound+nil, got page=%v err=%v", name, got != nil, err)
 		}
-		flat := got.Title + "\x00" + got.Content + "\x00" + got.HTML
-		for _, b := range got.Blocks {
-			flat += "\x00" + b.Content
-		}
-		if strings.Contains(flat, "seven seven seven") || strings.Contains(flat, "Secret Plans") {
-			t.Fatalf("viewer=%s: secret content/title leaked through Filter", name)
-		}
+	}
+
+	// Original page is never mutated by filtering.
+	if !strings.Contains(blockTexts(page.Blocks), "seven seven seven") {
+		t.Fatalf("Filter mutated the source page")
 	}
 }
 
-// TestSecretsHelpersConformance pins CanViewSecret / CanViewBlock /
-// FilterBlocks / FilterSearchResult to p03 once implemented.
+// TestSecretsHelpersConformance pins CanViewPage / CanViewSecret /
+// CanViewBlock / FilterBlocks / FilterSearchResult to amended p03.
 func TestSecretsHelpersConformance(t *testing.T) {
-	if !secretsImplemented(t) {
-		t.Skip("F1 not implemented: secrets.* are still Phase-0 stubs; enable when origin/lane/F1-read compiles")
-	}
 	page := conformancePage(t)
-	owner := &auth.Viewer{UserID: "alice", OwnedSlugs: []string{"secret.md"}}
-	grantee := &auth.Viewer{UserID: "bob"}
-	other := &auth.Viewer{UserID: "carol"}
-	gm := &auth.Viewer{UserID: "gm", IsGM: true}
+	viewers := conformanceViewers()
+	gm, owner, grantee := viewers["gm"], viewers["owner"], viewers["grantee"]
+	pathgrant, other := viewers["pathgrant"], viewers["other"]
 
 	if !secrets.CanViewSecret(gm, page) || !secrets.CanViewSecret(owner, page) {
 		t.Fatalf("gm/owner must view secret page")
 	}
 	if !secrets.CanViewSecret(grantee, page) {
-		t.Fatalf("editable-by holder must view secret page (p03)")
+		t.Fatalf("editable-by holder must view secret page (p03 page gate)")
 	}
 	if secrets.CanViewSecret(other, page) || secrets.CanViewSecret(nil, page) {
 		t.Fatalf("other-player/guest must not view secret page")
 	}
+	// Path grants open the page gate without editable-by membership.
+	if !secrets.CanViewPage(pathgrant, true, "secret.md", "alice", []string{"bob"}) {
+		t.Fatalf("grant holder must pass the page gate")
+	}
 
-	var minus, plus markdown.Block
+	var minus markdown.Block
+	found := false
 	for _, b := range page.Blocks {
-		switch {
-		case b.Type == "secret" && b.Secret:
-			minus = b
-		case b.Type == "secret" && !b.Secret:
-			plus = b
+		if b.Type == "secret" && b.Secret {
+			minus, found = b, true
 		}
 	}
-	if minus.Content == "" {
+	if !found {
 		t.Fatalf("fixture lost its `-` block")
 	}
-	// p03: `-` visible to GM + page owner/editable-by, hidden from party.
-	for _, v := range []*auth.Viewer{gm, owner, grantee} {
-		if !secrets.CanViewBlock(v, minus, "alice") {
-			t.Fatalf("viewer=%s must see `-` block", v.UserID)
-		}
+	if !secrets.CanViewBlock(gm, minus, "alice") || !secrets.CanViewBlock(owner, minus, "alice") {
+		t.Fatalf("gm/owner must see `-` block")
+	}
+	// WIDEN: editable-by sees `-`. RED until the amend lands.
+	if !secrets.CanViewBlock(grantee, minus, "alice") {
+		t.Errorf("grantee WIDEN: CanViewBlock denied editable-by holder")
+	}
+	// Grants do NOT open `-`; party/guests never see it.
+	if secrets.CanViewBlock(pathgrant, minus, "alice") {
+		t.Fatalf("pathgrant: `-` block leaked to grant holder")
 	}
 	if secrets.CanViewBlock(other, minus, "alice") || secrets.CanViewBlock(nil, minus, "alice") {
 		t.Fatalf("`-` block leaked to party/guest")
 	}
-	_ = plus
 
-	filtered, err := secrets.FilterBlocks(nil, page.Blocks)
+	// Guest render path: `-` becomes a labeled placeholder, never content.
+	filtered, err := secrets.FilterBlocks(nil, page.Blocks, "alice")
 	if err != nil {
 		t.Fatalf("FilterBlocks: %v", err)
 	}
-	for _, b := range filtered {
-		if strings.Contains(b.Content, "seven seven seven") {
-			t.Fatalf("FilterBlocks leaked `-` content to guest")
-		}
+	if strings.Contains(blockTexts(filtered), "seven seven seven") {
+		t.Fatalf("FilterBlocks leaked `-` content to guest")
+	}
+	// WIDEN: editable-by keeps `-` through FilterBlocks. RED until amend.
+	filtered, err = secrets.FilterBlocks(grantee, page.Blocks, "alice")
+	if err != nil {
+		t.Fatalf("FilterBlocks: %v", err)
+	}
+	if !strings.Contains(blockTexts(filtered), "seven seven seven") {
+		t.Errorf("grantee WIDEN: FilterBlocks withheld `-` from editable-by holder")
 	}
 
 	hit := &secrets.SearchResult{Path: "secret.md", Title: "Secret Plans", Snippet: "seven seven seven", Score: 1, Secret: true}
