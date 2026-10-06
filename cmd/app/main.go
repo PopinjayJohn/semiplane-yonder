@@ -85,7 +85,11 @@ func main() {
 		slog.Error("store init", "error", err)
 		os.Exit(1)
 	}
-	defer s.Close()
+	defer func() {
+		if err := s.Close(); err != nil {
+			slog.Error("store close", "error", err)
+		}
+	}()
 
 	// Run app migrations (<name>.app.db; never rebuilt). Index schema
 	// (migrations/index/) is applied by the reindex path to a temp DB.
@@ -162,5 +166,7 @@ func main() {
 	slog.Info("shutting down")
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
-	server.Shutdown(shutdownCtx)
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		slog.Error("server shutdown", "error", err)
+	}
 }

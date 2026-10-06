@@ -13,6 +13,8 @@ func NewEngine() *Engine {
 // Core P12 = generic dice engine + transport; evaluator is a dumb engine, bases supply the programs.
 // Hand-rolled arithmetic/boolean engine in core executing base data rules.
 // Bounds: depth 32, 256 literals, checked 64-bit.
+//
+//nolint:unused // Phase-0 stub: stack consumed by Lane H2 Evaluate in Phase 3.
 type Engine struct {
 	base      *Ruleset
 	overlay   *Ruleset

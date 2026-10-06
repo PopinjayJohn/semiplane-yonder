@@ -23,7 +23,7 @@ jobs:
       - name: gofmt
         run: test -z "$(gofmt -l .)"
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v8
       - name: unit + fuzz-short
         run: go test ./...
       # snapshot + axe land in Lane E2 (Phase 1); placeholders below.

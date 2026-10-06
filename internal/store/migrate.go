@@ -91,10 +91,6 @@ func (r *MigrationRunner) applyDir(ctx context.Context, db *sql.DB, dir string) 
 	return nil
 }
 
-func (r *MigrationRunner) currentVersion(ctx context.Context) (int, error) {
-	return currentVersion(ctx, r.db)
-}
-
 func currentVersion(ctx context.Context, db *sql.DB) (int, error) {
 	var version int
 	err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version)
