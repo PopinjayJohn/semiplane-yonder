@@ -1,0 +1,35 @@
+{
+  "started_at": "2026-10-06T14:30:42Z",
+  "goos": "linux",
+  "goarch": "amd64",
+  "num_cpu": 8,
+  "num_files": 5000,
+  "db_bytes": 21643264,
+  "phases": [
+    {
+      "name": "migrate",
+      "duration_ms": 2,
+      "detail": "index migrations to empty db"
+    },
+    {
+      "name": "seed-cold",
+      "duration_ms": 1091,
+      "detail": "5000 pages + links"
+    },
+    {
+      "name": "warm-rescan",
+      "duration_ms": 9,
+      "detail": "rewrite 1 page + reread"
+    },
+    {
+      "name": "search-guest",
+      "duration_ms": 36,
+      "detail": "5000 matched, 4500 visible, 500 secret suppressed"
+    },
+    {
+      "name": "search-owner",
+      "duration_ms": 39,
+      "detail": "500 own secret pages visible"
+    }
+  ]
+}
