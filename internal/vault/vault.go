@@ -20,6 +20,8 @@ func NewVault(root string) (*Vault, error) {
 }
 
 // ReadFile reads a file from the vault.
+// Path is vault-relative posix; lookup is case-insensitive, errors and
+// events report the display (source-case) path.
 func (v *Vault) ReadFile(ctx context.Context, path string) ([]byte, error) {
 	return nil, nil // not implemented
 }
@@ -37,7 +39,9 @@ func (v *Vault) DeleteFile(ctx context.Context, path string) error {
 	return nil // not implemented
 }
 
-// RenameFile renames a file in the vault (delete + create with ACL preservation).
+// RenameFile renames a file in the vault.
+// Phase 0c: rename = delete + create with ACL preservation (owner and
+// grants move to the new path; no merge, no widening).
 func (v *Vault) RenameFile(ctx context.Context, oldPath, newPath string) error {
 	return nil // not implemented
 }

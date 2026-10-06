@@ -7,25 +7,33 @@ import (
 // Parse parses markdown content into a Page structure.
 // This is the frozen contract - Lane A owns implementation.
 // Uses goldmark with Obsidian extensions.
+// Phase 0c: never fails on bad frontmatter — quarantines instead
+// (sets Page.Quarantined + QuarantineReason, preserves raw content).
 func Parse(ctx context.Context, content string, path string) (*Page, error) {
 	return nil, nil // not implemented
 }
 
 // Page represents a parsed markdown page with frontmatter and AST.
 type Page struct {
-	Path        string
+	Path        string // vault-relative posix path (page ID); lookup case-insensitive, display preserving
 	Title       string
 	Content     string // raw markdown
 	HTML        string // rendered HTML
 	Frontmatter Frontmatter
-	AST         any // goldmark AST (opaque to callers)
-	Secret      bool
-	Owner       string
-	EditableBy  []string
-	Blocks      []Block
-	Links       []Link
-	Embeds      []Embed
-	TOC         []TOCEntry
+	// Quarantined marks pages whose frontmatter failed to parse (Phase 0c):
+	// Parse never fails on bad frontmatter — it preserves the raw content,
+	// sets Quarantined + QuarantineReason, and renderers show a GM warning
+	// banner instead of crashing. Never silently dropped.
+	Quarantined      bool
+	QuarantineReason string
+	AST              any // goldmark AST (opaque to callers)
+	Secret           bool
+	Owner            string
+	EditableBy       []string
+	Blocks           []Block
+	Links            []Link
+	Embeds           []Embed
+	TOC              []TOCEntry
 }
 
 // Frontmatter represents parsed YAML frontmatter.

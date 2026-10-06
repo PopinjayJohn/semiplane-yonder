@@ -21,6 +21,8 @@ type Engine struct {
 }
 
 // LoadBase loads a base ruleset (dnd, coc, etc.).
+// Phase 0c: sources are vault packs under rules/ (installed via template
+// import, never bundled in the binary); this method only registers them.
 func (e *Engine) LoadBase(rs *Ruleset) error {
 	return nil // not implemented
 }

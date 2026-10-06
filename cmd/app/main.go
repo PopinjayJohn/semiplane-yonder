@@ -28,24 +28,26 @@ var (
 
 func main() {
 	var (
-		vaultPath string
-		dataDir   string
-		addr      string
-		initBare  bool
-		initTmpl  string
-		reindex   bool
-		rotateKey bool
-		resetPass string
-		printVer  bool
+		vaultPath   string
+		dataDir     string
+		addr        string
+		initBare    bool
+		initTmpl    string
+		reindex     bool
+		rotateKey   bool
+		resetPass   string
+		transferOwn string
+		printVer    bool
 	)
 	flag.StringVar(&vaultPath, "vault", "", "Path to vault directory (required)")
-	flag.StringVar(&dataDir, "data-dir", "", "Path to data directory (default: vault/.data)")
+	flag.StringVar(&dataDir, "data-dir", "", "Path to data directory (default: sibling <vault>-data/, never inside the vault)")
 	flag.StringVar(&addr, "addr", ":8080", "Listen address")
 	flag.BoolVar(&initBare, "init-bare", false, "Initialize bare vault + GM user")
 	flag.StringVar(&initTmpl, "init-template", "", "Initialize from template (pinned URL)")
 	flag.BoolVar(&reindex, "reindex", false, "Rebuild index database")
 	flag.BoolVar(&rotateKey, "rotate-session-key", false, "Rotate session signing key")
 	flag.StringVar(&resetPass, "reset-password", "", "Reset password for user")
+	flag.StringVar(&transferOwn, "transfer-ownership", "", "Transfer page/character ownership old-user:new-user (Phase 0c; Lane E1 implements)")
 	flag.BoolVar(&printVer, "version", false, "Print version and exit")
 	flag.Parse()
 
@@ -58,6 +60,13 @@ func main() {
 		slog.Error("vault path required")
 		flag.Usage()
 		os.Exit(1)
+	}
+
+	// Phase 0c: one process serves one vault; data files live beside the
+	// vault, never inside it. transfer-ownership dispatch lands in Lane E1.
+	_ = transferOwn
+	if dataDir == "" && vaultPath != "" {
+		dataDir = vaultPath + "-data"
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

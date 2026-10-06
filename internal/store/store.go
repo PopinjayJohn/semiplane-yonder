@@ -17,7 +17,8 @@ import (
 // Migrations in migrations/*.sql cover the app DB (Lane B owns contents,
 // Lane E2 owns the runner); the index DB is rebuilt, not migrated.
 type Store interface {
-	// Page operations
+	// Page operations. Paths are vault-relative posix page IDs: lookup is
+	// case-insensitive, display preserves source case (Phase 0c).
 	PageGet(ctx context.Context, path string) (*Page, error)
 	PageList(ctx context.Context, opts PageListOptions) ([]*Page, error)
 	PageUpsert(ctx context.Context, page *Page) error

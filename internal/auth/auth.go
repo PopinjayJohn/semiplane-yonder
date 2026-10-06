@@ -30,8 +30,9 @@ type Viewer struct {
 	OwnedSlugs []string
 	// Grants are explicit ACL grants for this viewer (editable-by, etc.)
 	Grants []string
-	// PreviewAs is the impersonated user ID for GM preview (GM-only, bannered
-	// + logged). Empty = no impersonation. String (not nested Viewer) so
+	// PreviewAs is the impersonated user ID for GM preview (GM-only).
+	// Consumers must render a persistent banner and log every previewed
+	// request. Empty = no impersonation. String (not nested Viewer) so
 	// impersonation cannot chain.
 	PreviewAs string
 }
