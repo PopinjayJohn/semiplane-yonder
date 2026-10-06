@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/semiplane/yonder/internal/auth"
+	_ "github.com/semiplane/yonder/internal/markdown" // ensure parser registration
 	"github.com/semiplane/yonder/internal/store"
 	"github.com/semiplane/yonder/internal/vault"
 	"github.com/semiplane/yonder/internal/web"
-	_ "github.com/semiplane/yonder/internal/markdown" // ensure parser registration
 )
 
 //go:embed static/print.css
