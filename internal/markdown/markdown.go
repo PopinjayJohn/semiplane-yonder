@@ -1,18 +1,5 @@
 package markdown
 
-import (
-	"context"
-)
-
-// Parse parses markdown content into a Page structure.
-// This is the frozen contract - Lane A owns implementation.
-// Uses goldmark with Obsidian extensions.
-// Phase 0c: never fails on bad frontmatter — quarantines instead
-// (sets Page.Quarantined + QuarantineReason, preserves raw content).
-func Parse(ctx context.Context, content string, path string) (*Page, error) {
-	return nil, nil // not implemented
-}
-
 // Page represents a parsed markdown page with frontmatter and AST.
 type Page struct {
 	Path        string // vault-relative posix path (page ID); lookup case-insensitive, display preserving
@@ -30,10 +17,16 @@ type Page struct {
 	Secret           bool
 	Owner            string
 	EditableBy       []string
-	Blocks           []Block
-	Links            []Link
-	Embeds           []Embed
-	TOC              []TOCEntry
+	// Tags holds deduplicated `#tag` references from the body, in first-use
+	// order (PROPOSED AMEND: new field on the frozen Page shape — the store
+	// index needs a tags table per p04 but Page has no slot for body tags;
+	// frontmatter `tags` stay in Frontmatter. Additive only; safe to revert
+	// to deriving tags at the read path if rejected).
+	Tags   []string
+	Blocks []Block
+	Links  []Link
+	Embeds []Embed
+	TOC    []TOCEntry
 }
 
 // Frontmatter represents parsed YAML frontmatter.

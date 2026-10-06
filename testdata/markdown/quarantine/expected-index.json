@@ -1,0 +1,46 @@
+{
+  "path": "quarantine.md",
+  "title": "Broken Page",
+  "secret": true,
+  "frontmatter": {
+    "title": "Broken Page"
+  },
+  "links": [],
+  "embeds": [],
+  "toc": [
+    {
+      "Level": 1,
+      "Title": "Broken Page",
+      "Anchor": "broken-page",
+      "Secret": false
+    }
+  ],
+  "blocks": [
+    {
+      "Type": "heading",
+      "Content": "Broken Page",
+      "Level": 1,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 8,
+        "Column": 3,
+        "Offset": 84
+      }
+    },
+    {
+      "Type": "paragraph",
+      "Content": "Body still parses and renders; the page is quarantined and fails closed.",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 10,
+        "Column": 1,
+        "Offset": 97
+      }
+    }
+  ],
+  "quarantined": true,
+  "quarantineReason": "bad type for frontmatter key \"owner\": want string; bad type for frontmatter key \"secret\": want bool; bad value for frontmatter key \"status\": want hook|active|done|conflict"
+}
