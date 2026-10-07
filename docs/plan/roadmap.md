@@ -1,9 +1,9 @@
 # Milestones + Phased Implementation (parallel-subagent order)
 
 ## Status (single source — phase agents read this, humans update it)
-- Current phase: **Phase 2 (G2 rolled back to pending 2026-10-07 — serve-after-init defect; see `lanes/G2-amend.md`)**
-- Gates: G0 **GO** · G1 **GO** · G2 **pending (rolled back 2026-10-07)** · G3 pending · G4 pending
-- Lanes: Phase 2 done (`lane/F1-read`, `lane/F2-write`, `lane/G-audit`); amend open (B writes `0002`, C verifies, E2 adds serve smoke); Phase 3 (H1/H2/I1/I2) ready, H1 dispatch blocked on re-gate
+- Current phase: **Phase 3** (G2 GO 2026-10-07 — R1 reindex wiring landed as PR #11; live M1 demo re-run green on the documented flow: guest/owner/grantee/other/GM matrix, byte-identical 404s, `-`-block visibility, search/FTS per-viewer, GM flip delivery over SSE with no guest title leak, 3-OS binaries, 5k bench, leak matrix; evidence in `lanes/G2-amend.md`)
+- Gates: G0 **GO** · G1 **GO** · G2 **GO (2026-10-07)** · G3 pending · G4 pending
+- Lanes: Phase 2 done + amends landed (0002, serve-smoke, A-parser, R1-reindex, p01-demo, SRD snapshot); Phase 3 (H1/H2/I1/I2) dispatched
 - Rule: the phase agent runs the phase named here and dispatches exactly its lanes
   (briefs in `docs/plan/lanes/`). Advance `Current phase` only on its gate's GO.
 
