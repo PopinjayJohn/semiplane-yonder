@@ -71,7 +71,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: false
       - name: axe on P01 pages (skips until pages are served)
         run: ./tools/axe/check.sh
 
