@@ -7,6 +7,7 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,14 +47,11 @@ func findChunk(chunks []store.ParsedBlock, want string) (store.ParsedBlock, bool
 
 func TestParsePageSRDSpotCheck(t *testing.T) {
 	ctx := context.Background()
-	// NOTE (finding for Lane A, not this amend): these SRD files quarantine
-	// under the frozen YAML-subset parser — `cssclasses:`/`tags:` use
-	// column-0 `- ` items (`key:\n- item`, valid full-YAML) which
-	// parseYAMLSubset rejects with "unexpected content". Parse fails closed
-	// by design (Secret forced true, frontmatter dropped), and the adapter
-	// must pass that through faithfully — no parser changes per red lines.
-	// "Sane" here: title recovered from H1, body chunks carry real phrases,
-	// and the fail-closed flags are preserved end to end.
+	// Post-Lane-A-amend: same-indent block sequences (`cssclasses:\n- item`)
+	// parse, so SRD frontmatter survives with unknown keys intact (kept for
+	// `rules lint`). "Sane" here: title recovered (H1 fallback where needed),
+	// frontmatter keys preserved, no secret/owner invented (SRD files carry
+	// neither key), body chunks carry real phrases.
 	cases := []struct {
 		fixture string
 		title   string
@@ -72,12 +70,18 @@ func TestParsePageSRDSpotCheck(t *testing.T) {
 			if pp.Title != tc.title {
 				t.Errorf("title = %q, want %q", pp.Title, tc.title)
 			}
-			// Fail-closed passthrough: quarantined ⇒ secret, ownerless.
-			if !pp.Secret || pp.Owner != "" {
-				t.Errorf("quarantine flags: secret=%v owner=%q, want true/\"\"", pp.Secret, pp.Owner)
+			// No secret/owner keys in SRD frontmatter: nothing invented.
+			if pp.Secret || pp.Owner != "" {
+				t.Errorf("flags: secret=%v owner=%q, want false/\"\"", pp.Secret, pp.Owner)
 			}
-			if pp.FrontmatterJSON != "{}" {
-				t.Errorf("quarantined frontmatter JSON = %q, want {}", pp.FrontmatterJSON)
+			var fm map[string]any
+			if err := json.Unmarshal([]byte(pp.FrontmatterJSON), &fm); err != nil {
+				t.Fatalf("frontmatter JSON: %v", err)
+			}
+			for _, k := range []string{"aliases", "cssclasses", "obsidianUIMode", "tags"} {
+				if _, ok := fm[k]; !ok {
+					t.Errorf("frontmatter missing key %q: %s", k, pp.FrontmatterJSON)
+				}
 			}
 			if len(pp.Chunks) == 0 {
 				t.Fatalf("no chunks parsed from %s", tc.fixture)
