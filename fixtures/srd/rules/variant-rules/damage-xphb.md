@@ -1,0 +1,13 @@
+---
+obsidianUIMode: preview
+cssclasses:
+- json5e-note
+tags:
+- compendium/src/5e/xphb
+aliases:
+- "Damage"
+---
+# Damage
+*Source: SRD 5.2 and the Free Rules (2024)* 
+
+Damage represents harm that causes a creature or an object to lose [Hit Points](rules/variant-rules/hit-points-xphb.md).
