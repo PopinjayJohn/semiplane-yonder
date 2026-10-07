@@ -1,0 +1,19 @@
+---
+obsidianUIMode: preview
+cssclasses:
+- json5e-item
+tags:
+- compendium/src/5e/xdmg
+- item/rarity/uncommon
+- item/wondrous/wand
+aliases:
+- "Wand of Magic Detection"
+---
+# Wand of Magic Detection
+*Wand, uncommon*  
+
+- **Weight**: 1.0 lbs.
+
+This wand has 3 charges. While holding it, you can expend 1 charge to cast [Detect Magic](compendium/spells/detect-magic-xphb.md) from it. The wand regains `1d3` expended charges daily at dawn.
+
+*Source: SRD 5.2 and the Free Rules (2024)*

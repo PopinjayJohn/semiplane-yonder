@@ -56,3 +56,10 @@
 - `:memory:` SQLite does not survive `database/sql` pooling → file-backed temp DBs in tests (Lane E2).
 - `make check`'s `git diff --exit-code` is worktree-global; shared lane checkouts fail from siblings' dirt → scope cleanliness claims to `git diff <base>..<lane> --stat`, and always `git branch --show-current` before commit; prefer isolated worktrees over `checkout` in shared trees (D1/A/B/E1/E2).
 - Migration runner tests must follow the schema owner's current SQL (B owns contents, E2 runs them) → E2's FTS sanity rewritten for chunk-granular `blocks_fts` + `path_fold`, no triggers (gate).
+- Two DDL sources on one DB silently diverge (`CREATE TABLE IF NOT EXISTS` no-ops on the other's tables, then index/column refs fail at runtime) → interim `Ensure*Schema` must be covered by a migrate-then-Ensure test on a single DB, and serve-after-init must be a CI smoke, not just unit-tested (G2 rollback).
+- `wireHandlers` computed the index path as `Dir(vault)/Base.index.db` while every other command uses the `dataPaths` sibling `-data/` dir → serve read an empty index and 404'd every page; single path source (G2 amend).
+- A mux catch-all that re-serves its own mux recurses infinitely → stack overflow on the first request; catch-alls must never re-serve their own mux (G2 amend).
+- Exact-string route matching silently drops parameterized routes → match prefix patterns by subtree (G2 amend).
+- Stamping `PRAGMA user_version=N` without that era's tables makes the next migration fail → build the era, don't just stamp (G2 amend).
+- Shell JSON assertions must grep quoted `"visible":false`, never bare `visible:false` — the latter silently never matches (G2 amend).
+- Fixed past timestamps in migration seeds silently read as expired with `strftime('%s','now')` comparisons → seed time-relative wall-clock values (G2 amend).
