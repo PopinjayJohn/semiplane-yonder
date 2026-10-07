@@ -1,0 +1,21 @@
+---
+obsidianUIMode: preview
+cssclasses:
+- json5e-item
+tags:
+- compendium/src/5e/xdmg
+- item/rarity/very-rare
+- item/wondrous/potion
+aliases:
+- "Potion of Longevity"
+---
+# Potion of Longevity
+*Potion, very rare*  
+
+- **Weight**: 0.5 lbs.
+
+When you drink this potion, your physical age is reduced by `1d6 + 6` years, to a minimum of 13 years. Each time you subsequently drink a Potion of Longevity, there is 10 percent cumulative chance that you instead age by `1d6 + 6` years.
+
+Suspended in this amber liquid is a tiny heart that, against all reason, is still beating. These ingredients vanish when the potion is opened.
+
+*Source: SRD 5.2 and the Free Rules (2024)*

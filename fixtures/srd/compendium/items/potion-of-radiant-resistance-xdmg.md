@@ -1,0 +1,17 @@
+---
+obsidianUIMode: preview
+cssclasses:
+- json5e-item
+tags:
+- compendium/src/5e/xdmg
+- item/rarity/uncommon
+- item/wondrous/potion
+aliases:
+- "Potion of Radiant Resistance"
+---
+# Potion of Radiant Resistance
+*Potion, uncommon*  
+
+- **Weight**: 0.5 lbs.
+
+*Source: SRD 5.2 and the Free Rules (2024)*

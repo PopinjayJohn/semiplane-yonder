@@ -1,0 +1,13 @@
+---
+obsidianUIMode: preview
+cssclasses:
+- json5e-note
+tags:
+- compendium/src/5e/xphb
+aliases:
+- "Per Day"
+---
+# Per Day
+*Source: SRD 5.2 and the Free Rules (2024)* 
+
+If a rule says you can use something a certain number of times per day, that means you must finish a [Long Rest](rules/variant-rules/long-rest-xphb.md) to use it again after you run out of uses.

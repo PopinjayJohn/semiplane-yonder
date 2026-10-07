@@ -1,0 +1,13 @@
+---
+obsidianUIMode: preview
+cssclasses:
+- json5e-note
+tags:
+- compendium/src/5e/xphb
+aliases:
+- "Dim Light"
+---
+# Dim Light
+*Source: SRD 5.2 and the Free Rules (2024)* 
+
+An area with Dim Light is [Lightly Obscured](rules/variant-rules/lightly-obscured-xphb.md).
