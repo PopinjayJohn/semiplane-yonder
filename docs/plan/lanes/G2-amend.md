@@ -89,3 +89,17 @@ binaries, 5k benchmark re-run. Leak-matrix unit tests are green in `go test`.
 - R2 (budgets page-weight-proxy/theme-weight/plugin-css SKIP): ACCEPTED —
   SKIP-by-design until Phase 3+ UI (core/themes) and I2 (plugins) provide
   subjects. `rendered-page` proxy already PASSes.
+
+## Demo-vault findings (from `fixtures/p01-demo` seeding, 2026-10-07)
+- F1 (re-gate relevant): `runReindex` (`cmd/app/ops.go`) builds an EMPTY
+  index — schema + file count only, no page-row import ("pending Lane A/B").
+  The documented `make dev` / `--vault fixtures/p01` flow therefore 404s every
+  page; live serving needed a throwaway `store.Reindex` helper. Wiring page
+  import into the reindex CLI (E1 CLI + A/B parse→index API) is required
+  before the re-gate live demo can use the documented flow — file as work
+  item, owner TBD (E1 with A/B API).
+- F2 (backlog): live `/graph` returns `"edges":null` even for GM — the
+  indexer stores raw wikilink targets (`cinder-pact`) but the graph handler
+  matches against page paths (`cinder-pact.md`). Handler tests mask it
+  (fakeStore returns extensioned targets). Owner TBD (B index shape or F1
+  handler normalization); leak-filtering still holds vacuously.
