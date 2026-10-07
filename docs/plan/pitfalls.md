@@ -63,3 +63,4 @@
 - Stamping `PRAGMA user_version=N` without that era's tables makes the next migration fail → build the era, don't just stamp (G2 amend).
 - Shell JSON assertions must grep quoted `"visible":false`, never bare `visible:false` — the latter silently never matches (G2 amend).
 - Fixed past timestamps in migration seeds silently read as expired with `strftime('%s','now')` comparisons → seed time-relative wall-clock values (G2 amend).
+- YAML allows a block sequence at the *same* indent as its parent mapping key (`key:\n- item`) → a strict `child.indent > key.indent` check misquarantines valid Obsidian output; branch on `== indent` + `- ` prefix instead of relaxing indentation globally (Lane A amend).
