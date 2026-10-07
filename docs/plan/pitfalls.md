@@ -64,3 +64,4 @@
 - Shell JSON assertions must grep quoted `"visible":false`, never bare `visible:false` — the latter silently never matches (G2 amend).
 - Fixed past timestamps in migration seeds silently read as expired with `strftime('%s','now')` comparisons → seed time-relative wall-clock values (G2 amend).
 - YAML allows a block sequence at the *same* indent as its parent mapping key (`key:\n- item`) → a strict `child.indent > key.indent` check misquarantines valid Obsidian output; branch on `== indent` + `- ` prefix instead of relaxing indentation globally (Lane A amend).
+- `pkill -f` with a pattern matching its own command line SIGTERMs the invoking shell (hit twice during live-demo serve/kill cycles) → kill by exact child PID or port-derived PID, never by script-text pattern.
