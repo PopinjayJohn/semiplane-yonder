@@ -161,13 +161,13 @@ func TestRunInitBareEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	var role, hash string
-	var ver int
-	if err := db.QueryRow(`SELECT role, password_hash, session_version FROM users WHERE name='merlin'`).Scan(&role, &hash, &ver); err != nil {
+	var hash string
+	var isGM, ver int
+	if err := db.QueryRow(`SELECT is_gm, password_hash, session_version FROM users WHERE name='merlin'`).Scan(&isGM, &hash, &ver); err != nil {
 		t.Fatalf("GM row missing: %v", err)
 	}
-	if role != "gm" || ver != 1 {
-		t.Errorf("bad GM row: role=%q version=%d", role, ver)
+	if isGM != 1 || ver != 1 {
+		t.Errorf("bad GM row: is_gm=%d version=%d", isGM, ver)
 	}
 	if !verifyPassword(hash, "s3cret-pass") {
 		t.Error("stored GM hash does not verify")

@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/semiplane/yonder/internal/auth"
@@ -70,11 +70,13 @@ func printCSSHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // wireHandlers builds the complete handler chain: ops endpoints (deduped),
-// then read/write handlers via the route registry.
-func wireHandlers(info buildInfo, vaultDir string, sessionStore auth.SessionStore) http.Handler {
+// then read/write handlers via the route registry. Data paths come from
+// dataPaths (sibling <vault>-data dir, sanitized names) like every other
+// command -- never Dir(vault)/Base(vault), which pointed serve at an empty
+// index. (G2 amend: serve read an empty index and 404'd every page.)
+func wireHandlers(info buildInfo, vaultDir, dataDir string, sessionStore auth.SessionStore) http.Handler {
 	// Build store, vault, and handlers.
-	indexPath := filepath.Join(filepath.Dir(vaultDir), filepath.Base(vaultDir)+".index.db")
-	appPath := filepath.Join(filepath.Dir(vaultDir), filepath.Base(vaultDir)+".app.db")
+	indexPath, appPath, _ := dataPaths(dataDir, vaultDir)
 	st, err := store.Open(indexPath, appPath)
 	if err != nil {
 		panic(err)
@@ -98,20 +100,31 @@ func wireHandlers(info buildInfo, vaultDir string, sessionStore auth.SessionStor
 	opsMux.HandleFunc("/version", versionHandler(info))
 	opsMux.HandleFunc("/static/print.css", printCSSHandler)
 
-	// Install ops handlers for paths NOT claimed by the registry.
+	// Install ops handlers for paths NOT owned by the registry.
 	regRoutes := reg.Routes()
-	claimed := make(map[string]bool)
-	for _, rt := range regRoutes {
-		claimed[rt.Path] = true
-	}
-	opsMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if claimed[r.URL.Path] {
-			// Registry owns it — fall through to registry handler.
-			http.NotFound(w, r)
-			return
+	// ownedByRegistry matches request paths against registered patterns:
+	// exact patterns match exactly, prefix patterns (mapped through
+	// toStdlibPattern, e.g. "/p/") match their subtree. Handlers extract
+	// params from r.URL.Path themselves.
+	ownedByRegistry := func(path string) bool {
+		for _, rt := range regRoutes {
+			stdpat := toStdlibPattern(rt.Path)
+			if strings.HasSuffix(stdpat, "/") {
+				if strings.HasPrefix(path, stdpat) {
+					return true
+				}
+			} else if path == stdpat {
+				return true
+			}
 		}
-		// Serve ops endpoints.
-		opsMux.ServeHTTP(w, r)
+		return false
+	}
+	// Catch-all for paths no exact ops pattern matched: the outer mux only
+	// sends registry-unowned paths here, so this is a plain 404. (It must
+	// NOT re-serve opsMux: that recursed infinitely and stack-overflowed
+	// serve on the first page request -- G2 amend.)
+	opsMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
 	})
 
 	// Build registry handler with middleware chain.
@@ -121,9 +134,9 @@ func wireHandlers(info buildInfo, vaultDir string, sessionStore auth.SessionStor
 		regHandler = buildRegistryHandler(regRoutes, sessionStore)
 	}
 
-	// Chain: ops-first for unclaimed paths, then registry.
+	// Chain: ops-first for unowned paths, then registry.
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if claimed[r.URL.Path] {
+		if ownedByRegistry(r.URL.Path) {
 			regHandler.ServeHTTP(w, r)
 		} else {
 			opsMux.ServeHTTP(w, r)
@@ -170,6 +183,8 @@ func toStdlibPattern(pattern string) string {
 		return "/p/"
 	case web.RoutePageHistory: // "/p/{path...}/history" → handled by PageView via /p/
 		return "/p/"
+	case web.RoutePageHistory + "/revert": // "/p/{path...}/history/revert" → "/p/"
+		return "/p/"
 	case web.RouteAssets: // "/assets/{path...}" → "/assets/"
 		return "/assets/"
 	case web.RouteVTT: // "/vtt/{mapID}" → "/vtt/"
@@ -215,7 +230,7 @@ func runServe(opts serveOptions, shutdown <-chan os.Signal) error {
 		return err
 	}
 
-	mux := wireHandlers(opts.info, opts.vault, sessionStore)
+	mux := wireHandlers(opts.info, opts.vault, dataDir, sessionStore)
 	server := &http.Server{
 		Addr:              opts.addr,
 		Handler:           mux,

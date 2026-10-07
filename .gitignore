@@ -8,6 +8,10 @@
 *.so
 *.dylib
 
+# Repo-root build output (G2 amend: a 23 MB `app` binary was tracked in git).
+# Anchored so only the root binary is ignored, nothing else.
+/app
+
 # Test binary, built with `go test -c`
 *.test
 
