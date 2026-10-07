@@ -461,6 +461,18 @@ func parseBlockMap(lines []yamlLine, start, indent int) (map[string]any, int, er
 				m[key] = sub
 				i = ni
 			}
+		} else if i < len(lines) && lines[i].indent == indent &&
+			(strings.HasPrefix(lines[i].text, "- ") || lines[i].text == "-") {
+			// Valid YAML/Obsidian shape: a block sequence may sit at the
+			// same indent as its parent key (`key:\n- item`). Without
+			// this the `-` line falls out of the map and dies as
+			// `unexpected content` (quarantine).
+			seq, ni, err := parseBlockSeq(lines, i, indent)
+			if err != nil {
+				return nil, i, err
+			}
+			m[key] = seq
+			i = ni
 		} else {
 			m[key] = nil
 		}

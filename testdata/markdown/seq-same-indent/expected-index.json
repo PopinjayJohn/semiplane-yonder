@@ -1,0 +1,62 @@
+{
+  "path": "seq-same-indent.md",
+  "title": "Sequence Shapes",
+  "secret": false,
+  "frontmatter": {
+    "aliases": [
+      "Goblin Warrior",
+      "Second Name"
+    ],
+    "cssclasses": [
+      "json5e-monster"
+    ],
+    "obsidianUIMode": "preview",
+    "tags": [
+      "quest",
+      "intro"
+    ],
+    "title": "Sequence Shapes"
+  },
+  "links": [],
+  "embeds": [],
+  "toc": [
+    {
+      "Level": 1,
+      "Title": "Sequence Shapes",
+      "Anchor": "sequence-shapes",
+      "Secret": false
+    }
+  ],
+  "blocks": [
+    {
+      "Type": "heading",
+      "Content": "Sequence Shapes",
+      "Level": 1,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 14,
+        "Column": 3,
+        "Offset": 155
+      }
+    },
+    {
+      "Type": "paragraph",
+      "Content": "Same-indent and indented block sequences both parse.",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 16,
+        "Column": 1,
+        "Offset": 172
+      }
+    }
+  ],
+  "quarantined": false,
+  "validation": [
+    "unknown frontmatter key: aliases",
+    "unknown frontmatter key: cssclasses",
+    "unknown frontmatter key: obsidianUIMode"
+  ]
+}
