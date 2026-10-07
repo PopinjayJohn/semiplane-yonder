@@ -201,6 +201,19 @@ func TestRunReindexTempRename(t *testing.T) {
 	if err := db.QueryRow("PRAGMA user_version").Scan(&uv); err != nil || uv < 1 {
 		t.Errorf("index schema not applied: uv=%d err=%v", uv, err)
 	}
+	// Page-row import (R1 amend): the vault page must be indexed, not just
+	// schema-shaped. Content is stored verbatim for the read path.
+	var title, content string
+	if err := db.QueryRow(`SELECT title, content FROM pages WHERE path = 'notes/a.md'`).Scan(&title, &content); err != nil {
+		t.Fatalf("page row missing after reindex: %v", err)
+	}
+	if title != "hi" || content != "# hi" {
+		t.Errorf("page row = title %q content %q, want hi/# hi", title, content)
+	}
+	var chunks int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM blocks_fts WHERE page_id = 'notes/a.md'`).Scan(&chunks); err != nil || chunks < 1 {
+		t.Errorf("blocks_fts rows = %d err=%v, want >= 1", chunks, err)
+	}
 	// App rows untouched: run reindex again after creating an app user.
 	if err := runInit(initOptions{vault: filepath.Join(root, "v2"), gmUser: "g", gmPassword: "p"}); err != nil {
 		t.Fatal(err)
