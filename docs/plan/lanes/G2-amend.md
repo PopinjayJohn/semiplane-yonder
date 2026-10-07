@@ -83,3 +83,9 @@ title). Fails the build if serve exits or any assertion fails.
 Live M1 demo re-run: GM -/+ flip delivery over SSE against the real binary,
 search/FTS filtering over HTTP (smokeseed inserts page rows only), 3-OS
 binaries, 5k benchmark re-run. Leak-matrix unit tests are green in `go test`.
+
+## Residual dispositions (human-directed 2026-10-07)
+- R1 (0002 assumes 0001-shape-or-empty tables): ACCEPTED as documented above.
+- R2 (budgets page-weight-proxy/theme-weight/plugin-css SKIP): ACCEPTED —
+  SKIP-by-design until Phase 3+ UI (core/themes) and I2 (plugins) provide
+  subjects. `rendered-page` proxy already PASSes.
