@@ -1,4 +1,4 @@
-.PHONY: dev check generate test build lint vet fmt tools fuzz-short bench budgets snapshot
+.PHONY: dev check generate test build lint vet fmt tools fuzz-short bench budgets snapshot smoke
 
 TEMPL_VERSION := v0.3.1070
 GOLANGCI_VERSION := v2.14.0
@@ -42,6 +42,13 @@ budgets:
 # snapshot builds all 3 OS binaries without publishing (spec §8).
 snapshot:
 	goreleaser release --snapshot --clean --skip=publish
+
+# smoke boots serve after a fresh init --bare and asserts the M1
+# guest/owner/GM matrix over HTTP (G2 amend regression cover). Not part of
+# `check`: it binds a test port and takes a full boot cycle; CI runs it as
+# the serve-smoke job.
+smoke:
+	./tools/serve-smoke.sh
 
 lint:
 	golangci-lint run ./...

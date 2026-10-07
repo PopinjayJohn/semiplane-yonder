@@ -40,9 +40,14 @@ func openAppDB(dataDir, vaultPath string) (*sql.DB, string, error) {
 	return db, appPath, nil
 }
 
-// createGMUser inserts the initial GM row. Compatible with the Phase-0 and
-// Lane-B app schemas (explicit column list; added tables are untouched).
+// createGMUser inserts the initial GM row in the post-0002 (EnsureAuthSchema)
+// shape: is_gm=1 with the remaining account columns at their fresh defaults.
 // Returns an error naming reset-password when the user already exists.
+//
+// Amend note (G2 rollback): 0002 rebuilt users from (name, role, ...) to
+// (name, password_hash, is_gm, ...); this writer moved with it. Lane split:
+// B owns the migration SQL, C owns auth logic, E1 owns this file -- this
+// one-spot writer update is filed as an amend deviation in the final report.
 func createGMUser(db *sql.DB, username, passwordHash string, now int64) error {
 	var count int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM users WHERE name = ?`, username).Scan(&count); err != nil {
@@ -52,8 +57,8 @@ func createGMUser(db *sql.DB, username, passwordHash string, now int64) error {
 		return fmt.Errorf("user %q already exists (use `reset-password` to change it)", username)
 	}
 	if _, err := db.Exec(
-		`INSERT INTO users(name, role, password_hash, session_version, created_at) VALUES(?, 'gm', ?, 1, ?)`,
-		username, passwordHash, now); err != nil {
+		`INSERT INTO users(name, password_hash, is_gm, created_at, updated_at, last_login, failed_logins, locked_until, session_version) VALUES(?, ?, 1, ?, ?, 0, 0, 0, 1)`,
+		username, passwordHash, now, now); err != nil {
 		return fmt.Errorf("insert GM user: %w", err)
 	}
 	return nil

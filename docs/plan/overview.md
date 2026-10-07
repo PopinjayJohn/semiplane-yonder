@@ -50,7 +50,7 @@ Each slice (Wiki, CM, VTT) must be usable standalone with users for testing. A11
 10. **Character wizard:** part of Campaign Manager as `character-wizard` plugin, route `/c/<token>/create` (single-use GM-issued claim token). Driven by active overlay, writes `characters/<pc>/index.md` with sheet in frontmatter (single source; SQLite holds read index only). After basic CRUD, before VTT.
 11. **VTT v1 minimal:** background image + fog + tokens (linked to character pages) + dice tray + initiative. No grid/lighting/smooth drag. Debounced PATCH + resync.
 12. **Dice:** ruleset Base declares dice/rolls as config + data rules (numeric, Fate, symbol-face, percentile); core P12 runs the generic engine + transport (log, blind routing, broadcast, replay with per-viewer re-auth).
-13. **Reference content:** User-supplied D&D 5e SRD Obsidian MD snapshot in `fixtures/srd/` is dev fixture. Not embedded in release. No bundled vault. `app init --bare` offline works; `app init --template=tutorial|demo` fetches versioned zip when online. SRD 5.1 under CC-BY-4.0 attribution.
+13. **Reference content:** User-supplied D&D 5e SRD Obsidian MD snapshot in `fixtures/srd/` is dev fixture. Not embedded in release. No bundled vault. `app init --bare` offline works; `app init --template=tutorial|demo` fetches versioned zip when online. SRD 5.2 under CC-BY-4.0 attribution.
 14. **WYSIWYG deferred** post-VTT.
 
 ## 4. Architecture

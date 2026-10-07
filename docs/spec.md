@@ -27,4 +27,4 @@ argon2id (64MB/3/4, PHC, rehash-on-login); HMAC cookie (`session_id` server tabl
 `templ generate` + `git diff --exit-code`, vet, gofmt, golangci-lint, unit + fuzz-short, 3-OS snapshot build, axe on P01 pages, leak matrix, golden markdown tests (`testdata/markdown/`), budgets (<100KB rendered pages excl. vendored JS, <1s VTT resync). Fuzz corpus in repo. Logging: `slog` JSON + request IDs, no secret content.
 
 ## 9. Scope fences
-VTT v1 = image + fog + tokens + dice tray + initiative only. Timebox: Fighter + Goblin + 1 spell (full MM never bundled; SRD 5.1 under CC-BY-4.0, attribution in demo template). No: WS, WYSIWYG, trash/versions, auto-update, TLS-in-app, OAuth, native apps, CRDT. Backlogs: overview §8–§10.
+VTT v1 = image + fog + tokens + dice tray + initiative only. Timebox: Fighter + Goblin + 1 spell (full MM never bundled; SRD 5.2 under CC-BY-4.0, attribution in demo template). No: WS, WYSIWYG, trash/versions, auto-update, TLS-in-app, OAuth, native apps, CRDT. Backlogs: overview §8–§10.
