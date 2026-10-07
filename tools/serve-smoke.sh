@@ -1,12 +1,12 @@
 #!/bin/sh
-# serve-smoke (G2 amend, Lane E2): serve-after-init smoke over HTTP against a
-# temp vault. Fails the build when serve crashes or any assertion fails.
+# serve-smoke (G2 amend, Lane E2; R1 amend removed the smokeseed crutch):
+# serve-after-init smoke over HTTP against a temp vault. Fails the build
+# when serve crashes or any assertion fails.
 #
 # Flow: fresh `init --bare` into a temp dir, seed one public + one secret
-# page, `reindex`, seed index page rows (tools/smokeseed: the `reindex` CLI
-# is an honest stub for page-row import until Lane F1's parse->index
-# conversion lands), boot `serve` on a test port, assert the M1 guest/owner/GM
-# matrix over HTTP, then shut down.
+# page, `reindex` (which imports page rows for real via the F1-owned
+# web.ParsePage adapter — no throwaway seed helpers), boot `serve` on a
+# test port, assert the M1 guest/owner/GM matrix over HTTP, then shut down.
 #
 # Assertions (byte-level where the leak matrix demands it):
 #   guest 200 on non-secret (no secret title/content in body)
@@ -83,7 +83,7 @@ owner: $OWNER
 Signed at midnight under the third flagstone.
 EOF
 
-echo "smoke: reindex + seed page rows"
+echo "smoke: reindex (imports page rows via web.ParsePage)"
 if ! "$tmp/yonder-smoke" reindex --vault "$VAULT" >/dev/null 2>&1; then
 	fail "reindex"
 	exit 1
@@ -91,10 +91,6 @@ fi
 INDEX="$tmp/smokevault-data/smokevault.index.db"
 if [ ! -f "$INDEX" ]; then
 	fail "index db missing at $INDEX"
-	exit 1
-fi
-if ! go run ./tools/smokeseed "$INDEX" "$VAULT" >/dev/null 2>&1; then
-	fail "smokeseed"
 	exit 1
 fi
 

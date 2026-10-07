@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/semiplane/yonder/internal/store"
+	"github.com/semiplane/yonder/internal/web"
 	_ "modernc.org/sqlite"
 )
 
@@ -17,13 +18,16 @@ import (
 // transfer-ownership, archive-vault, clone-vault, rules lint.
 // Each resolves --vault/--data-dir the same way serve does (flags > env >
 // defaults). Wiring to Lane B/C stores happens through the frozen contracts;
-// index content import and rule-schema validation are honest stubs pending
-// Lane A/B (index rows) and Lane H1/H2 (rule schema).
+// page-row import rides store.Reindex with the F1-owned web.ParsePage
+// adapter (R1 amend); rule-schema validation stays an honest stub pending
+// Lane H1/H2.
 
-// runReindex rebuilds the disposable index DB from the vault alone
-// (temp file + rename; app rows are never touched). Phase 1 applies the
-// index schema to the temp DB and swaps it in; page-row import lands with
-// Lane A (Parse) + Lane B (Store scan).
+// runReindex rebuilds the disposable index DB from the vault alone via
+// store.Reindex (temp file + rename in the data dir; app rows are never
+// touched — Reindex does not even take the app DB as a parameter). Page
+// rows are imported through the F1-owned web.ParsePage adapter
+// (markdown.Parse → store.ParsedPage); the log line reports the real page
+// count read back from the fresh index (Rescan stats stay internal).
 func runReindex(vaultPath, dataDir string) error {
 	if vaultPath == "" {
 		return fmt.Errorf("vault path required (--vault)")
@@ -36,51 +40,33 @@ func runReindex(vaultPath, dataDir string) error {
 		return err
 	}
 	indexPath, _, _ := dataPaths(dataDir, vaultPath)
-	tmp, err := os.CreateTemp(dataDir, ".reindex-*.db")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("temp index db: %w", err)
-	}
-	defer func() { _ = os.Remove(tmpName) }()
-
-	db, err := sql.Open("sqlite", "file:"+tmpName+"?_pragma=journal_mode(DELETE)&_pragma=busy_timeout(5000)")
-	if err != nil {
-		return fmt.Errorf("open temp index db: %w", err)
-	}
 	ctx, cancel := contextTimeout(30 * time.Second)
 	defer cancel()
-	if err := store.NewMigrationRunner(db).RunIndex(ctx, db); err != nil {
-		_ = db.Close()
-		return fmt.Errorf("apply index schema: %w", err)
+	if err := store.Reindex(ctx, vaultPath, indexPath, web.ParsePage); err != nil {
+		return fmt.Errorf("reindex: %w", err)
 	}
-	mdCount, err := countMarkdown(vaultPath)
-	_ = db.Close()
+	pages, err := countIndexedPages(indexPath)
 	if err != nil {
 		return err
 	}
-	if err := os.Rename(tmpName, indexPath); err != nil {
-		return fmt.Errorf("swap index db: %w", err)
-	}
-	fmt.Printf("reindexed %s (%d markdown files; page-row import pending Lane A/B)\n", indexPath, mdCount)
+	fmt.Printf("reindexed %s (%d pages)\n", indexPath, pages)
 	return nil
 }
 
-func countMarkdown(root string) (int, error) {
-	n := 0
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !d.IsDir() && strings.HasSuffix(strings.ToLower(d.Name()), ".md") {
-			n++
-		}
-		return nil
-	})
-	return n, err
+// countIndexedPages reads the page count back from a freshly built index.
+// Rescan's own stats are internal to the store package; a follow-up count
+// keeps the log line honest without widening any contract.
+func countIndexedPages(indexPath string) (int, error) {
+	db, err := sql.Open("sqlite", "file:"+indexPath+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		return 0, fmt.Errorf("open index db: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pages`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count pages: %w", err)
+	}
+	return n, nil
 }
 
 // runResetPassword sets a new password and bumps session_version (revoking
