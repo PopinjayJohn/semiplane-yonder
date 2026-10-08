@@ -204,7 +204,7 @@ func (g *gateRig) do(method, target, asUser, cookie string, form url.Values) (in
 	if err != nil {
 		g.t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	b, _ := io.ReadAll(resp.Body)
 	return resp.StatusCode, string(b), resp.Header
 }
@@ -316,7 +316,7 @@ func TestGateM2WizardToRest(t *testing.T) {
 		t.Fatal(err)
 	}
 	pb, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("damage patch = %d: %s", resp.StatusCode, pb)
 	}
