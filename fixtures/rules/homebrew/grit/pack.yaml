@@ -1,0 +1,21 @@
+# Grit: example homebrew diff over 5e-2024. A homebrew never forks an
+# overlay — it names a parent and adds optionals/hooks the engine composes
+# after base → overlay. Table-local, hot-reloaded, `rules lint` validated.
+id: grit
+name: Grit (example homebrew)
+type: homebrew
+version: "0.1"
+parent: 5e-2024
+
+hooks:
+  - intent: damage
+    phase: post-roll
+    label: grit-die
+    effect: add-1d4-once-per-turn
+
+optionals:
+  - id: grit-die
+    title: Grit die
+
+content:
+  - grit.md

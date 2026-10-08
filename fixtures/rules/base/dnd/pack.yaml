@@ -1,0 +1,177 @@
+# dnd base pack (SRD 5.2). Declares the system: stats, derived values, rolls,
+# dice semantics, identity fields, and the intent catalog overlays/homebrew
+# extend. Data only — H2's engine executes the formulas; unknown expression
+# functions fail at H2's lint, not here.
+id: dnd
+name: Dungeons & Dragons (SRD 5.2)
+type: base
+version: "5.2"
+attribution: "Systems Reference Document 5.2 under CC-BY-4.0 (Wizards of the Coast)."
+
+stats:
+  str:
+    label: Strength
+    type: int
+    min: 1
+    max: 30
+    default: 10
+  dex:
+    label: Dexterity
+    type: int
+    min: 1
+    max: 30
+    default: 10
+  con:
+    label: Constitution
+    type: int
+    min: 1
+    max: 30
+    default: 10
+  int:
+    label: Intelligence
+    type: int
+    min: 1
+    max: 30
+    default: 10
+  wis:
+    label: Wisdom
+    type: int
+    min: 1
+    max: 30
+    default: 10
+  cha:
+    label: Charisma
+    type: int
+    min: 1
+    max: 30
+    default: 10
+  level:
+    label: Level
+    type: int
+    min: 1
+    max: 20
+    default: 1
+  hp:
+    label: Hit Points
+    type: int
+    min: 0
+    default: 10
+  temp-hp:
+    label: Temporary Hit Points
+    type: int
+    min: 0
+    default: 0
+
+derived:
+  str-mod:
+    label: Strength modifier
+    formula: floor((str - 10) / 2)
+    depends: [str]
+  dex-mod:
+    label: Dexterity modifier
+    formula: floor((dex - 10) / 2)
+    depends: [dex]
+  con-mod:
+    label: Constitution modifier
+    formula: floor((con - 10) / 2)
+    depends: [con]
+  proficiency-bonus:
+    label: Proficiency bonus
+    formula: 2 + floor((level - 1) / 4)
+    depends: [level]
+
+rolls:
+  attack:
+    label: Attack roll
+    dice: 1d20
+    stat: str-mod
+    intent: attack
+  damage:
+    label: Damage roll
+    dice: 1d8
+    stat: str-mod
+    intent: damage
+  save:
+    label: Saving throw
+    dice: 1d20
+    stat: str-mod
+    intent: save
+  check:
+    label: Ability check
+    dice: 1d20
+    stat: str-mod
+    intent: check
+  initiative:
+    label: Initiative
+    dice: 1d20
+    stat: dex-mod
+    intent: initiative
+  second-wind:
+    label: Second Wind recovery
+    dice: 1d10
+    stat: level
+    intent: heal
+
+dice:
+  types: [num]
+  faces: 20
+  grammar: NdM+K with keep-highest/lowest
+  renderer: tray
+
+identity:
+  portrait: ""
+  pronouns: ""
+  voice: ""
+  notes: ""
+  inspiration: false
+  death-saves: ""
+
+intents:
+  attack:
+    label: Attack
+    stats: [str, dex]
+  save:
+    label: Saving throw
+    stats: [str, dex, con, int, wis, cha]
+  check:
+    label: Ability check
+    stats: [str, dex, con, int, wis, cha]
+  damage:
+    label: Damage
+    stats: [str, dex]
+  heal:
+    label: Healing
+    stats: [con]
+  initiative:
+    label: Initiative
+    stats: [dex]
+  rest-short:
+    label: Short rest
+    stats: [level]
+  rest-long:
+    label: Long rest
+    stats: [level]
+  death-save:
+    label: Death saving throw
+    stats: []
+  concentration:
+    label: Concentration
+    stats: [con]
+
+hooks:
+  - intent: attack
+    phase: pre-roll
+    label: cover
+    effect: half-cover-plus-2
+
+sheet:
+  layout: simple-advanced
+
+content:
+  - compendium/fighter.md
+  - compendium/goblin-warrior.md
+  - compendium/fireball.md
+
+optionals:
+  - id: second-wind-2024
+    title: Second Wind (2024)
