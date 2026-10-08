@@ -97,6 +97,14 @@ func (h *ReadHandlers) RegisterRoutes(reg *RouteRegistry) {
 		SecretFiltered: true,
 	})
 	reg.Register(Route{
+		Method:         http.MethodPost,
+		Path:           RouteSSE,
+		Handler:        h.SSE, // same handler: POST = GM flip broadcast
+		ReadOnly:       false,
+		AuthRequired:   true,
+		SecretFiltered: true,
+	})
+	reg.Register(Route{
 		Method:       http.MethodGet,
 		Path:         RouteMe,
 		Handler:      h.Me,
