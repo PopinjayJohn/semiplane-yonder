@@ -11,6 +11,12 @@ import (
 
 // AllowedKeys is the closed frontmatter key set (p02). Extension only by
 // amend; keys stay append-only after Phase 1.
+//
+// Lane K amend (Phase 4, P08): `vtt-map` carries the map sidecar calibration
+// (background asset, grid, fog/token defaults) for maps/<id>.md pages.
+// It is always a map; unknown sub-keys inside it are ignored by Lane K (never
+// quarantine — Obsidian users hand-edit sidecars). The key is append-only:
+// no existing key changed.
 var AllowedKeys = []string{
 	"title",
 	"secret",
@@ -25,6 +31,7 @@ var AllowedKeys = []string{
 	"version",
 	"content-warning",
 	"sheet",
+	"vtt-map",
 }
 
 // allowedStatus lists the permitted values of the status key (p02).
@@ -175,6 +182,14 @@ func parseFrontmatter(text string) (Frontmatter, []string, []string) {
 					`bad type for frontmatter key "sheet": want map`)
 				delete(fm, k)
 			}
+		case "vtt-map":
+			// Lane K amend (Phase 4): map sidecar calibration block. Must
+			// be a map; anything else quarantines the page (fail closed).
+			if _, ok := v.(map[string]any); !ok {
+				quarantine = append(quarantine,
+					`bad type for frontmatter key "vtt-map": want map`)
+				delete(fm, k)
+			}
 		}
 	}
 	return fm, unknown, quarantine
@@ -218,6 +233,11 @@ func ValidateFrontmatter(fm Frontmatter) []string {
 		case "sheet":
 			if _, ok := v.(map[string]any); !ok {
 				out = append(out, `bad type for frontmatter key "sheet": want map`)
+			}
+		case "vtt-map":
+			// Lane K amend (Phase 4): map sidecar calibration block.
+			if _, ok := v.(map[string]any); !ok {
+				out = append(out, `bad type for frontmatter key "vtt-map": want map`)
 			}
 		}
 	}
