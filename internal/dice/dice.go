@@ -27,6 +27,7 @@ type RollResult struct {
 	Notation  string
 	Total     int64
 	Dice      []DieResult
+	Symbols   []SymbolFace // populated for symbolic dice only
 	Modifiers []AppliedModifier
 	Seed      []byte // for replay verification
 	Timestamp int64
@@ -34,6 +35,15 @@ type RollResult struct {
 	Blind     bool   // blind roll (GM only)
 	ActorID   string
 	IntentID  string
+	// Discarded holds the losing attempt of an advantage/disadvantage
+	// roll-twice pair (nil otherwise). Audit only, never added to Total.
+	Discarded *RollResult
+}
+
+// SymbolFace is one rolled symbolic face.
+type SymbolFace struct {
+	Symbol  string // face name from the base-declared SymbolTable
+	Dropped bool   // excluded by keep/drop
 }
 
 // DieResult represents a single die result.
@@ -67,6 +77,10 @@ type LogEntry struct {
 	Timestamp  int64
 	Blind      bool
 	Broadcast  bool
+	// Envelope is the stored {intent, actor, targets, tool, context}
+	// envelope, serialized to envelope_json at Save. Not part of the
+	// frozen transport surface; readers ignore unknown keys.
+	Envelope map[string]any
 }
 
 // TransportConfig configures the dice transport.
@@ -87,31 +101,7 @@ func DefaultTransportConfig() TransportConfig {
 	}
 }
 
-// TransportService handles dice transport: logging, blind routing, broadcast, replay.
-type TransportService struct {
-	roller Roller
-	store  LogStore
-	config TransportConfig
-}
-
-// NewTransportService creates a new transport service.
-func NewTransportService(roller Roller, store LogStore, config TransportConfig) *TransportService {
-	return &TransportService{
-		roller: roller,
-		store:  store,
-		config: config,
-	}
-}
-
-// Roll executes a roll through the transport (log, blind, broadcast).
-func (t *TransportService) Roll(ctx context.Context, req RollRequest) (*RollResponse, error) {
-	return nil, nil // not implemented
-}
-
-// Replay replays a stored roll with per-viewer re-auth.
-func (t *TransportService) Replay(ctx context.Context, rollID string, viewerHash string) (*RollResult, error) {
-	return nil, nil // not implemented
-}
+// TransportService, Roll, and Replay are implemented in transport.go.
 
 // RollRequest represents a roll request through the transport.
 type RollRequest struct {
@@ -123,6 +113,13 @@ type RollRequest struct {
 	Broadcast bool
 	Seed      []byte // optional, for deterministic rolls
 	Metadata  map[string]any
+	// Metadata conventions (all optional):
+	//   "scope"   Applies scope for numeric bonuses (default "all";
+	//             Effective.BonusFor(scope) is added to the total).
+	//   "targets" []string, "tool" string, "context" map — stored into
+	//             the log envelope {intent, actor, targets, tool, context}.
+	//   "viewer"  routing key for blind rolls (default "actor:"+ActorID).
+	//   "ip"      guest bucket key for rate limiting (ActorID preferred).
 }
 
 // RollResponse represents a roll response.
