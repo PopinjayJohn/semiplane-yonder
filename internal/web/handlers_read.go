@@ -747,6 +747,12 @@ func (h *ReadHandlers) SSE(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	sub := hub.subscribe()
 	defer hub.unsubscribe(sub)
+	// Lane K amend: VTT broadcasts ride the same stream (frozen event
+	// names). ?map= scopes one connection to one board; without it the
+	// connection hears every map it may view (checked per event below).
+	vsub := vttWireSubscribe()
+	defer vttWireUnsubscribe(vsub)
+	mapParam := strings.TrimSpace(r.URL.Query().Get("map"))
 	if _, err := fmt.Fprintf(w, "event: hello\ndata: %s\n\n", helloPayload(r.Context(), h.Store, viewer, pagePath)); err != nil {
 		return
 	}
@@ -762,6 +768,15 @@ func (h *ReadHandlers) SSE(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			if _, err := fmt.Fprintf(w, "event: secret-flip\ndata: %s\n\n", helloPayload(r.Context(), h.Store, viewer, flipped)); err != nil {
+				return
+			}
+			flusher.Flush()
+		case vev := <-vsub:
+			data, ok := vttWirePayload(r.Context(), h.Store, viewer, vev, mapParam)
+			if !ok {
+				continue
+			}
+			if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", vev.Name, data); err != nil {
 				return
 			}
 			flusher.Flush()
@@ -888,6 +903,91 @@ func (f *flipHub) unsubscribe(s *flipSub) {
 	f.mu.Lock()
 	delete(f.subs, s)
 	f.mu.Unlock()
+}
+
+// VTTWireEvent carries one Lane K (Phase 4 VTT) broadcast into the /events
+// stream. Lane K amend: web must not import the vtt package (vtt imports web
+// for the route registry — the reverse edge would cycle), so this is a dumb
+// pipe. Lane K pre-renders both payload variants; the loop below picks per
+// viewer (GM without preview sees Open, everyone else Redacted — the blind
+// rule from the frozen fragment contract) and drops events for maps the
+// viewer may not see (sidecar ACL re-checked per connection, server-side).
+// Map events set Open == Redacted (payloads carry IDs only; subscribers
+// re-read + re-filter server-side before rendering).
+type VTTWireEvent struct {
+	Name        string // frozen plugins.Event* name (written verbatim)
+	MapID       string // info only (payloads carry it too)
+	PagePath    string // sidecar page for the per-connection ACL check
+	ScopedParam string // ?map= scoping value, "" = unscoped connection sees all
+	Open        string // data payload for full-visibility viewers
+	Redacted    string // data payload for everyone else
+}
+
+// vttWireHub fans out VTTWireEvents (same drop-on-slow policy as flipHub).
+type vttWireHub struct {
+	mu   sync.Mutex
+	subs map[chan VTTWireEvent]struct{}
+}
+
+var vttWire = &vttWireHub{subs: map[chan VTTWireEvent]struct{}{}}
+
+// PublishVTT enqueues a Lane K event for /events subscribers. Called by Lane
+// K after each committed VTT write; never blocks (slow subscriber drops).
+func PublishVTT(ev VTTWireEvent) {
+	vttWire.mu.Lock()
+	defer vttWire.mu.Unlock()
+	for s := range vttWire.subs {
+		select {
+		case s <- ev:
+		default:
+		}
+	}
+}
+
+func vttWireSubscribe() chan VTTWireEvent {
+	ch := make(chan VTTWireEvent, 16)
+	vttWire.mu.Lock()
+	vttWire.subs[ch] = struct{}{}
+	vttWire.mu.Unlock()
+	return ch
+}
+
+func vttWireUnsubscribe(ch chan VTTWireEvent) {
+	vttWire.mu.Lock()
+	delete(vttWire.subs, ch)
+	vttWire.mu.Unlock()
+}
+
+// vttWirePayload picks the per-viewer payload + visibility for one
+// connection. Guests (nil viewer) never receive VTT events (login required
+// on all live state, P08); GM previews filter as the previewed user.
+func vttWirePayload(ctx context.Context, st store.Store, viewer *auth.Viewer, ev VTTWireEvent, mapParam string) (string, bool) {
+	if viewer == nil || viewer.UserID == "" {
+		return "", false
+	}
+	if mapParam != "" && ev.MapID != "" && !strings.EqualFold(ev.MapID, mapParam) {
+		return "", false
+	}
+	if ev.PagePath != "" && st != nil {
+		page, err := st.PageGet(ctx, ev.PagePath)
+		if err != nil {
+			return "", false
+		}
+		eff := viewer
+		if viewer.PreviewAs != "" {
+			preview := *viewer
+			preview.IsGM = false
+			preview.PreviewAs = ""
+			eff = &preview
+		}
+		if !secrets.CanViewPage(eff, page.Secret, page.Path, page.Owner, page.EditableBy) {
+			return "", false
+		}
+	}
+	if viewer.IsGM && viewer.PreviewAs == "" {
+		return ev.Open, true
+	}
+	return ev.Redacted, true
 }
 
 func (f *flipHub) publish(pagePath string) {

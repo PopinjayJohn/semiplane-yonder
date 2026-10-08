@@ -57,16 +57,16 @@ func TestRunAppFresh(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 2 {
-		t.Errorf("user_version = %d, want 2", v)
+	if v != 3 {
+		t.Errorf("user_version = %d, want 3", v)
 	}
 
 	// Idempotent: re-running on a migrated DB is a no-op.
 	if err := NewMigrationRunner(db).RunApp(ctx); err != nil {
 		t.Fatalf("second RunApp: %v", err)
 	}
-	if v2, _ := NewMigrationRunner(db).Version(ctx); v2 != 2 {
-		t.Errorf("user_version after re-run = %d, want 2", v2)
+	if v2, _ := NewMigrationRunner(db).Version(ctx); v2 != 3 {
+		t.Errorf("user_version after re-run = %d, want 3", v2)
 	}
 }
 
@@ -115,7 +115,7 @@ func TestRunRespectsExistingVersion(t *testing.T) {
 	ctx := context.Background()
 	db := openTestDB(t)
 	// A DB already at the latest version is a silent no-op.
-	if _, err := db.ExecContext(ctx, `PRAGMA user_version = 2`); err != nil {
+	if _, err := db.ExecContext(ctx, `PRAGMA user_version = 3`); err != nil {
 		t.Fatal(err)
 	}
 	if err := NewMigrationRunner(db).RunApp(ctx); err != nil {
@@ -238,8 +238,8 @@ func TestApp0002UpgradeFrom0001(t *testing.T) {
 	if err := NewMigrationRunner(db).RunApp(ctx); err != nil {
 		t.Fatalf("RunApp 0001->0002: %v", err)
 	}
-	if v, _ := NewMigrationRunner(db).Version(ctx); v != 2 {
-		t.Fatalf("user_version = %d, want 2", v)
+	if v, _ := NewMigrationRunner(db).Version(ctx); v != 3 {
+		t.Fatalf("user_version = %d, want 3", v)
 	}
 
 	// users: role mapped, row carried.

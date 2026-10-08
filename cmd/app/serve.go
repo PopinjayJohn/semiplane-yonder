@@ -17,6 +17,7 @@ import (
 	"github.com/semiplane/yonder/internal/plugins"
 	"github.com/semiplane/yonder/internal/store"
 	"github.com/semiplane/yonder/internal/vault"
+	"github.com/semiplane/yonder/internal/vtt"
 	"github.com/semiplane/yonder/internal/web"
 )
 
@@ -122,6 +123,10 @@ func wireHandlers(info buildInfo, vaultDir, dataDir string, sessionStore auth.Se
 	if err != nil {
 		panic(err)
 	}
+	// Lane K amend (Phase 4): nothing ever assigned web.VaultDir, so the
+	// ACL-checked asset handler 404'd every asset on a live server (map
+	// backgrounds included). Point it at the served vault once, here.
+	web.VaultDir = vaultDir
 	// Gate G3: plugin registries live in serve (E1 file, amend-authorized).
 	// web owns the append-only slot/route registries; plugins.Registry adds
 	// enablement gating on top. Shell read paths render slots through
@@ -151,6 +156,12 @@ func wireHandlers(info buildInfo, vaultDir, dataDir string, sessionStore auth.Se
 	wizH := web.WizardHandlers{Store: st, Vault: v, SessionStore: sessionStore, Drafts: drafts, VaultRoot: vaultDir}
 	wizH.RegisterRoutes(reg)
 	sheetH.RegisterRoutes(reg)
+	// Lane K amend (Phase 4, P08): VTT fragment/snapshot/state routes register
+	// BEFORE F1/F2 (first-wins registry rule, same G3 precedent as I1's /me):
+	// GET /vtt/{mapID} retires F1's placeholder and POST /vtt/{mapID}/state
+	// retires F2's stub deliberately. No dashboard code is registered here.
+	vttH := vtt.Handlers{Store: st, Sessions: sessionStore}
+	vttH.RegisterRoutes(reg)
 	readH.RegisterRoutes(reg)
 	writeH.RegisterRoutes(reg)
 
@@ -281,6 +292,19 @@ func toStdlibPattern(pattern string) string {
 		return "/assets/"
 	case web.RouteVTT: // "/vtt/{mapID}" → "/vtt/"
 		return "/vtt/"
+	// NOTE (Lane K): plugins.MapFragmentPath ("/vtt/{mapID}/fragment") is
+	// deliberately NOT mapped here: stdlib mux routes mid-pattern wildcards
+	// fine, and mapping it to "/vtt/" would collide with RouteVTT under the
+	// first-wins rule (the page handler would lose). Ownership of fragment
+	// URLs is covered by the RouteVTT "/vtt/" prefix check.
+	case plugins.StateSnapshotPath: // "/api/vtt/{mapID}/state" → "/api/vtt/"
+		// Lane K amend (Phase 4): the frozen snapshot path carries {mapID}
+		// mid-pattern, which the registry ownership check cannot match
+		// exactly (it only knows exact + trailing-slash prefixes). Map it to
+		// the static prefix like every other parameterized route; the Lane K
+		// handler extracts the map id from r.URL.Path itself. No collision:
+		// nothing else lives under /api/vtt/.
+		return "/api/vtt/"
 	case web.RouteWizard: // "/wizard/{step}" → "/wizard/"
 		return "/wizard/"
 	default:

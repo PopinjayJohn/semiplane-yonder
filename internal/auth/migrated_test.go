@@ -49,6 +49,17 @@ func legacyShape(t *testing.T, ctx context.Context, db *sql.DB, now int64) {
 			fails INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0)`,
 		`CREATE TABLE claim_tokens(token TEXT PRIMARY KEY, slug TEXT NOT NULL,
 			expires INTEGER NOT NULL)`,
+		// Lane K amend (Phase 4): the faithful 0001 shape also carries the
+		// VTT live-state tables (0003 alters vtt_tokens). The old fixture
+		// omitted them and 0002 never noticed (auth-only rebuild).
+		`CREATE TABLE vtt_maps(id TEXT PRIMARY KEY,
+			calibration TEXT NOT NULL DEFAULT '{}')`,
+		`CREATE TABLE vtt_tokens(map TEXT NOT NULL, token TEXT NOT NULL,
+			x REAL NOT NULL, y REAL NOT NULL,
+			hidden INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY (map, token))`,
+		`CREATE TABLE vtt_fog(map TEXT PRIMARY KEY,
+			mask TEXT NOT NULL DEFAULT '')`,
 	} {
 		if _, err := db.ExecContext(ctx, ddl); err != nil {
 			t.Fatalf("legacy ddl: %v", err)
