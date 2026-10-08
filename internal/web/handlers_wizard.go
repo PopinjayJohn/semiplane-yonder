@@ -33,13 +33,15 @@ const (
 
 // WizardHandlers owns the onboarding wizards. Drafts doubles as the
 // single-use claim store (draft consumed on finalize); the Vault is the only
-// writer (atomic WriteFile); Pack is the H1 stub until packs land.
+// writer (atomic WriteFile); Pack is the resolved H1 stack (vault-backed via
+// VaultRoot), pinned explicitly in tests.
 type WizardHandlers struct {
 	Store        store.Store
 	Vault        VaultWriter
 	SessionStore auth.SessionStore
 	Drafts       *DraftStore
 	Pack         *Pack
+	VaultRoot    string // gate G3: vault truth for per-request pack resolve (no restart on overlay switch)
 }
 
 // RegisterRoutes registers wizard routes with the frozen registry.
@@ -57,6 +59,19 @@ func (h *WizardHandlers) csrfOK(r *http.Request) bool {
 
 func (h *WizardHandlers) csrfField(r *http.Request) string {
 	return (&WriteHandlers{SessionStore: h.SessionStore}).csrfTokenForForm(r)
+}
+
+// pack resolves the wizard pack: explicit test pins win, otherwise vault
+// truth per request (overlay switches apply with no restart), otherwise the
+// pack-less fallback.
+func (h *WizardHandlers) pack() *Pack {
+	if h.Pack != nil {
+		return h.Pack
+	}
+	if h.VaultRoot != "" {
+		return LoadPack(h.VaultRoot)
+	}
+	return StubPack()
 }
 
 // gmOf enforces GM-only (preview-as-player never passes: SplitViewer folds
@@ -96,7 +111,7 @@ func (h *WizardHandlers) SetupForm(w http.ResponseWriter, r *http.Request) {
 	}
 	var b strings.Builder
 	b.WriteString("<h1>Campaign setup</h1>\n")
-	b.WriteString("<p>Writes <code>campaign.yaml</code>. Base/overlay names are display-only until Lane H1 lands vault packs (versions recorded, never enforced).</p>\n")
+	b.WriteString("<p>Writes <code>campaign.yaml</code>. Base/overlay names resolve against vault packs under <code>rules/</code> (versions recorded, never enforced); optionals toggle per id.</p>\n")
 	b.WriteString("<form method=\"post\" action=\"" + RouteWizardSetup + "\">\n")
 	fmt.Fprintf(&b, "<input type=\"hidden\" name=\"%s\" value=\"%s\">\n", auth.CSRFFieldName, html.EscapeString(h.csrfField(r)))
 	fmt.Fprintf(&b, "<p><label for=\"wz-name\">Campaign name</label> <input id=\"wz-name\" name=\"name\" value=\"%s\" size=\"40\" required></p>\n", html.EscapeString(cur.Name))
@@ -144,10 +159,17 @@ func (h *WizardHandlers) SetupSave(w http.ResponseWriter, r *http.Request) {
 	if b, err := h.Vault.ReadFile(r.Context(), "campaign.yaml"); err == nil {
 		existing = string(b)
 	}
-	// Preserve the scaffold's created stamp across edits.
+	// Preserve what the form never edits: the scaffold's created stamp,
+	// display-only versions, and the plugin namespace (the setup form owns
+	// ruleset optionals, never enabled-plugins).
 	if existing != "" {
-		if cur, err := ParseCampaign(existing); err == nil && c.Created == "" {
-			c.Created = cur.Created
+		if cur, err := ParseCampaign(existing); err == nil {
+			if c.Created == "" {
+				c.Created = cur.Created
+			}
+			c.BaseVersion = cur.BaseVersion
+			c.OverlayVersion = cur.OverlayVersion
+			c.EnabledPlugins = cur.EnabledPlugins
 		}
 	}
 	if c.Created == "" {
@@ -300,7 +322,7 @@ func (h *WizardHandlers) ClaimWizardPost(w http.ResponseWriter, r *http.Request)
 		h.finalize(w, r, draft, token)
 		return
 	}
-	fields, verr := validateStep(h.Pack, step, r)
+	fields, verr := validateStep(h.pack(), step, r)
 	if verr != "" {
 		writeDenied(w, http.StatusUnprocessableEntity, verr)
 		return
@@ -338,8 +360,8 @@ func nextStep(cur string) string {
 	return "preview"
 }
 
-// validateStep checks one step's fields against the stub pack (H1 packs take
-// over validation when they land; shape of Fields is unchanged).
+// validateStep checks one step's fields against the resolved pack (vault
+// truth when the handler carries VaultRoot; shape of Fields is unchanged).
 func validateStep(p *Pack, step string, r *http.Request) (map[string]string, string) {
 	if p == nil {
 		p = StubPack()
@@ -403,10 +425,7 @@ func validateStep(p *Pack, step string, r *http.Request) (map[string]string, str
 // finalize validates the full draft, writes characters/<slug>/index.md with
 // owner: stamped (creation), then consumes the draft (single-use).
 func (h *WizardHandlers) finalize(w http.ResponseWriter, r *http.Request, draft *WizardDraft, token string) {
-	pack := h.Pack
-	if pack == nil {
-		pack = StubPack()
-	}
+	pack := h.pack()
 	name := draft.Fields["start.name"]
 	ancestry, classID, bg := draft.Fields["ancestry.ancestry"], draft.Fields["class.class"], draft.Fields["background.background"]
 	if name == "" || ancestry == "" || classID == "" || bg == "" {
@@ -480,10 +499,7 @@ func (h *WizardHandlers) finalize(w http.ResponseWriter, r *http.Request, draft 
 // stepForm renders one wizard step (server-side, keyboard-native radio/select
 // controls, fieldset/legend — no JS needed).
 func (h *WizardHandlers) stepForm(r *http.Request, draft *WizardDraft, step string) string {
-	pack := h.Pack
-	if pack == nil {
-		pack = StubPack()
-	}
+	pack := h.pack()
 	var b strings.Builder
 	fmt.Fprintf(&b, "<h1>Create your character</h1>\n<p>Step: %s · progress is saved automatically.</p>\n", html.EscapeString(step))
 	b.WriteString("<form method=\"post\" action=\"" + html.EscapeString(r.URL.Path) + "\">\n")

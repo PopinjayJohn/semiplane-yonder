@@ -1,9 +1,15 @@
 package ruleset
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 )
+
+// ErrUnknownIntent marks an intent name outside the active base catalog.
+// Returned wrapped by Catalog.ValidateIntent (and therefore by
+// Engine.Evaluate for undeclared intents).
+var ErrUnknownIntent = errors.New("ruleset: unknown intent")
 
 // Hook phases (frozen vocabulary). A hook is an intent + phase: it receives
 // the intent plus the current modifier list and returns {source, label,
@@ -96,9 +102,13 @@ func (c *Catalog) Extend(defs map[string]IntentDef) {
 func (c *Catalog) BaseID() string { return c.baseID }
 
 // ValidateIntent errors when name is not in the active base catalog.
+//
+// Gate G3: unknown intents wrap ErrUnknownIntent so recovery flows (which
+// probe best-effort hook intents like level-up that a base may never
+// declare) can skip cleanly instead of string-matching messages.
 func (c *Catalog) ValidateIntent(name string) error {
 	if _, ok := c.intents[name]; !ok {
-		return fmt.Errorf("ruleset: intent %q not in base %q catalog", name, c.baseID)
+		return fmt.Errorf("ruleset: intent %q not in base %q catalog: %w", name, c.baseID, ErrUnknownIntent)
 	}
 	return nil
 }

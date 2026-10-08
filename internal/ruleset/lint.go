@@ -66,7 +66,7 @@ func LintRuleset(rs *Ruleset, validateNotation func(string) error) []LintIssue {
 
 	statKeys := map[string]bool{}
 	for key, sd := range rs.StatDefs {
-		if !isValidIdent(key) {
+		if !isValidKey(key) {
 			errf("stats."+key, "invalid stat key %q", key)
 		}
 		if key != sd.Key && sd.Key != "" {
@@ -83,7 +83,7 @@ func LintRuleset(rs *Ruleset, validateNotation func(string) error) []LintIssue {
 		statKeys[key] = true
 	}
 	for key := range rs.DerivedDefs {
-		if !isValidIdent(key) {
+		if !isValidKey(key) {
 			errf("derived."+key, "invalid derived key %q", key)
 		}
 		statKeys[key] = true // derived keys are visible to later formulas
@@ -107,7 +107,7 @@ func LintRuleset(rs *Ruleset, validateNotation func(string) error) []LintIssue {
 	}
 	for _, key := range sortedKeysOf(rs.DiceDefs) {
 		dd := rs.DiceDefs[key]
-		if !isValidIdent(key) {
+		if !isValidKey(key) {
 			errf("dice."+key, "invalid dice key %q", key)
 		}
 		if strings.TrimSpace(dd.Notation) == "" {
@@ -122,7 +122,7 @@ func LintRuleset(rs *Ruleset, validateNotation func(string) error) []LintIssue {
 	}
 	for _, key := range sortedKeysOf(rs.IntentDefs) {
 		id := rs.IntentDefs[key]
-		if !isValidIdent(key) {
+		if !isValidKey(key) {
 			errf("intents."+key, "invalid intent key %q", key)
 		}
 		for _, s := range id.Stats {
@@ -206,6 +206,16 @@ func hasOptionalID(m map[string]OptionalFeature, id string) bool {
 		}
 	}
 	return false
+}
+
+// isValidKey validates data keys (stat, derived, dice, intent names).
+// Keys are map-lookup data, never expression variables, so they allow the
+// hyphenated P05 vocabulary (rest-short, con-mod, second-wind) that the
+// expression grammar cannot lex: a formula or script can never *reference* a
+// hyphenated key (it lexes as subtraction), but packs may declare and carry
+// such keys. Expression variables keep the stricter isValidIdent.
+func isValidKey(s string) bool {
+	return isValidFeatureID(s)
 }
 
 // isValidFeatureID validates optional-feature ids: letters, digits,

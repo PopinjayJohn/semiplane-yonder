@@ -115,11 +115,14 @@ func Resolve(vaultRoot string) (*Stack, error) {
 	return st, nil
 }
 
-// loadPack reads <vault>/<dir>/pack.yaml (accepting .yml) and returns the
-// descriptor header. Full schema validation is ValidatePack's job (lint.go);
-// the resolver reads only identity fields so a lint-failing pack still
-// resolves (fail-open for iteration, lint gates the table decision).
-func loadPack(vaultRoot, dir string) (*Pack, error) {
+// ParsePackDoc reads <vault>/<dir>/pack.yaml (accepting pack.yml) and
+// returns the parsed descriptor document with source lines.
+//
+// Gate G3 export: the ruleset loader (internal/ruleset, H2) builds
+// executable Rulesets from vault packs through this single parser — no
+// second YAML reader (pitfalls: two parsers diverge). Identity accessors
+// stay on loadPack/Resolve; this exposes the full data-rules tree.
+func ParsePackDoc(vaultRoot, dir string) (map[string]Node, error) {
 	var data []byte
 	var err error
 	for _, name := range []string{"pack.yaml", "pack.yml"} {
@@ -134,6 +137,18 @@ func loadPack(vaultRoot, dir string) (*Pack, error) {
 	doc, err := parseDoc(string(data))
 	if err != nil {
 		return nil, fmt.Errorf("%s: %v", filepath.ToSlash(dir)+"/pack.yaml", err)
+	}
+	return doc, nil
+}
+
+// loadPack reads <vault>/<dir>/pack.yaml (accepting .yml) and returns the
+// descriptor header. Full schema validation is ValidatePack's job (lint.go);
+// the resolver reads only identity fields so a lint-failing pack still
+// resolves (fail-open for iteration, lint gates the table decision).
+func loadPack(vaultRoot, dir string) (*Pack, error) {
+	doc, err := ParsePackDoc(vaultRoot, dir)
+	if err != nil {
+		return nil, err
 	}
 	p := &Pack{Dir: filepath.ToSlash(dir)}
 	get := func(key string) string {

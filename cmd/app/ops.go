@@ -9,6 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/semiplane/yonder/internal/campaign"
+	"github.com/semiplane/yonder/internal/dice"
+	"github.com/semiplane/yonder/internal/ruleset"
 	"github.com/semiplane/yonder/internal/store"
 	"github.com/semiplane/yonder/internal/web"
 	_ "modernc.org/sqlite"
@@ -19,8 +22,9 @@ import (
 // Each resolves --vault/--data-dir the same way serve does (flags > env >
 // defaults). Wiring to Lane B/C stores happens through the frozen contracts;
 // page-row import rides store.Reindex with the F1-owned web.ParsePage
-// adapter (R1 amend); rule-schema validation stays an honest stub pending
-// Lane H1/H2.
+// adapter (R1 amend); rule-schema validation rides H1 ValidatePack + the
+// gate loader into H2 LintRuleset (G3), replacing the former file-level-only
+// stub.
 
 // runReindex rebuilds the disposable index DB from the vault alone via
 // store.Reindex (temp file + rename in the data dir; app rows are never
@@ -227,10 +231,12 @@ func runCloneVault(src, dest string) error {
 	return nil
 }
 
-// runRulesLint checks vault rules packs at file level. Schema validation
-// (unknown keys fail) and the likely-non-SRD warning are Lane H1/H2's;
-// this command fails only on missing dirs, unreadable files, symlinks, or
-// Windows-reserved names so CI has a stable gate today.
+// runRulesLint checks vault rules packs at file level plus H1 structure
+// checks (unknown keys fail, duplicate optional ids fail with file:line)
+// and H2 semantic checks (unknown expression functions fail, dice notations
+// validate). Warnings (likely-non-SRD text, symbolic hook effects carried
+// as display data only) never block — the GM owns table liability.
+// Errors fail the command (non-zero exit) so CI has a stable gate.
 func runRulesLint(vaultPath, dir string) error {
 	if dir == "" {
 		if vaultPath == "" {
@@ -285,9 +291,180 @@ func runRulesLint(vaultPath, dir string) error {
 	if walkErr != nil {
 		return walkErr
 	}
-	fmt.Printf("rules lint: %d pack files, %d problems (schema validation pending Lane H1/H2)\n", packs, problems)
+	structErrs, structWarns := lintPackSemantics(vaultPath, dir)
+	problems += structErrs
+	fmt.Printf("rules lint: %d pack files, %d problems (%d warnings)\n", packs, problems, structWarns)
 	if problems > 0 {
 		return fmt.Errorf("%d rules problems", problems)
 	}
 	return nil
+}
+
+// lintPackSemantics runs the H1+H2 semantic gate over every pack directory
+// under dir (rules/ + table-local homebrew/ when dir is the vault rules
+// root): H1 ValidatePack for structure, then the gate loader into
+// ruleset.Ruleset + H2 LintRuleset for semantics (JSON pack files go
+// through LintRulesetJSON). Symbolic hook effects the engine cannot execute
+// warn (display data only); everything else errors. Vault-relative posix
+// paths keep output Windows-safe. Returns (errors, warnings).
+func lintPackSemantics(vaultPath, dir string) (int, int) {
+	var errs, warns int
+	vaultRoot := vaultPath
+	if vaultRoot == "" {
+		// Explicit dir without a vault: semantic checks need pack-relative
+		// roots, so only the file-level gate applies (documented limit).
+		return 0, 0
+	}
+	absDir, _ := filepath.Abs(dir)
+	roots := []string{absDir}
+	if hb := filepath.Join(vaultRoot, "homebrew"); hb != absDir {
+		if fi, err := os.Stat(hb); err == nil && fi.IsDir() {
+			roots = append(roots, hb)
+		}
+	}
+	// Pack dirs hold pack.yaml/pack.yml directly; ruleset packs nest one
+	// level deeper (rules/base/<id>, rules/overlay/<id>,
+	// rules/homebrew/<id>, homebrew/<id>), mirroring Resolve.
+	var packDirs []string
+	var addPacks func(root string, depth int)
+	addPacks = func(root string, depth int) {
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			return
+		}
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			sub := filepath.Join(root, e.Name())
+			if hasDescriptor(sub) {
+				packDirs = append(packDirs, sub)
+			} else if depth > 0 {
+				addPacks(sub, depth-1)
+			}
+		}
+	}
+	for _, root := range roots {
+		addPacks(root, 1)
+	}
+	for _, packAbs := range packDirs {
+		rel, err := filepath.Rel(vaultRoot, packAbs)
+		if err != nil {
+			continue
+		}
+		packDir := filepath.ToSlash(rel)
+		errs, warns = lintOnePack(vaultRoot, packDir, errs, warns)
+	}
+	// JSON packs anywhere under dir go through LintRulesetJSON (strict
+	// decode: unknown struct fields fail).
+	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if strings.ToLower(filepath.Ext(d.Name())) != ".json" {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil // file-level gate already reported it
+		}
+		issues, lerr := ruleset.LintRulesetJSON(data, dice.ValidateNotation)
+		if lerr != nil {
+			errs++
+			fmt.Printf("rules lint: error %s: %v\n", relOf(dir, path), lerr)
+			return nil
+		}
+		for _, li := range issues {
+			if li.Severity == "error" {
+				errs++
+				fmt.Printf("rules lint: error %s %s: %s\n", relOf(dir, path), li.Path, li.Message)
+			} else {
+				warns++
+				fmt.Printf("rules lint: warn %s %s: %s\n", relOf(dir, path), li.Path, li.Message)
+			}
+		}
+		return nil
+	})
+	return errs, warns
+}
+
+// hasDescriptor reports whether dir holds a pack descriptor directly.
+func hasDescriptor(dir string) bool {
+	for _, cand := range []string{"pack.yaml", "pack.yml"} {
+		if fi, err := os.Stat(filepath.Join(dir, cand)); err == nil && !fi.IsDir() {
+			return true
+		}
+	}
+	return false
+}
+
+// lintOnePack runs H1 structure + H2 semantic checks for one pack dir.
+func lintOnePack(vaultRoot, packDir string, errs, warns int) (int, int) {
+	issues, err := campaign.ValidatePack(vaultRoot, packDir)
+	if err != nil {
+		errs++
+		fmt.Printf("rules lint: error %s: %v\n", packDir, err)
+		return errs, warns
+	}
+	for _, is := range issues {
+		if is.Severity == "error" {
+			errs++
+			fmt.Printf("rules lint: error %s:%d: %s\n", is.File, is.Line, is.Message)
+		} else {
+			warns++
+			fmt.Printf("rules lint: warn %s:%d: %s\n", is.File, is.Line, is.Message)
+		}
+	}
+	rs, err := ruleset.LoadVaultPack(vaultRoot, packDir)
+	if err != nil {
+		errs++
+		fmt.Printf("rules lint: error %s: %v\n", packDir, err)
+		return errs, warns
+	}
+	for _, li := range ruleset.LintRuleset(rs, dice.ValidateNotation) {
+		if li.Severity == "error" {
+			errs++
+			fmt.Printf("rules lint: error %s %s: %s\n", packDir, li.Path, li.Message)
+		} else {
+			warns++
+			fmt.Printf("rules lint: warn %s %s: %s\n", packDir, li.Path, li.Message)
+		}
+	}
+	warns += warnSymbolicHooks(vaultRoot, packDir)
+	return errs, warns
+}
+
+// warnSymbolicHooks surfaces hooks the engine cannot execute (H1's symbolic
+// effect vocabulary): they stay display data in compendium prose, never
+// silent execution. Mirrors the loader's executability gate exactly.
+func warnSymbolicHooks(vaultRoot, packDir string) int {
+	doc, err := campaign.ParsePackDoc(vaultRoot, packDir)
+	if err != nil {
+		return 0
+	}
+	n, ok := doc["hooks"]
+	if !ok {
+		return 0
+	}
+	l, ok := n.List()
+	if !ok {
+		return 0
+	}
+	warns := 0
+	for _, item := range l {
+		m, ok := item.(map[string]campaign.Node)
+		if !ok {
+			continue
+		}
+		effect, _ := m["effect"].String()
+		intent, _ := m["intent"].String()
+		label, _ := m["label"].String()
+		if effect == "" || len(ruleset.LintExpression(effect, nil)) == 0 {
+			continue
+		}
+		warns++
+		fmt.Printf("rules lint: warn %s hook %s/%s: effect %q is not an evaluator expression (display data only, not executed)\n",
+			packDir, intent, label, effect)
+	}
+	return warns
 }

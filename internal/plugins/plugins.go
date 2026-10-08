@@ -315,7 +315,10 @@ func (e *PluginError) Error() string {
 }
 
 // FeatureFlag represents an optional feature that can be enabled in campaign.yaml.
-// Features are registered by plugins and enabled via campaign.yaml enabled-features.
+// Features are registered by plugins and enabled via campaign.yaml
+// enabled-plugins — NEVER enabled-features (phase decision G3: ruleset
+// optionals own enabled-features; plugin features own enabled-plugins;
+// separate registries, separate config keys).
 type FeatureFlag struct {
 	ID           string
 	Name         string

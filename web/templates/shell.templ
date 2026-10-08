@@ -23,6 +23,7 @@ type PageData struct {
 	ViewerLabel string
 	PreviewAs   string
 	AsParam     string
+	Slots       []SlotMark
 }
 
 type Backlink struct {
@@ -42,6 +43,18 @@ type SearchHit struct {
 	Title   string
 	Snippet string
 	Secret  bool
+}
+
+// SlotMark is one enabled plugin slot mount point for the shell. Marks come
+// from the enabled-aware provider (plugins.Registry.SlotsFor via web
+// SlotProvider) — never the raw registry — so a disabled plugin leaves no
+// UI trace, not even a mount point. Components render client-side from the
+// plugin fragment contract (Lane K display); the shell only mounts.
+type SlotMark struct {
+	SlotName  string // frozen slot name (header-right, sidebar-left, ...)
+	ID        string // component id within the slot
+	Component string // plugin component name (mount key)
+	PluginID  string // owning plugin (CSS namespace)
 }
 
 func viewerName(v *auth.Viewer) string {
@@ -111,6 +124,11 @@ templ Shell(data PageData, viewer *auth.Viewer, content templ.Component) {
 						if data.PreviewAs != "" {
 							<span class="badge preview">GM preview as { data.PreviewAs } · bannered + logged</span>
 						}
+						for _, s := range data.Slots {
+							if s.SlotName == "header-right" {
+								<div data-plugin-slot="header-right" data-component={ s.Component } data-plugin={ s.PluginID }></div>
+							}
+						}
 					</div>
 				</header>
 				if data.PreviewAs != "" {
@@ -135,6 +153,11 @@ templ Shell(data PageData, viewer *auth.Viewer, content templ.Component) {
 									</li>
 								}
 							</ul>
+							for _, s := range data.Slots {
+								if s.SlotName == "sidebar-left" {
+									<div data-plugin-slot="sidebar-left" data-component={ s.Component } data-plugin={ s.PluginID }></div>
+								}
+							}
 						</div>
 						<div class="slot" data-slot="sidebar-right">
 							<b>Backlinks</b>
@@ -147,11 +170,21 @@ templ Shell(data PageData, viewer *auth.Viewer, content templ.Component) {
 									}
 								</ul>
 							}
+							for _, s := range data.Slots {
+								if s.SlotName == "sidebar-right" {
+									<div data-plugin-slot="sidebar-right" data-component={ s.Component } data-plugin={ s.PluginID }></div>
+								}
+							}
 						</div>
 					</details>
 				</div>
 				<footer class="colophon">
 					<div class="slot" data-slot="footer">Yonder · read path (Lane F1) · secrets filtered server-side</div>
+					for _, s := range data.Slots {
+						if s.SlotName == "footer" {
+							<div data-plugin-slot="footer" data-component={ s.Component } data-plugin={ s.PluginID }></div>
+						}
+					}
 				</footer>
 			</div>
 			<script>

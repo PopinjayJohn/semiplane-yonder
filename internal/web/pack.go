@@ -1,22 +1,29 @@
 package web
 
-// Ruleset pack stub (Lane I1, Phase 3).
+// Ruleset packs (gate G3: vault-backed via H1's resolver).
 //
-// STUB(H1): Lane H1 owns base/overlay/homebrew packs as vault files under
-// rules/ plus campaign.yaml validation of names/optionals. H1 has not landed
-// yet (fixtures/rules/ is empty on this branch), so the wizard consumes this
-// minimal in-code shape derived from fixtures/srd + p05 (Fighter +
-// SRD ancestry/background names, display-only versions per p05 "recorded,
-// never enforced").
+// Base/overlay identity comes from vault truth on every call:
+// campaign.Resolve reads campaign.yaml + pack headers live with no cache,
+// so a GM overlay switch is a file edit — no rebuild, no restart, no index
+// touch. Class/ancestry/background rosters are still the timebox roster
+// (Fighter + SRD display names): H1 packs carry no structured class tables
+// in v1 (compendium entries are prose), so the roster is code-defined and
+// clearly marked below — an H1 follow-up, not vault truth. Handler call
+// sites use only Pack / ClassDef, so the roster upgrade needs no handler
+// changes when structured tables land.
 //
-// Swap contract: when H1 lands, replace StubPack with a vault-backed loader
-// returning this same Pack shape. Wizard + sheet call sites use only Pack /
-// ClassDef below, so no handler changes are needed. Dependency noted in the
-// lane report.
+// Fallback (marked): vaults without packs (fresh `init --bare`, unit
+// tests) resolve nothing — StubPack keeps every flow working on the
+// timebox roster with display-only versions.
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"strings"
+
+	"github.com/semiplane/yonder/internal/campaign"
+	"github.com/semiplane/yonder/internal/ruleset"
 )
 
 // ClassDef is the minimal playable-class shape the wizard and level flow
@@ -41,7 +48,8 @@ type Pack struct {
 
 // StubPack returns the timebox pack: Fighter (d10, SRD 5.2 CC-BY) with
 // ancestry/background name lists sampled from fixtures/srd filenames
-// (mechanics-free display strings).
+// (mechanics-free display strings). FALLBACK ONLY: pack-less vaults and
+// unit tests. Packed vaults resolve through LoadPack.
 func StubPack() *Pack {
 	return &Pack{
 		Base:    "dnd",
@@ -52,6 +60,51 @@ func StubPack() *Pack {
 		Ancestries:  []string{"human", "elf", "dwarf", "halfling"},
 		Backgrounds: []string{"acolyte", "criminal", "sage", "soldier"},
 	}
+}
+
+// LoadPack resolves the vault's ruleset stack through H1 and returns the
+// wizard/sheet Pack shape: base/overlay ids from vault truth, timebox
+// roster for classes/ancestries/backgrounds (see file header). Resolution
+// failures (no campaign.yaml, no packs) fall back to StubPack — never nil,
+// never an error — so pack-less vaults keep serving.
+func LoadPack(vaultRoot string) *Pack {
+	p := StubPack()
+	if vaultRoot == "" {
+		return p
+	}
+	st, err := campaign.Resolve(vaultRoot)
+	if err != nil {
+		return p
+	}
+	if st.Base != nil {
+		p.Base = st.Base.ID
+	}
+	if st.Overlay != nil {
+		p.Overlay = st.Overlay.ID
+	} else {
+		p.Overlay = ""
+	}
+	return p
+}
+
+// vaultEngine is the served RecoveryEvaluator: it rebuilds the H2 engine
+// from vault truth on every Evaluate (campaign.Resolve reads live disk, no
+// cache), so overlay/feature switches apply to future rolls with no
+// restart. A stack that fails to load falls back to empty modifiers with a
+// loud log — sheets keep working on file truth (marked fallback; same rule
+// as LoadVaultStack's contract).
+type vaultEngine struct {
+	vaultRoot string
+}
+
+// Evaluate implements RecoveryEvaluator over a freshly resolved stack.
+func (v vaultEngine) Evaluate(ctx context.Context, intent ruleset.Intent) (*ruleset.Modifiers, error) {
+	e, err := ruleset.LoadVaultStack(v.vaultRoot)
+	if err != nil {
+		slog.Warn("ruleset stack unavailable, recovery hooks off", "err", err)
+		return StubEvaluator{}.Evaluate(ctx, intent)
+	}
+	return e.Evaluate(ctx, intent)
 }
 
 // Class looks up a class id case-insensitively.

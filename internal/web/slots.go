@@ -122,3 +122,27 @@ const (
 	SlotPageActions  = "page-actions"
 	SlotSheetHeader  = "sheet-header"
 )
+
+// SlotProvider supplies the slot components a shell render may mount.
+// Gate G3 seam: the plugin registry (internal/plugins) implements this via
+// its enabled-aware SlotsFor — web never imports plugins (cycle), so serve
+// wiring injects the registry here. Read paths MUST render through this
+// provider, never the raw SlotRegistry.Get: raw Get cannot see plugin
+// enablement, so a disabled plugin would leave mount-point traces.
+type SlotProvider interface {
+	SlotsFor(slot string, viewer *auth.Viewer, path string) []SlotComponent
+}
+
+// shellSlots resolves one slot for one render: provider-first (enabled
+// plugins only). The raw-registry fallback covers unwired unit tests and
+// core-registered components only; serve always wires the provider, so
+// production renders never take the fallback (marked pre-plugin fallback).
+func shellSlots(provider SlotProvider, raw *SlotRegistry, slot string, viewer *auth.Viewer, path string) []SlotComponent {
+	if provider != nil {
+		return provider.SlotsFor(slot, viewer, path)
+	}
+	if raw == nil {
+		return nil
+	}
+	return raw.Get(slot, viewer, path)
+}

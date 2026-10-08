@@ -18,6 +18,7 @@ package web
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"math/big"
 	"sort"
@@ -27,12 +28,13 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// MOCK(H2): evaluator seam. Lane H2 owns ruleset.Evaluate (intent envelope
-// {intent, actor, targets, tool, context} + pre/post/interpret hooks); the
-// Phase-0 engine returns (nil, nil). Rest/level flows call through this seam
-// so hook-driven recovery bonuses (e.g. Dwarven Toughness, Song of Rest)
-// apply with no call-site change once H2 lands. Until then StubEvaluator
-// returns empty modifiers.
+// Evaluator seam (gate G3: wired to the real engine). Lane H2 owns
+// ruleset.Evaluate (intent envelope {intent, actor, targets, tool, context}
+// + pre/post/interpret hooks); rest/level flows call through this seam so
+// hook-driven recovery bonuses (e.g. Dwarven Toughness, Song of Rest) apply
+// with no call-site change. Serve passes a vault-backed engine (vaultEngine,
+// below); StubEvaluator remains ONLY as the explicitly-marked fallback for
+// pack-less vaults (init --bare) and unit tests.
 // ---------------------------------------------------------------------------
 
 // RecoveryEvaluator is the H2 seam for rest/level recovery hooks.
@@ -40,17 +42,20 @@ type RecoveryEvaluator interface {
 	Evaluate(ctx context.Context, intent ruleset.Intent) (*ruleset.Modifiers, error)
 }
 
-// StubEvaluator is the H2-mock: no hooks, no modifiers, never an error.
+// StubEvaluator contributes no hooks and never errors. FALLBACK ONLY: used
+// when the vault resolves no ruleset packs (or the stack fails to load —
+// serve logs loudly and sheets keep working on file truth). Never the
+// default on a packed vault; see vaultEngine.
 type StubEvaluator struct{}
 
-// Evaluate implements RecoveryEvaluator (MOCK: returns empty modifiers).
+// Evaluate implements RecoveryEvaluator (fallback: empty modifiers).
 func (StubEvaluator) Evaluate(_ context.Context, _ ruleset.Intent) (*ruleset.Modifiers, error) {
 	return &ruleset.Modifiers{}, nil
 }
 
-// MOCK(H2): hit-die rolls go through dice.Roller once H2 lands the generic
-// roller; until then this local crypto/rand roll (spec maxima respected by
-// construction: 1 die, <= 12 faces here) keeps rest recovery offline and
+// Hit-die rolls go through dice.Roller in transport flows; rest recovery
+// rolls one hit die locally with crypto/rand (spec maxima respected by
+// construction: 1 die, <= 12 faces here) to stay offline and
 // dependency-free.
 
 // HitDieRoller rolls one hit die; implementations must use crypto/rand.
@@ -400,8 +405,8 @@ func (sh *Sheet) LongRest() {
 
 // LevelUp advances one level: +1 hit die, HP max + average (die/2+1+Con,
 // min 1), current HP rises by the same (new vitality, never overheal past
-// the new max by construction). Slots for new caster levels arrive via H1
-// pack data — the stub records none (STUB(H1)).
+// the new max by construction). Caster slot tables are pack data (H1
+// follow-up: structured class tables); the timebox roster records none.
 func (sh *Sheet) LevelUp(class *ClassDef) error {
 	if sh.Level >= 20 {
 		return fmt.Errorf("already level 20")
@@ -421,17 +426,23 @@ func (sh *Sheet) LevelUp(class *ClassDef) error {
 	if sh.HP > sh.HPMax {
 		sh.HP = sh.HPMax
 	}
-	_ = class // caster slot tables arrive with H1 packs (STUB(H1))
+	_ = class // caster slot tables are pack data (structured class tables are an H1 follow-up)
 	return nil
 }
 
-// TouchRecovery runs the H2 seam for a rest intent so future hook modifiers
-// compose here; the stub contributes zero today.
+// TouchRecovery runs the H2 seam for a rest intent so hook modifiers compose
+// here. Recovery hooks are best-effort bonuses: an intent the active base
+// never declared (e.g. level-up on the timebox dnd base) is skipped, never
+// a 500 — the sheet flow itself is the source of truth for HP/hit-dice math.
+// Genuine evaluation failures still propagate.
 func TouchRecovery(ctx context.Context, ev RecoveryEvaluator, intent, actor string) error {
 	if ev == nil {
 		return nil
 	}
 	_, err := ev.Evaluate(ctx, ruleset.Intent{Intent: intent, Actor: actor})
+	if err != nil && errors.Is(err, ruleset.ErrUnknownIntent) {
+		return nil
+	}
 	return err
 }
 

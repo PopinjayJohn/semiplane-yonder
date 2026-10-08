@@ -38,7 +38,8 @@ type SheetHandlers struct {
 	Vault        VaultWriter
 	SessionStore auth.SessionStore
 	Pack         *Pack
-	Evaluator    RecoveryEvaluator // MOCK(H2): StubEvaluator until H2 lands
+	Evaluator    RecoveryEvaluator // explicit engine in tests; vault-backed when VaultRoot is set
+	VaultRoot    string            // gate G3: vault truth for per-request pack/engine resolve (no restart on overlay switch)
 }
 
 // RegisterRoutes registers sheet routes with the frozen registry.
@@ -65,12 +66,20 @@ func (h *SheetHandlers) pack() *Pack {
 	if h.Pack != nil {
 		return h.Pack
 	}
+	// Per-request vault resolve: overlay switches apply with no restart.
+	// Explicit test packs pin behavior; pack-less vaults get the fallback.
+	if h.VaultRoot != "" {
+		return LoadPack(h.VaultRoot)
+	}
 	return StubPack()
 }
 
 func (h *SheetHandlers) evaluator() RecoveryEvaluator {
 	if h.Evaluator != nil {
 		return h.Evaluator
+	}
+	if h.VaultRoot != "" {
+		return vaultEngine{vaultRoot: h.VaultRoot}
 	}
 	return StubEvaluator{}
 }
@@ -231,6 +240,17 @@ func (h *SheetHandlers) SheetRouter(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 // myCharacters lists owned PC index paths for the viewer (stable order).
+//
+// Read-copy rule (gate G3, AGENTS.md: the index DB holds a read copy only;
+// app DB rows are authoritative for auth/VTT/app state; Lane B's Store has
+// NO characters-table API by design — this gate must not widen it): the
+// index rows below are EXISTENCE HINTS ONLY. Every value rendered (stats,
+// HP, slots) and every ACL decision re-derives from vault truth per request
+// in loadSheetRel (vault re-read + secrets.Filter on the vault-parsed
+// owner). A stale index row (lagging watcher, transferred owner) can at
+// worst list a path; the vault funnel 404s it fail-closed before any value
+// or title renders. Nothing on this read path consults a DB sheet copy,
+// because there is none.
 func (h *SheetHandlers) myCharacters(ctx context.Context, v *auth.Viewer) []string {
 	user, _, _, _ := store.SplitViewer(v)
 	if user == "" || h.Store == nil {
@@ -750,8 +770,9 @@ func (h *SheetHandlers) Rest(w http.ResponseWriter, r *http.Request) {
 	restDone(w, notice)
 }
 
-// Level advances one level (average HP, +1 hit die) via the stub pack
-// (STUB(H1): caster slot tables arrive with H1 packs).
+// Level advances one level (average HP, +1 hit die) via the resolved pack
+// (caster slot tables are pack data; structured class tables are an H1
+// follow-up).
 func (h *SheetHandlers) Level(w http.ResponseWriter, r *http.Request) {
 	v := viewerOf(r)
 	user, _, _, _ := store.SplitViewer(v)

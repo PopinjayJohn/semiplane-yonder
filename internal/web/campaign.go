@@ -22,27 +22,34 @@ import (
 )
 
 // Campaign is the validated campaign.yaml model. Keys mirror the H1-frozen
-// set: base, overlay, enabled-features[] (p05). Unknown keys are rejected by
-// validation (append-only extension happens via explicit amend, never here).
+// set (internal/campaign): base/overlay (+ display-only versions),
+// ruleset optionals (enabled-features[]) and feature plugins
+// (enabled-plugins[]) in SEPARATE namespaces (phase decision G3). Unknown
+// keys are rejected by validation (append-only extension happens via
+// explicit amend, never here).
 type Campaign struct {
 	Name            string
 	Created         string
 	Base            string
+	BaseVersion     string
 	Overlay         string
+	OverlayVersion  string
 	EnabledFeatures []string
+	EnabledPlugins  []string
 }
 
 var featureIDRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
 // ParseCampaign parses campaign.yaml content covering exactly the frozen key
 // set. Comment lines (#...) and blank lines are skipped; enabled-features
-// accepts a block list (`key:` followed by `- item` lines) or a flow list
-// (`key: [a, b]`). Unknown top-level keys are an error (append-only keys
-// change only via amend). Missing keys stay zero.
+// and enabled-plugins accept a block list (`key:` followed by `- item`
+// lines, at deeper indent or the Obsidian same-indent column-0 shape) or a
+// flow list (`key: [a, b]`). Unknown top-level keys are an error
+// (append-only keys change only via amend). Missing keys stay zero.
 func ParseCampaign(content string) (*Campaign, error) {
 	c := &Campaign{}
 	lines := splitKeepEnds(content)
-	inFeatures := false
+	inList := "" // "features" | "plugins" | ""
 	for _, raw := range lines {
 		line := trimEOL(raw)
 		trimmed := strings.TrimSpace(line)
@@ -50,8 +57,8 @@ func ParseCampaign(content string) (*Campaign, error) {
 			continue
 		}
 		indent := len(line) - len(strings.TrimLeft(line, " \t"))
-		if indent > 0 || (inFeatures && (strings.HasPrefix(trimmed, "- ") || trimmed == "-")) {
-			if !inFeatures {
+		if indent > 0 || (inList != "" && (strings.HasPrefix(trimmed, "- ") || trimmed == "-")) {
+			if inList == "" {
 				continue // nested content under unknown parents: ignore
 			}
 			if !strings.HasPrefix(trimmed, "- ") && trimmed != "-" {
@@ -60,11 +67,15 @@ func ParseCampaign(content string) (*Campaign, error) {
 			item := strings.TrimSpace(strings.TrimPrefix(trimmed, "-"))
 			item = strings.Trim(item, `"'`)
 			if item != "" {
-				c.EnabledFeatures = append(c.EnabledFeatures, item)
+				if inList == "plugins" {
+					c.EnabledPlugins = append(c.EnabledPlugins, item)
+				} else {
+					c.EnabledFeatures = append(c.EnabledFeatures, item)
+				}
 			}
 			continue
 		}
-		inFeatures = false
+		inList = ""
 		j := strings.IndexByte(trimmed, ':')
 		if j < 0 {
 			continue // not a mapping line: ignore (never crash on vault content)
@@ -80,19 +91,36 @@ func ParseCampaign(content string) (*Campaign, error) {
 			c.Created = unquote(val)
 		case "base":
 			c.Base = unquote(val)
+		case "base-version":
+			c.BaseVersion = unquote(val)
 		case "overlay":
 			c.Overlay = unquote(val)
-		case "enabled-features":
+		case "overlay-version":
+			c.OverlayVersion = unquote(val)
+		case "enabled-features", "enabled-plugins":
 			if strings.HasPrefix(val, "[") {
 				for _, item := range parseFlowList(val) {
-					if item != "" {
+					if item == "" {
+						continue
+					}
+					if key == "enabled-plugins" {
+						c.EnabledPlugins = append(c.EnabledPlugins, item)
+					} else {
 						c.EnabledFeatures = append(c.EnabledFeatures, item)
 					}
 				}
 			} else if val == "" {
-				inFeatures = true
+				if key == "enabled-plugins" {
+					inList = "plugins"
+				} else {
+					inList = "features"
+				}
 			} else {
-				c.EnabledFeatures = append(c.EnabledFeatures, unquote(val))
+				if key == "enabled-plugins" {
+					c.EnabledPlugins = append(c.EnabledPlugins, unquote(val))
+				} else {
+					c.EnabledFeatures = append(c.EnabledFeatures, unquote(val))
+				}
 			}
 		default:
 			return nil, fmt.Errorf("unknown campaign.yaml key: %q", key)
@@ -118,28 +146,41 @@ func ValidateCampaign(c *Campaign) error {
 		if !featureIDRe.MatchString(f) {
 			return fmt.Errorf("bad feature id %q: want [a-z0-9-]", f)
 		}
-		if seen[f] {
+		if seen["f/"+f] {
 			return fmt.Errorf("duplicate feature id %q", f)
 		}
-		seen[f] = true
+		seen["f/"+f] = true
+	}
+	for _, p := range c.EnabledPlugins {
+		if !featureIDRe.MatchString(p) {
+			return fmt.Errorf("bad plugin id %q: want [a-z0-9-]", p)
+		}
+		if seen["p/"+p] {
+			return fmt.Errorf("duplicate plugin id %q", p)
+		}
+		seen["p/"+p] = true
 	}
 	return nil
 }
 
 // UpsertCampaignYAML writes c's keys back into existing content surgically:
 // known `key: ...` lines are replaced in place (comments/blank lines/order
-// preserved), missing keys are appended, and the enabled-features block is
-// rebuilt as a `- item` list. Unknown keys already present are preserved
-// verbatim (forward-compat with H1 additions) but new writes never invent
-// keys outside the frozen set.
+// preserved), missing keys are appended, and the enabled-features /
+// enabled-plugins blocks are rebuilt as `- item` lists. Unknown keys
+// already present are preserved verbatim (forward-compat with future
+// additions) but new writes never invent keys outside the frozen set.
 func UpsertCampaignYAML(existing string, c *Campaign) string {
 	features := append([]string(nil), c.EnabledFeatures...)
 	sort.Strings(features)
+	plugins := append([]string(nil), c.EnabledPlugins...)
+	sort.Strings(plugins)
 	vals := map[string]string{
-		"name":    quoteYAML(c.Name),
-		"created": quoteYAML(c.Created),
-		"base":    quoteYAML(c.Base),
-		"overlay": quoteYAML(c.Overlay),
+		"name":            quoteYAML(c.Name),
+		"created":         quoteYAML(c.Created),
+		"base":            quoteYAML(c.Base),
+		"base-version":    quoteYAML(c.BaseVersion),
+		"overlay":         quoteYAML(c.Overlay),
+		"overlay-version": quoteYAML(c.OverlayVersion),
 	}
 	// Drop empty optionals so `init --bare` scaffolds stay minimal.
 	skip := map[string]bool{}
@@ -148,21 +189,25 @@ func UpsertCampaignYAML(existing string, c *Campaign) string {
 			skip[k] = true
 		}
 	}
+	lists := map[string][]string{
+		"enabled-features": features,
+		"enabled-plugins":  plugins,
+	}
 	lines := splitKeepEnds(existing)
 	var out []string
 	done := map[string]bool{}
-	inFeatures := false
-	featuresEmitted := false
-	flushFeatures := func() {
-		if featuresEmitted {
+	inList := "" // list key whose items are being rebuilt, or ""
+	emitted := map[string]bool{}
+	flushList := func(key string) {
+		if emitted[key] {
 			return
 		}
-		featuresEmitted = true
-		if len(features) == 0 {
+		emitted[key] = true
+		if len(lists[key]) == 0 {
 			return
 		}
-		out = append(out, "enabled-features:\n")
-		for _, f := range features {
+		out = append(out, key+":\n")
+		for _, f := range lists[key] {
 			out = append(out, "- "+f+"\n")
 		}
 	}
@@ -176,19 +221,19 @@ func UpsertCampaignYAML(existing string, c *Campaign) string {
 			hasFence = true
 		}
 		if indent > 0 {
-			if inFeatures {
-				continue // old feature items: dropped, rebuilt by flush
+			if inList != "" {
+				continue // old list items: dropped, rebuilt by flush
 			}
 			out = append(out, raw)
 			continue
 		}
-		if inFeatures && (strings.HasPrefix(trimmed, "- ") || trimmed == "-") {
-			continue // block-seq items at column 0: still feature items
+		if inList != "" && (strings.HasPrefix(trimmed, "- ") || trimmed == "-") {
+			continue // block-seq items at column 0: still list items
 		}
 		if strings.HasPrefix(trimmed, "#") || trimmed == "" || trimmed == "---" || trimmed == "..." {
-			if inFeatures {
-				inFeatures = false
-				flushFeatures()
+			if inList != "" {
+				flushList(inList)
+				inList = ""
 			}
 			out = append(out, raw)
 			continue
@@ -199,13 +244,16 @@ func UpsertCampaignYAML(existing string, c *Campaign) string {
 			continue
 		}
 		key := strings.TrimSpace(trimmed[:j])
-		if key == "enabled-features" {
-			inFeatures = true
-			flushFeatures()
+		if _, isList := lists[key]; isList {
+			if inList != "" && inList != key {
+				flushList(inList)
+			}
+			inList = key
+			flushList(key)
 			continue
 		}
 		if v, ok := vals[key]; ok {
-			inFeatures = false
+			inList = ""
 			if skip[key] {
 				done[key] = true // cleared in the form: drop the line
 				continue
@@ -214,11 +262,13 @@ func UpsertCampaignYAML(existing string, c *Campaign) string {
 			done[key] = true
 			continue
 		}
-		inFeatures = false
+		if inList != "" {
+			inList = ""
+		}
 		out = append(out, raw)
 	}
-	if inFeatures {
-		flushFeatures()
+	if inList != "" {
+		flushList(inList)
 	}
 	var missing []string
 	for k, v := range vals {
@@ -228,8 +278,10 @@ func UpsertCampaignYAML(existing string, c *Campaign) string {
 	}
 	sort.Strings(missing)
 	out = append(out, missing...)
-	if !featuresEmitted {
-		flushFeatures()
+	for key := range lists {
+		if !emitted[key] {
+			flushList(key)
+		}
 	}
 	_ = hasFence
 	return strings.Join(out, "")
