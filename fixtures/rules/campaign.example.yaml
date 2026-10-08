@@ -1,0 +1,29 @@
+# Example campaign.yaml — frozen keys (append-only after Phase 1).
+# Copy to <vault>/campaign.yaml and select the installed packs.
+# Validation: internal/campaign (Load/Parse). Writers: I1 setup wizard via
+# campaign.SetEnabled (surgical edit: comments and order preserved).
+
+# Vault display name (from `init --bare` scaffold).
+name: Cinder Pact
+created: 2026-10-07T00:00:00Z
+
+# Ruleset layers (P05). Base/overlay names reference directories under
+# rules/; homebrew resolves from rules/homebrew/ and homebrew/ (table-local
+# homebrew/ shadows an installed pack of the same id).
+# Versions are display-only in v1: recorded, never enforced.
+base: dnd
+base-version: "5.2"
+overlay: 5e-2024
+overlay-version: "2024"
+
+# Ruleset optionals, by stable id (multi-per-file). GM toggles per-id;
+# ids must be offered by some vault file (unknown ids fail validation).
+# Separate namespace from enabled-plugins below.
+enabled-features:
+  - second-wind-2024
+  - weapon-mastery-2024
+
+# Feature plugins (P06, Lane I2 namespace — listed here so neither lane's
+# keys trip the other's validation).
+enabled-plugins:
+  - random-tables

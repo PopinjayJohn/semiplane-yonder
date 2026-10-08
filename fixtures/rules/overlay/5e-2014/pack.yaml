@@ -1,0 +1,34 @@
+# 5e-2014 overlay: versions the dnd base with 2014 values. Pure diff — no
+# content files, no fork. Second Wind restores on either rest with a single
+# use; no Weapon Mastery system.
+id: 5e-2014
+name: Fifth Edition (2014 rules)
+type: overlay
+version: "2014"
+parent: dnd
+attribution: "Systems Reference Document 5.1 under CC-BY-4.0 (Wizards of the Coast)."
+
+derived:
+  second-wind-uses:
+    label: Second Wind uses
+    formula: "1"
+    depends: []
+
+rolls:
+  second-wind:
+    label: Second Wind recovery
+    dice: 1d10
+    stat: level
+    intent: heal
+
+intents:
+  - attack
+  - save
+  - check
+  - damage
+  - heal
+  - initiative
+  - rest-short
+  - rest-long
+  - death-save
+  - concentration

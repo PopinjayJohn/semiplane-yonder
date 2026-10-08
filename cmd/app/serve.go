@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -11,7 +12,9 @@ import (
 	"time"
 
 	"github.com/semiplane/yonder/internal/auth"
+	"github.com/semiplane/yonder/internal/campaign"
 	_ "github.com/semiplane/yonder/internal/markdown" // ensure parser registration
+	"github.com/semiplane/yonder/internal/plugins"
 	"github.com/semiplane/yonder/internal/store"
 	"github.com/semiplane/yonder/internal/vault"
 	"github.com/semiplane/yonder/internal/web"
@@ -36,6 +39,30 @@ func writeVersionJSON(w http.ResponseWriter, info buildInfo) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(info)
+}
+
+// enablePlugins resolves campaign.yaml enabled-plugins (the I2 namespace —
+// never enabled-features, which ruleset optionals own) against the plugin
+// registry. Unknown-but-wellformed ids log loudly and stay disabled (the
+// plugin may compile in later; serve must boot regardless). Malformed ids
+// fail the parse and also stay disabled with a loud log — serve availability
+// wins over plugin precision; `plugin check` is the strict gate.
+func enablePlugins(vaultDir string, plugReg *plugins.Registry) {
+	c, err := campaign.Load(vaultDir)
+	if err != nil {
+		return // no campaign.yaml yet (init --bare): no plugins
+	}
+	ids, err := plugins.ParseEnabledPlugins("", c.EnabledPlugins)
+	if err != nil {
+		slog.Warn("plugins: bad enabled-plugins list, all plugins stay disabled", "err", err)
+		return
+	}
+	ctx := context.Background()
+	for _, id := range ids {
+		if err := plugReg.Enable(ctx, id); err != nil {
+			slog.Warn("plugins: cannot enable, stays disabled", "plugin", id, "err", err)
+		}
+	}
 }
 
 // healthzHandler answers 200 with the version only. No vault info, no
@@ -69,12 +96,22 @@ func printCSSHandler(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(css)
 }
 
+// serverWiring is the product of wireHandlers: the HTTP surface plus the
+// live registries the gate integration test drives (plugin enablement,
+// store seeding). Serve uses Handler; tests use the rest.
+type serverWiring struct {
+	Handler http.Handler
+	Plugins *plugins.Registry
+	Store   store.Store
+	Vault   *vault.Vault
+}
+
 // wireHandlers builds the complete handler chain: ops endpoints (deduped),
 // then read/write handlers via the route registry. Data paths come from
 // dataPaths (sibling <vault>-data dir, sanitized names) like every other
 // command -- never Dir(vault)/Base(vault), which pointed serve at an empty
 // index. (G2 amend: serve read an empty index and 404'd every page.)
-func wireHandlers(info buildInfo, vaultDir, dataDir string, sessionStore auth.SessionStore) http.Handler {
+func wireHandlers(info buildInfo, vaultDir, dataDir string, sessionStore auth.SessionStore) *serverWiring {
 	// Build store, vault, and handlers.
 	indexPath, appPath, _ := dataPaths(dataDir, vaultDir)
 	st, err := store.Open(indexPath, appPath)
@@ -85,10 +122,35 @@ func wireHandlers(info buildInfo, vaultDir, dataDir string, sessionStore auth.Se
 	if err != nil {
 		panic(err)
 	}
-	readH := web.ReadHandlers{Store: st, SessionStore: sessionStore}
-	writeH := web.WriteHandlers{Store: st, Vault: v, SessionStore: sessionStore}
-
+	// Gate G3: plugin registries live in serve (E1 file, amend-authorized).
+	// web owns the append-only slot/route registries; plugins.Registry adds
+	// enablement gating on top. Shell read paths render slots through
+	// plugReg.SlotsFor (via the web.SlotProvider seam), so a disabled plugin
+	// leaves no UI trace. No plugins are compiled in yet (random-tables
+	// ships data + slot shape, no Plugin impl), so the registry starts
+	// empty; campaign.yaml enabled-plugins resolve against it below.
+	slotReg := web.NewSlotRegistry()
 	reg := web.NewRouteRegistry()
+	plugReg := plugins.NewRegistry(slotReg, reg)
+	enablePlugins(vaultDir, plugReg)
+	readH := web.ReadHandlers{Store: st, SlotRegistry: slotReg, Slots: plugReg, SessionStore: sessionStore}
+	writeH := web.WriteHandlers{Store: st, Vault: v, SlotRegistry: slotReg, SessionStore: sessionStore}
+
+	// Gate G3 registration order (DELIBERATE first-wins): I1's wizard +
+	// sheet handlers register BEFORE F1's read handlers so GET /me serves
+	// MeSheet (retiring F1's placeholder deliberately, not accidentally —
+	// buildRegistryHandler keeps the first handler per pattern). F1's Me
+	// stays reachable via ReadHandlers.NewMux only. The same first-wins
+	// rule keeps F2's write-path stubs (/wizard/{step}, /encounter) behind
+	// any same-pattern lane handler; none collide today.
+	sheetH := web.SheetHandlers{Store: st, Vault: v, SessionStore: sessionStore, VaultRoot: vaultDir}
+	drafts, err := web.NewDraftStore(st.AppDB())
+	if err != nil {
+		panic(err)
+	}
+	wizH := web.WizardHandlers{Store: st, Vault: v, SessionStore: sessionStore, Drafts: drafts, VaultRoot: vaultDir}
+	wizH.RegisterRoutes(reg)
+	sheetH.RegisterRoutes(reg)
 	readH.RegisterRoutes(reg)
 	writeH.RegisterRoutes(reg)
 
@@ -142,14 +204,23 @@ func wireHandlers(info buildInfo, vaultDir, dataDir string, sessionStore auth.Se
 			opsMux.ServeHTTP(w, r)
 		}
 	}))
-	return mux
+	return &serverWiring{Handler: mux, Plugins: plugReg, Store: st, Vault: v}
 }
 
 // buildRegistryHandler constructs an http.Handler from registered routes
 // with session/viewer middleware (inline until RouteRegistry.BuildHandler
 // is implemented). stdlib ServeMux (Go 1.22+) supports {name} and {name...}
 // only at pattern END; frozen routes use {path...} mid-pattern. We map them
-// to prefix patterns. Duplicate prefixes keep the first registered handler.
+// to prefix patterns. Duplicate method+pattern pairs keep the first
+// registered handler — that first-wins rule is what retires F1's GET /me
+// placeholder in favor of I1's MeSheet (deliberate registration order in
+// wireHandlers, never accidental).
+//
+// Gate G3: dedup keys on METHOD + pattern (stdlib "METHOD /path" patterns).
+// The old pattern-only collapse shadowed every POST twin behind its GET
+// registration (POST /wizard/setup, POST /c/..., F2 PageSave) — writes were
+// unreachable over the mux. Method-aware routing restores them; CSRF +
+// login still gate every write.
 func buildRegistryHandler(routes []web.Route, sessionStore auth.SessionStore) http.Handler {
 	mux := http.NewServeMux()
 	seen := make(map[string]bool)
@@ -161,13 +232,34 @@ func buildRegistryHandler(routes []web.Route, sessionStore auth.SessionStore) ht
 		// For Phase 2, let handlers resolve their own viewer (demo fallback).
 		// Real auth middleware lands in P11.
 		pattern := toStdlibPattern(rt.Path)
+		if rt.Method != "" {
+			pattern = rt.Method + " " + pattern
+		}
 		if seen[pattern] {
-			continue // skip duplicate prefix; first handler wins
+			continue // skip duplicate method+pattern; first handler wins
 		}
 		seen[pattern] = true
 		mux.HandleFunc(pattern, h)
 	}
-	return mux
+	return withDemoViewer(mux)
+}
+
+// withDemoViewer injects the request's demo identity (`?as=`, same resolver
+// every read handler uses) into the context when no real-auth viewer is
+// present. Gate G3: session-only handlers (I1 wizard/sheets via viewerOf)
+// would otherwise 401 every live request — there is no HTTP login surface
+// in v1, so `?as=` is the live-server identity tier (M1 smoke precedent).
+// Real-auth contexts always win; identity alone never passes CSRF, so
+// state-changing routes still require a session cookie + token.
+func withDemoViewer(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := auth.ViewerFromContext(r.Context()); !ok {
+			if v := web.ViewerForRequest(r); v != nil {
+				r = r.WithContext(auth.WithViewer(r.Context(), v))
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // toStdlibPattern converts frozen route patterns (using chi-style {path...}
@@ -233,7 +325,7 @@ func runServe(opts serveOptions, shutdown <-chan os.Signal) error {
 	mux := wireHandlers(opts.info, opts.vault, dataDir, sessionStore)
 	server := &http.Server{
 		Addr:              opts.addr,
-		Handler:           mux,
+		Handler:           mux.Handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {

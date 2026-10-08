@@ -28,6 +28,7 @@ import (
 type ReadHandlers struct {
 	Store        store.Store
 	SlotRegistry *SlotRegistry
+	Slots        SlotProvider // gate G3: enabled-aware slot source (serve injects the plugin registry); nil = raw-registry test fallback
 	SessionStore auth.SessionStore
 }
 
@@ -96,6 +97,14 @@ func (h *ReadHandlers) RegisterRoutes(reg *RouteRegistry) {
 		SecretFiltered: true,
 	})
 	reg.Register(Route{
+		Method:         http.MethodPost,
+		Path:           RouteSSE,
+		Handler:        h.SSE, // same handler: POST = GM flip broadcast
+		ReadOnly:       false,
+		AuthRequired:   true,
+		SecretFiltered: true,
+	})
+	reg.Register(Route{
 		Method:       http.MethodGet,
 		Path:         RouteMe,
 		Handler:      h.Me,
@@ -142,6 +151,16 @@ var demoUsers = map[string]*auth.Viewer{
 // (P11 middleware, via auth.ViewerFromContext), hardcoded demo users second.
 // GM-only `preview_as` impersonation filters as the previewed user, renders a
 // persistent banner, and is logged (Phase 0c contract).
+//
+// ViewerForRequest is the exported gate-G3 seam for serve wiring: the serve
+// middleware injects this into request contexts so session-only handlers
+// (I1 wizard/sheets, F2 writes) resolve the same demo identity live. There
+// is no HTTP login surface in v1; `?as=` is the de-facto live-server
+// identity tier (M1 smoke precedent). State-changing routes still require a
+// session-backed CSRF token — identity alone never authorizes a write.
+func ViewerForRequest(r *http.Request) *auth.Viewer {
+	return viewerFromRequest(r)
+}
 func viewerFromRequest(r *http.Request) *auth.Viewer {
 	if v, ok := auth.ViewerFromContext(r.Context()); ok && v != nil {
 		return v
@@ -409,8 +428,20 @@ func visibleBacklinks(ctx context.Context, st store.Store, viewer *auth.Viewer, 
 	return out
 }
 
-func renderShell(w http.ResponseWriter, r *http.Request, status int, data templates.PageData, viewer *auth.Viewer, body templ.Component) {
+func (h *ReadHandlers) renderShell(w http.ResponseWriter, r *http.Request, status int, data templates.PageData, viewer *auth.Viewer, body templ.Component) {
 	slog.Info("read", "path", r.URL.Path, "user", viewerLabel(viewer))
+	// Shell slot mounts resolve through the enabled-aware provider (gate
+	// G3): disabled plugins contribute no mount points. The provider also
+	// applies viewer/path gating (GM-only, grants, prefixes) server-side.
+	if h != nil {
+		for _, slot := range []string{SlotHeaderRight, SlotSidebarLeft, SlotSidebarRight, SlotFooter} {
+			for _, c := range shellSlots(h.Slots, h.SlotRegistry, slot, viewer, data.Path) {
+				data.Slots = append(data.Slots, templates.SlotMark{
+					SlotName: slot, ID: c.ID, Component: c.Component, PluginID: c.PluginID,
+				})
+			}
+		}
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	// Read output is per-viewer: never shared-cache, never stored.
 	w.Header().Set("Cache-Control", "private, no-store")
@@ -475,7 +506,7 @@ func (h *ReadHandlers) PageView(w http.ResponseWriter, r *http.Request) {
 	if viewer != nil {
 		data.PreviewAs = viewer.PreviewAs
 	}
-	renderShell(w, r, http.StatusOK, data, viewer, templates.PageBody(data))
+	h.renderShell(w, r, http.StatusOK, data, viewer, templates.PageBody(data))
 }
 
 func (h *ReadHandlers) notFound(w http.ResponseWriter, r *http.Request, viewer *auth.Viewer) {
@@ -488,7 +519,7 @@ func (h *ReadHandlers) notFound(w http.ResponseWriter, r *http.Request, viewer *
 	if viewer != nil {
 		data.PreviewAs = viewer.PreviewAs
 	}
-	renderShell(w, r, http.StatusNotFound, data, viewer, templates.NotFound())
+	h.renderShell(w, r, http.StatusNotFound, data, viewer, templates.NotFound())
 }
 
 // Search handles search requests. The store filters by viewer ACL and cuts
@@ -533,7 +564,7 @@ func (h *ReadHandlers) Search(w http.ResponseWriter, r *http.Request) {
 	if viewer != nil {
 		data.PreviewAs = viewer.PreviewAs
 	}
-	renderShell(w, r, http.StatusOK, data, viewer, templates.SearchBody(q, hits, data.AsParam))
+	h.renderShell(w, r, http.StatusOK, data, viewer, templates.SearchBody(q, hits, data.AsParam))
 }
 
 // graphNode / graphEdge are the JSON graph (secret-filtered: invisible pages
@@ -796,7 +827,7 @@ func (h *ReadHandlers) Me(w http.ResponseWriter, r *http.Request) {
 		ViewerLabel: viewerLabel(viewer),
 		AsParam:     asParam(r, viewer),
 	}
-	renderShell(w, r, http.StatusOK, data, viewer, templates.Placeholder("Me", "Logged in as "+viewerLabel(viewer)+". Character sheets land in Phase 3 (Lane I1)."))
+	h.renderShell(w, r, http.StatusOK, data, viewer, templates.Placeholder("Me", "Logged in as "+viewerLabel(viewer)+". Character sheets land in Phase 3 (Lane I1)."))
 }
 
 // Dashboard returns the GM dashboard placeholder (real dashboard is Lane I2).
@@ -812,7 +843,7 @@ func (h *ReadHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 		ViewerLabel: viewerLabel(viewer),
 		AsParam:     asParam(r, viewer),
 	}
-	renderShell(w, r, http.StatusOK, data, viewer, templates.Placeholder("Dashboard", "The GM dashboard lands in Phase 3 (Lane I2)."))
+	h.renderShell(w, r, http.StatusOK, data, viewer, templates.Placeholder("Dashboard", "The GM dashboard assembly landed in Phase 3 (Lane I2); the live run view arrives with Lane K display."))
 }
 
 // VTT returns the VTT placeholder (real VTT is Lane K, Phase 4).
@@ -828,7 +859,7 @@ func (h *ReadHandlers) VTT(w http.ResponseWriter, r *http.Request) {
 		ViewerLabel: viewerLabel(viewer),
 		AsParam:     asParam(r, viewer),
 	}
-	renderShell(w, r, http.StatusOK, data, viewer, templates.Placeholder("Table", "The virtual tabletop lands in Phase 4 (Lane K)."))
+	h.renderShell(w, r, http.StatusOK, data, viewer, templates.Placeholder("Table", "The virtual tabletop lands in Phase 4 (Lane K)."))
 }
 
 // flipHub fans out secret-flip broadcasts to SSE subscribers. Payloads carry

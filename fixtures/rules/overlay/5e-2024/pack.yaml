@@ -1,0 +1,49 @@
+# 5e-2024 overlay: versions the dnd base with 2024 values. Diff highlights
+# vs 5e-2014: Second Wind grants 2 uses and the Weapon Mastery system
+# arrives as a toggleable optional. Switching overlays is a campaign.yaml
+# edit + re-resolve — no rebuild.
+id: 5e-2024
+name: Fifth Edition (2024 rules)
+type: overlay
+version: "2024"
+parent: dnd
+attribution: "Systems Reference Document 5.2 under CC-BY-4.0 (Wizards of the Coast)."
+
+derived:
+  second-wind-uses:
+    label: Second Wind uses
+    formula: "2"
+    depends: []
+  weapon-mastery-count:
+    label: Weapon Mastery choices
+    formula: "3"
+    depends: []
+
+rolls:
+  second-wind:
+    label: Second Wind recovery
+    dice: 1d10
+    stat: level
+    intent: heal
+
+intents:
+  - attack
+  - save
+  - check
+  - damage
+  - heal
+  - initiative
+  - rest-short
+  - rest-long
+  - death-save
+  - concentration
+
+hooks:
+  - intent: attack
+    phase: interpret
+    label: weapon-mastery
+    effect: apply-mastery-property
+
+optionals:
+  - id: weapon-mastery-2024
+    title: Weapon Mastery (2024)
