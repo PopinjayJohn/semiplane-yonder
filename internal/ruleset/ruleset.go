@@ -45,6 +45,10 @@ type Modifiers struct {
 	InterpretHooks []HookResult
 	// Evaluation metadata
 	Metadata EvaluationMetadata
+	// Effective is the post-policy summary of the modifier list
+	// (see ComposeModifiers). The ordered lists above are the full
+	// pinned record; Effective is what the roller consumes.
+	Effective Effective
 }
 
 // DiceModifier represents a dice modification (add/remove dice, change faces, etc.).
@@ -148,9 +152,19 @@ type IntentDef struct {
 
 // HookDef defines a hook point.
 type HookDef struct {
+	ID     string // stable hook id for log attribution (e.g. "flanking-adv")
 	Phase  string // "pre-roll", "post-roll", "interpret"
 	Layer  string // "base", "overlay", "homebrew"
-	Script string // expression
+	Script string // expression evaluated against the intent scope
+	// Kind is the numeric modifier kind produced (bonus, penalty,
+	// advantage, disadvantage, crit-range; default "bonus").
+	Kind string
+	// Reason is the human label pinned in the log (e.g. "flanking").
+	Reason string
+	// Requires gates the hook on an optional feature id (campaign.yaml
+	// enabled-features). Empty = always active. Mid-session toggles
+	// affect future evaluations only; history pins its modifier list.
+	Requires string
 }
 
 // OptionalFeature defines an optional ruleset feature.
