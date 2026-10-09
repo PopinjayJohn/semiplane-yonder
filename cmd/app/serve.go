@@ -123,6 +123,23 @@ func wireHandlers(info buildInfo, vaultDir, dataDir string, sessionStore auth.Se
 	if err != nil {
 		panic(err)
 	}
+	// B6 backlog: startup rescan. Reconcile the OPEN index with the vault
+	// before serving (external edits while offline, crash leftovers) via
+	// the shared store.Rescan path — the same function the reindex bulk
+	// phase and the watcher refresh ride, not a reimplementation.
+	// Incremental (only new/changed/vanished files), so boot stays fast;
+	// a failure logs loudly and serves the existing index (the reindex
+	// CLI and the watcher recover from there).
+	func() {
+		ctx, cancel := contextTimeout(30 * time.Second)
+		defer cancel()
+		stats, err := store.Rescan(ctx, st.IndexDB(), vaultDir, web.ParsePage)
+		if err != nil {
+			slog.Warn("startup rescan failed, serving existing index", "err", err)
+			return
+		}
+		slog.Info("startup rescan", "scanned", stats.Scanned, "updated", stats.Updated, "deleted", stats.Deleted)
+	}()
 	// Lane K amend (Phase 4): nothing ever assigned web.VaultDir, so the
 	// ACL-checked asset handler 404'd every asset on a live server (map
 	// backgrounds included). Point it at the served vault once, here.
@@ -152,22 +169,12 @@ func wireHandlers(info buildInfo, vaultDir, dataDir string, sessionStore auth.Se
 	}
 
 	// Load campaign.yaml for landing page and campaign name
-	var campaignData *web.Campaign
+	var campaignData *campaign.Campaign
 	if c, err := campaign.Load(vaultDir); err == nil {
-		campaignData = &web.Campaign{
-			Name:            c.Name,
-			Created:         c.Created,
-			Base:            c.Base,
-			BaseVersion:     c.BaseVersion,
-			Overlay:         c.Overlay,
-			OverlayVersion:  c.OverlayVersion,
-			EnabledFeatures: c.EnabledFeatures,
-			EnabledPlugins:  c.EnabledPlugins,
-			LandingPage:     c.LandingPage,
-		}
+		campaignData = c
 	}
 
-	readH := web.ReadHandlers{Store: st, SlotRegistry: slotReg, Slots: plugReg, SessionStore: sessionStore, UserStore: userStore, Vault: v, Campaign: campaignData}
+	readH := web.ReadHandlers{Store: st, SlotRegistry: slotReg, Slots: plugReg, SessionStore: sessionStore, UserStore: userStore, Vault: v, VaultRoot: vaultDir, Campaign: campaignData}
 	sessionConfig := auth.DefaultSessionConfig(sessionKeys[0])
 
 	// Reindex function used by both write handlers and vault watcher
@@ -305,10 +312,11 @@ func withDemoViewer(next http.Handler) http.Handler {
 }
 
 type serveOptions struct {
-	vault   string
-	dataDir string
-	addr    string
-	info    buildInfo
+	vault    string
+	dataDir  string
+	addr     string
+	demoAuth bool
+	info     buildInfo
 }
 
 // runServe opens the app DB (migrating), ensures the session key, and serves
@@ -320,6 +328,10 @@ func runServe(opts serveOptions, shutdown <-chan os.Signal) error {
 	if fi, err := os.Stat(opts.vault); err != nil || !fi.IsDir() {
 		return fmt.Errorf("vault dir not found: %s (run `init --bare` first)", opts.vault)
 	}
+	// B3: --demo-auth (default true) keeps the ?as= demo identity tier for
+	// dev/smoke/axe; false retires it (sessions only). Wired here, read by
+	// every handler through web.ViewerForRequest — one gate, all paths.
+	web.DemoAuth = opts.demoAuth
 	dataDir := resolveDataDir(opts.dataDir, opts.vault)
 	if err := ensureDir(dataDir); err != nil {
 		return err

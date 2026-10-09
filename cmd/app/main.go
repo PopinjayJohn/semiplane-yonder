@@ -98,7 +98,7 @@ func run(args []string) error {
 			usage()
 			return fmt.Errorf("vault path required")
 		}
-		return serveDefault(vaultPath, dataDir, addr)
+		return serveDefault(vaultPath, dataDir, addr, true)
 	}
 
 	switch rest[0] {
@@ -141,20 +141,22 @@ func vaultFlag(fs *flag.FlagSet, vaultPath *string) {
 	fs.StringVar(vaultPath, "vault", *vaultPath, "Path to vault directory")
 }
 
-func serveDefault(vaultPath, dataDir, addr string) error {
+func serveDefault(vaultPath, dataDir, addr string, demoAuth bool) error {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
-	return runServe(serveOptions{vault: vaultPath, dataDir: dataDir, addr: addr, info: build()}, sig)
+	return runServe(serveOptions{vault: vaultPath, dataDir: dataDir, addr: addr, demoAuth: demoAuth, info: build()}, sig)
 }
 
 func runServeCommand(vaultPath, dataDir, addr string, args []string) error {
+	var demoAuth = true
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	vaultDataFlags(fs, &vaultPath, &dataDir)
 	fs.StringVar(&addr, "addr", addr, "Listen address")
+	fs.BoolVar(&demoAuth, "demo-auth", true, "Honor the ?as= demo identity tier (dev/smoke/axe); false = sessions only")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	return serveDefault(vaultPath, dataDir, addr)
+	return serveDefault(vaultPath, dataDir, addr, demoAuth)
 }
 
 func runInitCommand(vaultPath, dataDir string, args []string) error {

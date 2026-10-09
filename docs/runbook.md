@@ -57,7 +57,8 @@ yonder --vault ./my-campaign
 
 Open `http://localhost:8080/healthz` (version JSON, nothing else), then
 `http://localhost:8080/?as=gm`. Flags beat env beat defaults:
-`--vault`, `--data-dir`, `--addr`.
+`--vault`, `--data-dir`, `--addr`, `serve --demo-auth` (default true;
+`false` retires the `?as=` demo tier — sessions only).
 
 - **LAN play:** serve binds `:8080` by default; hand out
   `http://<your-lan-ip>:8080/?as=<name>`. Cookies stay non-`Secure` on
@@ -84,10 +85,9 @@ Open `http://localhost:8080/healthz` (version JSON, nothing else), then
 `TestLaneLArchiveRoundTripIdentical`; P13 pass/fail). The app DB is
 **not** in the zip — restore it from backup, or re-provision accounts.
 
-**Known gap (FILED, not hidden):** spec/P09 call for a one-click
-GM-only, logged "Download vault zip" in the UI. The shipped binary has
-the operator-side `archive-vault` only — no HTTP endpoint, no button.
-Do not document or demo one; it does not exist.
+**Vault zip over HTTP:** the GM dashboard has a one-click "Download vault
+zip (.zip)" (`GET /dashboard/vault.zip`, GM-only + logged, same
+`*.db`/`.sessionkey`/symlink exclusions as `archive-vault`).
 
 ## 5. Caching behavior (table-LAN reference, P09)
 

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/semiplane/yonder/internal/auth"
+	"github.com/semiplane/yonder/internal/campaign"
 	"github.com/semiplane/yonder/internal/store"
 )
 
@@ -98,16 +99,16 @@ func (h *WizardHandlers) SetupForm(w http.ResponseWriter, r *http.Request) {
 		writeDenied(w, http.StatusForbidden, "the setup wizard is GM-only")
 		return
 	}
-	var cur *Campaign
+	var cur *campaign.Campaign
 	if h.Vault != nil {
 		if b, err := h.Vault.ReadFile(r.Context(), "campaign.yaml"); err == nil {
-			if c, perr := ParseCampaign(string(b)); perr == nil {
+			if c, perr := campaign.Parse(b); perr == nil {
 				cur = c
 			}
 		}
 	}
 	if cur == nil {
-		cur = &Campaign{}
+		cur = &campaign.Campaign{}
 	}
 	var b strings.Builder
 	b.WriteString("<h1>Campaign setup</h1>\n")
@@ -145,13 +146,13 @@ func (h *WizardHandlers) SetupSave(w http.ResponseWriter, r *http.Request) {
 			features = append(features, f)
 		}
 	}
-	c := &Campaign{
+	c := &campaign.Campaign{
 		Name:            strings.TrimSpace(r.FormValue("name")),
 		Base:            strings.TrimSpace(r.FormValue("base")),
 		Overlay:         strings.TrimSpace(r.FormValue("overlay")),
 		EnabledFeatures: features,
 	}
-	if err := ValidateCampaign(c); err != nil {
+	if err := campaign.Validate(c); err != nil {
 		writeDenied(w, http.StatusUnprocessableEntity, "campaign: "+err.Error())
 		return
 	}
@@ -163,7 +164,7 @@ func (h *WizardHandlers) SetupSave(w http.ResponseWriter, r *http.Request) {
 	// display-only versions, and the plugin namespace (the setup form owns
 	// ruleset optionals, never enabled-plugins).
 	if existing != "" {
-		if cur, err := ParseCampaign(existing); err == nil {
+		if cur, err := campaign.Parse([]byte(existing)); err == nil {
 			if c.Created == "" {
 				c.Created = cur.Created
 			}
@@ -175,7 +176,11 @@ func (h *WizardHandlers) SetupSave(w http.ResponseWriter, r *http.Request) {
 	if c.Created == "" {
 		c.Created = time.Now().UTC().Format(time.RFC3339)
 	}
-	if err := h.Vault.WriteFile(r.Context(), "campaign.yaml", UpsertCampaignYAML(existing, c)); err != nil {
+	// The writer preserves given order; the setup form normalizes to
+	// sorted order (the historical UpsertCampaignYAML behavior).
+	sort.Strings(c.EnabledFeatures)
+	sort.Strings(c.EnabledPlugins)
+	if err := h.Vault.WriteFile(r.Context(), "campaign.yaml", campaign.Upsert(existing, c)); err != nil {
 		writeDenied(w, http.StatusInternalServerError, "could not write campaign.yaml")
 		return
 	}

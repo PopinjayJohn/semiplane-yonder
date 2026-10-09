@@ -13,12 +13,14 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/a-h/templ"
 	"github.com/semiplane/yonder/internal/auth"
+	"github.com/semiplane/yonder/internal/campaign"
 	"github.com/semiplane/yonder/internal/markdown"
 	"github.com/semiplane/yonder/internal/secrets"
 	"github.com/semiplane/yonder/internal/store"
@@ -33,9 +35,10 @@ type ReadHandlers struct {
 	SlotRegistry *SlotRegistry
 	Slots        SlotProvider // gate G3: enabled-aware slot source (serve injects the plugin registry); nil = raw-registry test fallback
 	SessionStore auth.SessionStore
-	UserStore    auth.UserStore // for dashboard user management
-	Vault        VaultWriter    // for dashboard campaign save
-	Campaign     *Campaign      // campaign.yaml data (name, landing-page, etc.)
+	UserStore    auth.UserStore     // for dashboard user management
+	Vault        VaultWriter        // for dashboard campaign save
+	VaultRoot    string             // vault dir for the GM-only zip export (serve sets it; empty = export unavailable)
+	Campaign     *campaign.Campaign // campaign.yaml data (name, landing-page, etc.)
 }
 
 // csrfTokenForForm returns the session's CSRF token for embedding in forms
@@ -183,6 +186,14 @@ func (h *ReadHandlers) RegisterRoutes(reg *RouteRegistry) {
 		GMOnly:       true,
 	})
 	reg.Register(Route{
+		Method:       http.MethodGet,
+		Path:         RouteDashboardExport,
+		Handler:      h.VaultZip,
+		ReadOnly:     true,
+		AuthRequired: true,
+		GMOnly:       true,
+	})
+	reg.Register(Route{
 		Method:       http.MethodPost,
 		Path:         RouteDashboard,
 		Handler:      h.DashboardSave,
@@ -247,6 +258,17 @@ var Version = "dev"
 // (Phase 2; E1's runServe passes its --vault). Empty = assets unavailable.
 var VaultDir = ""
 
+// DemoAuth gates the `?as=` demo identity tier (B3 backlog, P11 follow-up).
+// True (default) preserves the shipped behavior: `?as=gm` / `?as=<name>`
+// resolve to demo viewers when no session is present, so `make dev`,
+// serve-smoke, and axe keep working with zero login surface. False retires
+// the tier entirely: `?as=` is ignored on every path and only session
+// cookies authenticate. Serve sets this from `--demo-auth` (default true);
+// tests flip it per-case and restore. preview_as is NOT separately gated:
+// it only ever activates on a GM viewer, which under false is a real
+// session GM (the Phase-0c bannered+logged impersonation contract).
+var DemoAuth = true
+
 // demoUsers are hardcoded stand-ins for auth (real auth is P11, Lane C).
 // `?as=gm` is the GM; any other `?as=<name>` is that player; absent = guest.
 // Ownership is resolved dynamically from page frontmatter (owner /
@@ -267,14 +289,18 @@ var demoUsers = map[string]*auth.Viewer{
 // middleware injects this into request contexts so session-only handlers
 // (I1 wizard/sheets, F2 writes) resolve the same demo identity live. There
 // is no HTTP login surface in v1; `?as=` is the de-facto live-server
-// identity tier (M1 smoke precedent). State-changing routes still require a
-// session-backed CSRF token — identity alone never authorizes a write.
+// identity tier (M1 smoke precedent) while DemoAuth holds. State-changing
+// routes still require a session-backed CSRF token — identity alone never
+// authorizes a write.
 func ViewerForRequest(r *http.Request) *auth.Viewer {
 	return viewerFromRequest(r)
 }
 func viewerFromRequest(r *http.Request) *auth.Viewer {
 	if v, ok := auth.ViewerFromContext(r.Context()); ok && v != nil {
 		return v
+	}
+	if !DemoAuth {
+		return nil // demo tier retired: ?as= ignored, sessions only
 	}
 	as := strings.TrimSpace(r.URL.Query().Get("as"))
 	if as == "" || strings.EqualFold(as, "guest") {
@@ -294,9 +320,13 @@ func viewerFromRequest(r *http.Request) *auth.Viewer {
 	return v
 }
 
-// asParam preserves the demo identity across links. Empty for guests and for
-// real-auth requests (no `as` query present).
+// asParam preserves the demo identity across links. Empty for guests, for
+// real-auth requests (no `as` query present), and whenever the demo tier is
+// retired (DemoAuth=false) so sessions-only deployments never propagate it.
 func asParam(r *http.Request, v *auth.Viewer) string {
+	if !DemoAuth {
+		return ""
+	}
 	as := strings.TrimSpace(r.URL.Query().Get("as"))
 	if as == "" || v == nil {
 		return ""
@@ -759,12 +789,14 @@ func (h *ReadHandlers) Graph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	visible := map[string]string{}
+	fold := map[string]string{} // lower(path) -> path: page IDs are case-insensitive (Phase 0c)
 	var nodes []graphNode
 	for _, p := range pages {
 		if p.Secret && !secrets.CanViewPage(viewer, p.Secret, p.Path, p.Owner, p.EditableBy) {
 			continue
 		}
 		visible[p.Path] = p.Title
+		fold[strings.ToLower(p.Path)] = p.Path
 		nodes = append(nodes, graphNode{ID: p.Path, Title: p.Title, Secret: p.Secret})
 	}
 	var edges []graphEdge
@@ -774,14 +806,42 @@ func (h *ReadHandlers) Graph(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		for _, t := range targets {
-			if _, ok := visible[t]; ok {
-				edges = append(edges, graphEdge{From: id, To: t})
+			// The indexer stores RAW wikilink targets (`cinder-pact`)
+			// while page IDs carry extensions (`cinder-pact.md`): a
+			// direct map hit misses every live edge (F2-filed). Fix on
+			// the handler side with the same extension candidates
+			// resolveTarget uses — the index shape stays untouched.
+			if to, ok := resolveGraphTarget(fold, t); ok {
+				if _, ok := visible[to]; ok {
+					edges = append(edges, graphEdge{From: id, To: to})
+				}
 			}
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "private, no-store")
 	_ = json.NewEncoder(w).Encode(map[string]any{"nodes": nodes, "edges": edges})
+}
+
+// resolveGraphTarget maps a raw stored wikilink target to a visible page
+// path, mirroring resolveTarget's extension candidates (`[[cinder-pact]]`
+// → `cinder-pact.md`) plus the case-insensitive page-ID rule. Unresolvable
+// targets (missing pages, secret pages the viewer cannot see) return false
+// and stay out of the edge list — never redacted, just absent.
+func resolveGraphTarget(fold map[string]string, target string) (string, bool) {
+	base := strings.TrimSpace(strings.TrimPrefix(target, "./"))
+	if i := strings.LastIndex(base, "#"); i >= 0 {
+		base = base[:i]
+	}
+	if base == "" {
+		return "", false
+	}
+	for _, cand := range []string{base, base + ".md", base + ".markdown"} {
+		if p, ok := fold[strings.ToLower(cand)]; ok {
+			return p, true
+		}
+	}
+	return "", false
 }
 
 // Autocomplete returns title suggestions, secret-filtered (invisible secret
@@ -1026,11 +1086,11 @@ func (h *ReadHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Load current campaign settings
-	var campaign *Campaign
+	var camp *campaign.Campaign
 	if h.Campaign != nil {
-		campaign = h.Campaign
+		camp = h.Campaign
 	} else {
-		campaign = &Campaign{}
+		camp = &campaign.Campaign{}
 	}
 
 	// Load users for management
@@ -1050,19 +1110,19 @@ func (h *ReadHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 		LandingPage:  h.landingPage(),
 	}
 
-	// Convert web.Campaign to template CampaignSettings
+	// Convert campaign.Campaign to template CampaignSettings
 	var tmplCampaign *templates.CampaignSettings
-	if campaign != nil {
+	if camp != nil {
 		tmplCampaign = &templates.CampaignSettings{
-			Name:            campaign.Name,
-			Created:         campaign.Created,
-			Base:            campaign.Base,
-			BaseVersion:     campaign.BaseVersion,
-			Overlay:         campaign.Overlay,
-			OverlayVersion:  campaign.OverlayVersion,
-			EnabledFeatures: campaign.EnabledFeatures,
-			EnabledPlugins:  campaign.EnabledPlugins,
-			LandingPage:     campaign.LandingPage,
+			Name:            camp.Name,
+			Created:         camp.Created,
+			Base:            camp.Base,
+			BaseVersion:     camp.BaseVersion,
+			Overlay:         camp.Overlay,
+			OverlayVersion:  camp.OverlayVersion,
+			EnabledFeatures: camp.EnabledFeatures,
+			EnabledPlugins:  camp.EnabledPlugins,
+			LandingPage:     camp.LandingPage,
 		}
 	}
 
@@ -1089,7 +1149,7 @@ func (h *ReadHandlers) DashboardSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c := &Campaign{
+	c := &campaign.Campaign{
 		Name:           strings.TrimSpace(r.FormValue("name")),
 		Base:           strings.TrimSpace(r.FormValue("base")),
 		BaseVersion:    strings.TrimSpace(r.FormValue("base-version")),
@@ -1113,8 +1173,12 @@ func (h *ReadHandlers) DashboardSave(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	c.EnabledPlugins = plugins
+	// The writer preserves given order; dashboard saves normalize to
+	// sorted order (the historical UpsertCampaignYAML behavior).
+	sort.Strings(c.EnabledFeatures)
+	sort.Strings(c.EnabledPlugins)
 
-	if err := ValidateCampaign(c); err != nil {
+	if err := campaign.Validate(c); err != nil {
 		writeDenied(w, http.StatusUnprocessableEntity, "campaign: "+err.Error())
 		return
 	}
@@ -1138,7 +1202,7 @@ func (h *ReadHandlers) DashboardSave(w http.ResponseWriter, r *http.Request) {
 		existing = string(b)
 	}
 	// Use surgical upsert to preserve comments and order
-	content := UpsertCampaignYAML(existing, c)
+	content := campaign.Upsert(existing, c)
 	if err := h.Vault.WriteFile(r.Context(), "campaign.yaml", content); err != nil {
 		writeDenied(w, http.StatusInternalServerError, "could not write campaign.yaml")
 		return
@@ -1531,6 +1595,7 @@ func (h *ReadHandlers) NewMux() *http.ServeMux {
 	mux.HandleFunc("/events", h.SSE)
 	mux.HandleFunc("/me", h.Me)
 	mux.HandleFunc("/dashboard", h.Dashboard)
+	mux.HandleFunc("/dashboard/vault.zip", h.VaultZip)
 	mux.HandleFunc("/vtt/", h.VTT)
 	return mux
 }

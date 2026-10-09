@@ -696,3 +696,20 @@ func TestStampPreservesCommentsAndOrder(t *testing.T) {
 		t.Fatalf("fence/title wrong:\n%s", got)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// B2 staging: POST /upload stays 501 until the binary-write contract,
+// destination/ACL policy, and a UI consumer land together.
+// ---------------------------------------------------------------------------
+
+func TestUploadStaysStaged(t *testing.T) {
+	h, _, _ := testSetup(t)
+	for _, target := range []string{"/upload", "/upload?as=gm"} {
+		req := httptest.NewRequest(http.MethodPost, target, strings.NewReader("x"))
+		rec := httptest.NewRecorder()
+		h.Upload(rec, req)
+		if rec.Code != http.StatusNotImplemented {
+			t.Errorf("POST %s = %d, want 501 (staged, see Upload comment)", target, rec.Code)
+		}
+	}
+}

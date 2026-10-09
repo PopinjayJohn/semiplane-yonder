@@ -16,10 +16,12 @@ Your GM gives you one of:
 
 > Status note: the shipped binary identifies demo sessions with `?as=<name>`
 > in the address bar (absent = guest), and offers a real login page
-> (`/login` with a session cookie) — log in whenever you can. Until the
-> demo identity is retired, keep your `?as=<name>` link private the way you
-> would a password — anyone holding it reads as you. (Recorded follow-up:
-> the demo identity must be retired/gated now that HTTP login is the norm.)
+> (`/login` with a session cookie) — log in whenever you can. The demo
+> identity is gated by `serve --demo-auth` (default true for dev/demos);
+> with `--demo-auth=false` the server ignores `?as=` and sessions alone
+> authenticate. Until the demo identity is retired, keep your `?as=<name>`
+> link private the way you would a password — anyone holding it reads as
+> you.
 
 ## 2. Reading the wiki
 

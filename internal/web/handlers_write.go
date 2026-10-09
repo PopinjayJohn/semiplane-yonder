@@ -1487,9 +1487,30 @@ func (h *WriteHandlers) PageRevert(w http.ResponseWriter, r *http.Request) {
 // Stubs owned by other lanes (routes stay registered; logic lands later)
 // ---------------------------------------------------------------------------
 
-// Upload handles file uploads (Lane E1/P13 owns the pipeline).
+// Upload handles file uploads (STAGED, not abandoned — B2 backlog verdict).
+//
+// POST /upload stays 501 while the P13 pipeline exists as the pure library
+// internal/uploads (Validate/Process: sniff, caps, SVG blocklist, resize).
+// Wiring the handler now would improvise past three red lines, so the stub
+// is deliberate staging:
+//
+//  1. No binary-safe vault write: every handler write must ride
+//     VaultWriter.WriteFile (atomic temp+rename + clash check), whose
+//     content is a string and whose conflict path parks losers in
+//     *.conflict-<ts>.md text files. Binary asset bytes have no
+//     clash-safe write API — that is a Lane B contract amend, not a
+//     handler-local improvisation.
+//  2. No destination/ACL policy: P13 names `assets/` conventions per
+//     subtree but never who may write where; F2 write rules confine
+//     non-GM writers to characters/<pc>/... . GM-only vs player-subtree
+//     uploads is a product/ACL decision (amend), not a default to guess.
+//  3. No UI consumer: no form or fetch client posts to /upload, so any
+//     response shape wired today is an unconsumed invented contract.
+//
+// Lift the 501 when (1)+(2) land with a UI surface; TestUploadStaysStaged
+// pins the 501 until then so a half-wiring cannot slip in silently.
 func (h *WriteHandlers) Upload(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "uploads are not implemented in this milestone", http.StatusNotImplemented)
+	http.Error(w, "uploads are staged: pipeline library exists, handler/ACL/UI land together (see comment)", http.StatusNotImplemented)
 }
 
 // DiceRoll handles dice roll requests (Lane H2/P12 owns the engine).

@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -87,8 +88,11 @@ func newFakeStore() *fakeStore {
 			"welcome.md":     {"cinder-pact.md"},
 		},
 		forward: map[string][]string{
-			"welcome.md":     {"cinder-pact.md"},
-			"cinder-pact.md": {"welcome.md"},
+			// Raw indexer shape: extensionless wikilink targets, exactly
+			// as the links table stores them (B5: the graph handler
+			// normalizes these; extensioned fakes masked the live bug).
+			"welcome.md":     {"cinder-pact"},
+			"cinder-pact.md": {"welcome"},
 		},
 	}
 	// Mirror frontmatter-derived ACL onto index rows (as the indexer would).
@@ -308,6 +312,47 @@ func TestGraphAndAutocompleteFiltered(t *testing.T) {
 	ac := get(t, h, "/autocomplete?q=Cinder")
 	if strings.Contains(ac.Body.String(), "Cinder") {
 		t.Errorf("guest autocomplete leaked secret title")
+	}
+}
+
+// TestGraphEdgesResolveRawTargets pins the B5 fix: the links table stores
+// extensionless targets (`cinder-pact`) while page IDs carry `.md`. Edges
+// must resolve through the handler, for GM (both directions, secret node
+// included) and for guests (open side only — secret endpoints stay absent,
+// never redacted).
+func TestGraphEdgesResolveRawTargets(t *testing.T) {
+	h := testHandlers()
+	decode := func(body string) (nodes []map[string]any, edges []map[string]string) {
+		t.Helper()
+		var doc struct {
+			Nodes []map[string]any    `json:"nodes"`
+			Edges []map[string]string `json:"edges"`
+		}
+		if err := json.Unmarshal([]byte(body), &doc); err != nil {
+			t.Fatalf("graph is not JSON: %v", err)
+		}
+		return doc.Nodes, doc.Edges
+	}
+	hasEdge := func(edges []map[string]string, from, to string) bool {
+		for _, e := range edges {
+			if e["from"] == from && e["to"] == to {
+				return true
+			}
+		}
+		return false
+	}
+	gm := get(t, h, "/graph?as=gm")
+	_, gmEdges := decode(gm.Body.String())
+	if !hasEdge(gmEdges, "welcome.md", "cinder-pact.md") {
+		t.Errorf("GM graph missing welcome -> cinder-pact edge: %v", gmEdges)
+	}
+	if !hasEdge(gmEdges, "cinder-pact.md", "welcome.md") {
+		t.Errorf("GM graph missing cinder-pact -> welcome edge: %v", gmEdges)
+	}
+	guest := get(t, h, "/graph")
+	_, guestEdges := decode(guest.Body.String())
+	if len(guestEdges) != 0 {
+		t.Errorf("guest graph must have no edges into the secret node, got %v", guestEdges)
 	}
 }
 

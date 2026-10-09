@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/semiplane/yonder/internal/auth"
+	"github.com/semiplane/yonder/internal/campaign"
 	"github.com/semiplane/yonder/internal/store"
 	"github.com/semiplane/yonder/internal/vault"
 )
@@ -120,7 +121,7 @@ func TestSetupWizardWritesCampaign(t *testing.T) {
 		t.Fatalf("setup = %d: %s", rec.Code, rec.Body.String())
 	}
 	got := readVault(t, v, "campaign.yaml")
-	c, err := ParseCampaign(got)
+	c, err := campaign.Parse([]byte(got))
 	if err != nil || c.Name != "Ashfall" || len(c.EnabledFeatures) != 2 {
 		t.Fatalf("campaign.yaml wrong: %v %+v\n%s", err, c, got)
 	}

@@ -47,10 +47,13 @@ management (create user, reset password with revocation, revoke sessions,
 grant/remove GM with last-GM guard). Real sessions take precedence; `?as=`
 remains only as fallback.
 
-**P11 follow-up (recorded, not implemented): when HTTP login is the norm,
-the `?as=` demo identity must be retired or gated** (behind an explicit
-dev-only flag). Until then, treat any `?as=` identity as untrusted input:
-it is convenient for demos and tests, not authentication.
+**P11 follow-up (shipped as a flag):** the `?as=` demo identity is gated
+behind `serve --demo-auth` (default **true**, so `make dev`, serve-smoke,
+and axe work with zero login surface). Pass `--demo-auth=false` to retire
+it entirely: `?as=` is then ignored on every path (links stop propagating
+it too) and only session cookies authenticate. Until you flip it, treat
+any `?as=` identity as untrusted input: it is convenient for demos and
+tests, not authentication.
 
 ## 4. Secrets + ACL (the part you must not get wrong)
 
@@ -144,11 +147,11 @@ it is convenient for demos and tests, not authentication.
   vault zip (data artifacts and symlinks skipped with a count, never
   stored; >10 MB files refuse). The archive carries **no owner filter** —
   every file ships regardless of frontmatter owner, because the GM owns
-  the files. Round-trip identical is proven by
+  the files. The same zip is one click away in the GM dashboard
+  ("Download vault zip", `GET /dashboard/vault.zip` — GM-only, logged,
+  `private, no-store`). Round-trip identical is proven by
   `TestLaneLArchiveRoundTripIdentical` (archive → fresh dir → byte-equal
-  tree). There is **no HTTP download endpoint and no one-click UI button**
-  in the shipped binary — the P09/P13 "Download vault zip" UI is FILED as
-  pending (see runbook), not silently present. `clone-vault` copies to an
+  tree). `clone-vault` copies to an
   empty dir for offline table backups; template import
   (`init --template <https-url>`) is checksum-verified with zip-slip,
   symlink, and size guards.
