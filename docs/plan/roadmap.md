@@ -1,9 +1,9 @@
 # Milestones + Phased Implementation (parallel-subagent order)
 
 ## Status (single source — phase agents read this, humans update it)
-- Current phase: **Phase 3** (G2 GO 2026-10-07 — R1 reindex wiring landed as PR #11; live M1 demo re-run green on the documented flow: guest/owner/grantee/other/GM matrix, byte-identical 404s, `-`-block visibility, search/FTS per-viewer, GM flip delivery over SSE with no guest title leak, 3-OS binaries, 5k bench, leak matrix; evidence in `lanes/G2-amend.md`)
-- Gates: G0 **GO** · G1 **GO** · G2 **GO (2026-10-07)** · G3 pending · G4 pending
-- Lanes: Phase 2 done + amends landed (0002, serve-smoke, A-parser, R1-reindex, p01-demo, SRD snapshot); Phase 3 (H1/H2/I1/I2) dispatched
+- Current phase: **SHIPPED** (G3 GO + G4 GO 2026-10-09 — M2 evidence: `cmd/app/cm_gate_test.go` 5/5 + live checks (PR #13); M3 evidence: 6-client no-desync, fog fail-closed incl. post-rebuild, axe clean in CI, zip round-trip identical + owner-blind; M1 evidence retained in `lanes/G2-amend.md`)
+- Gates: G0 **GO** · G1 **GO** · G2 **GO (2026-10-07)** · G3 **GO (2026-10-09)** · G4 **GO (2026-10-09)**
+- Lanes: all complete (Phase 0–4 + amends). Backlog: zip-download UI (F2-filed), Upload-501 staging (F3), `?as=` retirement → P11 (F4), web/campaign vs internal/campaign unification (H1 amend), graph edge-key mismatch (F2-filed), startup rescan follow-up.
 - Rule: the phase agent runs the phase named here and dispatches exactly its lanes
   (briefs in `docs/plan/lanes/`). Advance `Current phase` only on its gate's GO.
 
