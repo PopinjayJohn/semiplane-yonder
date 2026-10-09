@@ -903,6 +903,9 @@ func sameStringSet(a, b []string) bool {
 
 func writeHTML(w http.ResponseWriter, status int, title, body string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// Every writeHTML response is per-viewer (sheets, wizard, editor) or
+	// carries a CSRF token: never shared-cache, never stored (P09).
+	w.Header().Set("Cache-Control", "private, no-store")
 	w.WriteHeader(status)
 	_, _ = fmt.Fprintf(w, "<!DOCTYPE html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\">\n<title>%s</title></head>\n<body>\n<main>\n%s\n</main>\n</body>\n</html>\n",
 		html.EscapeString(title), body)
