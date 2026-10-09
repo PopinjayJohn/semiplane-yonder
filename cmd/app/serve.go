@@ -167,7 +167,7 @@ func wireHandlers(info buildInfo, vaultDir, dataDir string, sessionStore auth.Se
 		}
 	}
 
-	readH := web.ReadHandlers{Store: st, SlotRegistry: slotReg, Slots: plugReg, SessionStore: sessionStore, UserStore: userStore, Vault: v, Campaign: campaignData}
+	readH := web.ReadHandlers{Store: st, SlotRegistry: slotReg, Slots: plugReg, SessionStore: sessionStore, UserStore: userStore, Vault: v, VaultRoot: vaultDir, Campaign: campaignData}
 	sessionConfig := auth.DefaultSessionConfig(sessionKeys[0])
 
 	// Reindex function used by both write handlers and vault watcher

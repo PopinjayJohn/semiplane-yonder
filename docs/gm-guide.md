@@ -144,11 +144,11 @@ it is convenient for demos and tests, not authentication.
   vault zip (data artifacts and symlinks skipped with a count, never
   stored; >10 MB files refuse). The archive carries **no owner filter** —
   every file ships regardless of frontmatter owner, because the GM owns
-  the files. Round-trip identical is proven by
+  the files. The same zip is one click away in the GM dashboard
+  ("Download vault zip", `GET /dashboard/vault.zip` — GM-only, logged,
+  `private, no-store`). Round-trip identical is proven by
   `TestLaneLArchiveRoundTripIdentical` (archive → fresh dir → byte-equal
-  tree). There is **no HTTP download endpoint and no one-click UI button**
-  in the shipped binary — the P09/P13 "Download vault zip" UI is FILED as
-  pending (see runbook), not silently present. `clone-vault` copies to an
+  tree). `clone-vault` copies to an
   empty dir for offline table backups; template import
   (`init --template <https-url>`) is checksum-verified with zip-slip,
   symlink, and size guards.

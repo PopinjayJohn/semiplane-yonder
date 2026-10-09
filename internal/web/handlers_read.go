@@ -35,6 +35,7 @@ type ReadHandlers struct {
 	SessionStore auth.SessionStore
 	UserStore    auth.UserStore // for dashboard user management
 	Vault        VaultWriter    // for dashboard campaign save
+	VaultRoot    string         // vault dir for the GM-only zip export (serve sets it; empty = export unavailable)
 	Campaign     *Campaign      // campaign.yaml data (name, landing-page, etc.)
 }
 
@@ -178,6 +179,14 @@ func (h *ReadHandlers) RegisterRoutes(reg *RouteRegistry) {
 		Method:       http.MethodGet,
 		Path:         RouteDashboard,
 		Handler:      h.Dashboard,
+		ReadOnly:     true,
+		AuthRequired: true,
+		GMOnly:       true,
+	})
+	reg.Register(Route{
+		Method:       http.MethodGet,
+		Path:         RouteDashboardExport,
+		Handler:      h.VaultZip,
 		ReadOnly:     true,
 		AuthRequired: true,
 		GMOnly:       true,
@@ -1531,6 +1540,7 @@ func (h *ReadHandlers) NewMux() *http.ServeMux {
 	mux.HandleFunc("/events", h.SSE)
 	mux.HandleFunc("/me", h.Me)
 	mux.HandleFunc("/dashboard", h.Dashboard)
+	mux.HandleFunc("/dashboard/vault.zip", h.VaultZip)
 	mux.HandleFunc("/vtt/", h.VTT)
 	return mux
 }

@@ -409,6 +409,14 @@ templ DashboardBody(data CampaignDashboardData) {
 		</form>
 	</section>
 
+	<section aria-labelledby="vault-export">
+		<h2 id="vault-export">Vault Export</h2>
+		<p>
+			<a class="btn primary" href="/dashboard/vault.zip">Download vault zip (.zip)</a>
+		</p>
+		<p class="hint">GM-only and logged. Ships every vault file regardless of frontmatter owner (the GM owns the files); data artifacts (*.db, .sessionkey) and symlinks are never included.</p>
+	</section>
+
 	<section aria-labelledby="user-management">
 		<h2 id="user-management">User Management</h2>
 		<table class="user-table">
