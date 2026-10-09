@@ -13,12 +13,14 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/a-h/templ"
 	"github.com/semiplane/yonder/internal/auth"
+	"github.com/semiplane/yonder/internal/campaign"
 	"github.com/semiplane/yonder/internal/markdown"
 	"github.com/semiplane/yonder/internal/secrets"
 	"github.com/semiplane/yonder/internal/store"
@@ -33,10 +35,10 @@ type ReadHandlers struct {
 	SlotRegistry *SlotRegistry
 	Slots        SlotProvider // gate G3: enabled-aware slot source (serve injects the plugin registry); nil = raw-registry test fallback
 	SessionStore auth.SessionStore
-	UserStore    auth.UserStore // for dashboard user management
-	Vault        VaultWriter    // for dashboard campaign save
-	VaultRoot    string         // vault dir for the GM-only zip export (serve sets it; empty = export unavailable)
-	Campaign     *Campaign      // campaign.yaml data (name, landing-page, etc.)
+	UserStore    auth.UserStore     // for dashboard user management
+	Vault        VaultWriter        // for dashboard campaign save
+	VaultRoot    string             // vault dir for the GM-only zip export (serve sets it; empty = export unavailable)
+	Campaign     *campaign.Campaign // campaign.yaml data (name, landing-page, etc.)
 }
 
 // csrfTokenForForm returns the session's CSRF token for embedding in forms
@@ -1054,11 +1056,11 @@ func (h *ReadHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Load current campaign settings
-	var campaign *Campaign
+	var camp *campaign.Campaign
 	if h.Campaign != nil {
-		campaign = h.Campaign
+		camp = h.Campaign
 	} else {
-		campaign = &Campaign{}
+		camp = &campaign.Campaign{}
 	}
 
 	// Load users for management
@@ -1078,19 +1080,19 @@ func (h *ReadHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 		LandingPage:  h.landingPage(),
 	}
 
-	// Convert web.Campaign to template CampaignSettings
+	// Convert campaign.Campaign to template CampaignSettings
 	var tmplCampaign *templates.CampaignSettings
-	if campaign != nil {
+	if camp != nil {
 		tmplCampaign = &templates.CampaignSettings{
-			Name:            campaign.Name,
-			Created:         campaign.Created,
-			Base:            campaign.Base,
-			BaseVersion:     campaign.BaseVersion,
-			Overlay:         campaign.Overlay,
-			OverlayVersion:  campaign.OverlayVersion,
-			EnabledFeatures: campaign.EnabledFeatures,
-			EnabledPlugins:  campaign.EnabledPlugins,
-			LandingPage:     campaign.LandingPage,
+			Name:            camp.Name,
+			Created:         camp.Created,
+			Base:            camp.Base,
+			BaseVersion:     camp.BaseVersion,
+			Overlay:         camp.Overlay,
+			OverlayVersion:  camp.OverlayVersion,
+			EnabledFeatures: camp.EnabledFeatures,
+			EnabledPlugins:  camp.EnabledPlugins,
+			LandingPage:     camp.LandingPage,
 		}
 	}
 
@@ -1117,7 +1119,7 @@ func (h *ReadHandlers) DashboardSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c := &Campaign{
+	c := &campaign.Campaign{
 		Name:           strings.TrimSpace(r.FormValue("name")),
 		Base:           strings.TrimSpace(r.FormValue("base")),
 		BaseVersion:    strings.TrimSpace(r.FormValue("base-version")),
@@ -1141,8 +1143,12 @@ func (h *ReadHandlers) DashboardSave(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	c.EnabledPlugins = plugins
+	// The writer preserves given order; dashboard saves normalize to
+	// sorted order (the historical UpsertCampaignYAML behavior).
+	sort.Strings(c.EnabledFeatures)
+	sort.Strings(c.EnabledPlugins)
 
-	if err := ValidateCampaign(c); err != nil {
+	if err := campaign.Validate(c); err != nil {
 		writeDenied(w, http.StatusUnprocessableEntity, "campaign: "+err.Error())
 		return
 	}
@@ -1166,7 +1172,7 @@ func (h *ReadHandlers) DashboardSave(w http.ResponseWriter, r *http.Request) {
 		existing = string(b)
 	}
 	// Use surgical upsert to preserve comments and order
-	content := UpsertCampaignYAML(existing, c)
+	content := campaign.Upsert(existing, c)
 	if err := h.Vault.WriteFile(r.Context(), "campaign.yaml", content); err != nil {
 		writeDenied(w, http.StatusInternalServerError, "could not write campaign.yaml")
 		return

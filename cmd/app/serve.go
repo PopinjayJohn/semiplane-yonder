@@ -152,19 +152,9 @@ func wireHandlers(info buildInfo, vaultDir, dataDir string, sessionStore auth.Se
 	}
 
 	// Load campaign.yaml for landing page and campaign name
-	var campaignData *web.Campaign
+	var campaignData *campaign.Campaign
 	if c, err := campaign.Load(vaultDir); err == nil {
-		campaignData = &web.Campaign{
-			Name:            c.Name,
-			Created:         c.Created,
-			Base:            c.Base,
-			BaseVersion:     c.BaseVersion,
-			Overlay:         c.Overlay,
-			OverlayVersion:  c.OverlayVersion,
-			EnabledFeatures: c.EnabledFeatures,
-			EnabledPlugins:  c.EnabledPlugins,
-			LandingPage:     c.LandingPage,
-		}
+		campaignData = c
 	}
 
 	readH := web.ReadHandlers{Store: st, SlotRegistry: slotReg, Slots: plugReg, SessionStore: sessionStore, UserStore: userStore, Vault: v, VaultRoot: vaultDir, Campaign: campaignData}
