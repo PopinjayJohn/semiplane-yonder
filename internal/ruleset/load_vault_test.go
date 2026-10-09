@@ -1,7 +1,7 @@
 package ruleset
 
 // Gate G3 tests: H1 vault packs → executable Rulesets → engine evaluation.
-// Temp vaults seeded from fixtures/rules (packs are files; the
+// Temp vaults seeded from fixtures/demo/rules (packs are files; the
 // file-backed-DB pitfall applies to SQLite, not here).
 
 import (
@@ -16,14 +16,14 @@ import (
 func gateVault(t *testing.T, homebrew bool) string {
 	t.Helper()
 	root := t.TempDir()
-	if err := copyDir("../../fixtures/rules/base", filepath.Join(root, "rules", "base")); err != nil {
+	if err := copyDir("../../fixtures/demo/rules/base", filepath.Join(root, "rules", "base")); err != nil {
 		t.Fatal(err)
 	}
-	if err := copyDir("../../fixtures/rules/overlay", filepath.Join(root, "rules", "overlay")); err != nil {
+	if err := copyDir("../../fixtures/demo/rules/overlay", filepath.Join(root, "rules", "overlay")); err != nil {
 		t.Fatal(err)
 	}
 	if homebrew {
-		if err := copyDir("../../fixtures/rules/homebrew", filepath.Join(root, "rules", "homebrew")); err != nil {
+		if err := copyDir("../../fixtures/demo/rules/homebrew", filepath.Join(root, "rules", "homebrew")); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -1,0 +1,25 @@
+# Ashfall demo campaign (migrated from fixtures/p01 + fixtures/rules).
+# Frozen campaign.yaml keys (append-only after Phase 1); validated by
+# internal/campaign (Load/Parse) and internal/web (ParseCampaign).
+name: Ashfall Demo
+created: "2026-10-08T17:18:58Z"
+
+# Ruleset layers (P05) — dnd base + 5e-2024 overlay from rules/ below.
+# Versions are display-only in v1: recorded, never enforced.
+base: dnd
+base-version: "5.2"
+overlay: 5e-2024
+overlay-version: "2024"
+
+# Ruleset optionals, by stable id (offered by rules/ content files).
+enabled-features:
+  - second-wind-2024
+  - weapon-mastery-2024
+
+# Feature plugins (P06 namespace — listed so neither lane's keys trip the
+# other's validation). The random-tables slot mounts when enabled.
+enabled-plugins:
+  - random-tables
+
+# Opened by `/` (redirects to /p/<landing-page>).
+landing-page: welcome

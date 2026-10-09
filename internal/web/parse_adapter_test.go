@@ -2,7 +2,7 @@ package web
 
 // Adapter tests for ParsePage (R1 amend): the production markdown.Parse ->
 // store.ParsedPage conversion used by `reindex`. Covers the SRD spot check
-// (goblin/fighter/spell parse to sane ParsedPages) and the fixtures/p01
+// (goblin/fighter/spell parse to sane ParsedPages) and the fixtures/demo
 // trio (links/embeds/secret-block chunk flags).
 
 import (
@@ -102,10 +102,10 @@ func TestParsePageSRDSpotCheck(t *testing.T) {
 	}
 }
 
-func TestParsePageP01Trio(t *testing.T) {
+func TestParsePageDemoTrio(t *testing.T) {
 	ctx := context.Background()
 
-	welcome, err := ParsePage(ctx, mustParseFile(t, "p01/welcome.md"), "welcome.md")
+	welcome, err := ParsePage(ctx, mustParseFile(t, "demo/welcome.md"), "welcome.md")
 	if err != nil {
 		t.Fatalf("welcome: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestParsePageP01Trio(t *testing.T) {
 		t.Errorf("welcome `+` block: found=%v secret=%v, want found+open", ok, c.Secret)
 	}
 
-	pact, err := ParsePage(ctx, mustParseFile(t, "p01/cinder-pact.md"), "cinder-pact.md")
+	pact, err := ParsePage(ctx, mustParseFile(t, "demo/cinder-pact.md"), "cinder-pact.md")
 	if err != nil {
 		t.Fatalf("cinder-pact: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestParsePageP01Trio(t *testing.T) {
 		t.Errorf("pact `-` block: found=%v secret=%v, want found+secret", ok, c.Secret)
 	}
 
-	lore, err := ParsePage(ctx, mustParseFile(t, "p01/lore.md"), "lore.md")
+	lore, err := ParsePage(ctx, mustParseFile(t, "demo/lore.md"), "lore.md")
 	if err != nil {
 		t.Fatalf("lore: %v", err)
 	}

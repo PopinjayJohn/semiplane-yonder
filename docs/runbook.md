@@ -140,7 +140,7 @@ not re-run.
 
 `make check` = `templ generate` + `git diff --exit-code`, `go vet`,
 `gofmt` gate, `golangci-lint`, `go test ./...`, `make budgets`. CI adds:
-fuzz-short, 3-OS snapshot, axe on P01 pages, serve-smoke. Budgets:
+fuzz-short, 3-OS snapshot, axe on demo pages, serve-smoke. Budgets:
 rendered pages <100 KB HTML/CSS excl. vendored JS, plugin CSS ≤20 KB,
 upload caps 5 MB image / 10 MB PDF, VTT resync <1 s LAN. Leak matrix
 (`docs/plan/p10.md`: GM / owner / editable-by-non-owner / other-player /

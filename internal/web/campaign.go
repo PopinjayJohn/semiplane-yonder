@@ -5,8 +5,8 @@ package web
 //
 // campaign.yaml keys are append-only after Phase 1 (roadmap). The frozen
 // scaffold (E1 `init --bare`) writes only name/created; H1 owns the full
-// pack/overlay/optionals vocabulary. Until H1 lands its vault packs under
-// rules/ (fixtures/rules is still empty), this file validates SHAPE only
+// pack/overlay/optionals vocabulary. Vault packs ship under the demo
+// vault's rules/ (fixtures/demo/rules); this file validates SHAPE only
 // (known keys, sane values) and records base/overlay as display-only strings
 // (p05: "versions recorded, never enforced").
 //

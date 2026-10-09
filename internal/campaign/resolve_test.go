@@ -188,11 +188,11 @@ func copyTree(t *testing.T, src, dst string) {
 	}
 }
 
-// TestResolveFixturesTree installs the shipped H1 timebox (fixtures/rules)
-// as one copy under <vault>/rules and proves it resolves, scans, and
-// toggles as a unit — the I1 handoff shape.
+// TestResolveFixturesTree installs the shipped demo ruleset
+// (fixtures/demo/rules) as one copy under <vault>/rules and proves it
+// resolves, scans, and toggles as a unit — the I1 handoff shape.
 func TestResolveFixturesTree(t *testing.T) {
-	src := filepath.Join("..", "..", "fixtures", "rules")
+	src := filepath.Join("..", "..", "fixtures", "demo", "rules")
 	if _, err := os.Stat(src); err != nil {
 		t.Skipf("fixtures tree absent: %v", err)
 	}

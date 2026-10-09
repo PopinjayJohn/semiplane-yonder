@@ -5,7 +5,7 @@ GOLANGCI_VERSION := v2.14.0
 FUZZ_TIME ?= 20s
 
 dev:
-	templ generate --watch & go run ./cmd/app --vault fixtures/p01
+	templ generate --watch & go run ./cmd/app --vault fixtures/demo
 
 generate:
 	templ generate
