@@ -244,12 +244,12 @@ func listItemPad(content, key string) string {
 			il := trimLineEnd(item)
 			it := strings.TrimSpace(il)
 			if it == "" || strings.HasPrefix(it, "#") {
-				break
+				continue // tolerate blanks/comments between key and items
 			}
 			if it == "-" || strings.HasPrefix(it, "- ") {
 				return il[:len(il)-len(strings.TrimLeft(il, " "))]
 			}
-			break
+			return ""
 		}
 		return ""
 	}
