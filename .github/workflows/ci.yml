@@ -81,6 +81,7 @@ jobs:
       - name: axe on P01 pages (skips until pages are served)
         env:
           AXE_CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
+          AXE_CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
         run: ./tools/axe/check.sh
 
   serve-smoke:

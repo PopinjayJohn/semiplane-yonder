@@ -11,6 +11,7 @@ AXE_SPEC="${AXE_SPEC:-@axe-core/cli@latest}"
 # Optional chromedriver override (CI installs a Chrome-matched driver via
 # browser-actions/setup-chrome and passes AXE_CHROMEDRIVER_PATH).
 AXE_CHROMEDRIVER_PATH="${AXE_CHROMEDRIVER_PATH:-}"
+AXE_CHROME_PATH="${AXE_CHROME_PATH:-}"
 # Data dir defaults to tmp (never litter the repo with sibling *-data dirs).
 AXE_DATA_DIR="${AXE_DATA_DIR:-}"
 
@@ -62,7 +63,10 @@ fi
 echo "axe: scanning:$pages (spec $AXE_SPEC)"
 EXTRA=""
 if [ -n "$AXE_CHROMEDRIVER_PATH" ]; then
-	EXTRA="--chromedriver-path $AXE_CHROMEDRIVER_PATH"
+	EXTRA="$EXTRA --chromedriver-path $AXE_CHROMEDRIVER_PATH"
+fi
+if [ -n "$AXE_CHROME_PATH" ]; then
+	EXTRA="$EXTRA --chrome-path $AXE_CHROME_PATH"
 fi
 # shellcheck disable=SC2086
 if npx -y "$AXE_SPEC" $pages --exit $EXTRA; then
