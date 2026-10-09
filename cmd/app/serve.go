@@ -123,6 +123,23 @@ func wireHandlers(info buildInfo, vaultDir, dataDir string, sessionStore auth.Se
 	if err != nil {
 		panic(err)
 	}
+	// B6 backlog: startup rescan. Reconcile the OPEN index with the vault
+	// before serving (external edits while offline, crash leftovers) via
+	// the shared store.Rescan path — the same function the reindex bulk
+	// phase and the watcher refresh ride, not a reimplementation.
+	// Incremental (only new/changed/vanished files), so boot stays fast;
+	// a failure logs loudly and serves the existing index (the reindex
+	// CLI and the watcher recover from there).
+	func() {
+		ctx, cancel := contextTimeout(30 * time.Second)
+		defer cancel()
+		stats, err := store.Rescan(ctx, st.IndexDB(), vaultDir, web.ParsePage)
+		if err != nil {
+			slog.Warn("startup rescan failed, serving existing index", "err", err)
+			return
+		}
+		slog.Info("startup rescan", "scanned", stats.Scanned, "updated", stats.Updated, "deleted", stats.Deleted)
+	}()
 	// Lane K amend (Phase 4): nothing ever assigned web.VaultDir, so the
 	// ACL-checked asset handler 404'd every asset on a live server (map
 	// backgrounds included). Point it at the served vault once, here.
