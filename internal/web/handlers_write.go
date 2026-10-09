@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/semiplane/yonder/internal/auth"
 	"github.com/semiplane/yonder/internal/markdown"
@@ -41,10 +42,42 @@ import (
 //     snippets and bodies only render after the write gate passes, and
 //     denials for unreadable pages are uniform 404s (never 403).
 type WriteHandlers struct {
-	Store        store.Store
-	Vault        VaultWriter
-	SessionStore auth.SessionStore
-	SlotRegistry *SlotRegistry
+	Store         store.Store
+	Vault         VaultWriter
+	SessionStore  auth.SessionStore
+	SlotRegistry  *SlotRegistry
+	UserStore     auth.UserStore
+	RateLimiter   *auth.RateLimiter
+	SessionConfig auth.SessionConfig
+	OnAfterWrite  func() error // called after successful write to trigger reindex + store refresh
+}
+
+// userStore returns the UserStore, creating it lazily from the app DB if needed.
+func (h *WriteHandlers) userStore() auth.UserStore {
+	if h.UserStore != nil {
+		return h.UserStore
+	}
+	if h.Store != nil {
+		if us, err := auth.NewUserStore(h.Store.AppDB()); err == nil {
+			h.UserStore = us
+			return us
+		}
+	}
+	return nil
+}
+
+// rateLimiter returns the RateLimiter, creating it lazily from the app DB if needed.
+func (h *WriteHandlers) rateLimiter() *auth.RateLimiter {
+	if h.RateLimiter != nil {
+		return h.RateLimiter
+	}
+	if h.Store != nil {
+		if rl, err := auth.NewRateLimiter(h.Store.AppDB()); err == nil {
+			h.RateLimiter = rl
+			return rl
+		}
+	}
+	return nil
 }
 
 // VaultWriter defines the interface for vault write operations.
@@ -66,6 +99,29 @@ const maxWriteBody = 5 << 20
 
 // RegisterRoutes registers write-path routes with the registry.
 func (h *WriteHandlers) RegisterRoutes(reg *RouteRegistry) {
+	// Auth routes (login/logout) - login POST needs rate limiting + CSRF, logout needs CSRF
+	reg.Register(Route{
+		Method:       http.MethodGet,
+		Path:         RouteLogin,
+		Handler:      h.LoginHandler,
+		ReadOnly:     true,
+		AuthRequired: false, // login page is public
+	})
+	reg.Register(Route{
+		Method:       http.MethodPost,
+		Path:         RouteLogin,
+		Handler:      h.LoginHandler,
+		ReadOnly:     false,
+		AuthRequired: false, // login is public
+	})
+	reg.Register(Route{
+		Method:       http.MethodPost,
+		Path:         RouteLogout,
+		Handler:      h.LogoutHandler,
+		ReadOnly:     false,
+		AuthRequired: true, // logout requires session
+	})
+
 	reg.Register(Route{
 		Method:         http.MethodGet,
 		Path:           RoutePageEdit,
@@ -424,6 +480,174 @@ func (h *WriteHandlers) csrfTokenForForm(r *http.Request) string {
 }
 
 // ---------------------------------------------------------------------------
+// Login / Logout handlers (auth surface, P11)
+// ---------------------------------------------------------------------------
+
+// LoginHandler handles GET /login (render form) and POST /login (authenticate).
+func (h *WriteHandlers) LoginHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		h.renderLogin(w, r)
+	case http.MethodPost:
+		h.handleLogin(w, r)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// renderLogin renders the login page.
+func (h *WriteHandlers) renderLogin(w http.ResponseWriter, r *http.Request) {
+	// If already logged in, redirect to dashboard/me
+	if v := viewerOf(r); v != nil && v.UserID != "" {
+		http.Redirect(w, r, "/me", http.StatusSeeOther)
+		return
+	}
+	csrfToken := ""
+	if h.SessionStore != nil {
+		if tok, err := auth.NewCSRFToken(); err == nil {
+			csrfToken = tok
+			// Set CSRF cookie for the login form (double-submit)
+			http.SetCookie(w, auth.BuildCSRFCookie(csrfToken, time.Now().Add(1*time.Hour), false))
+		}
+	}
+	var b strings.Builder
+	b.WriteString("<h1>Log in</h1>\n")
+	b.WriteString("<form method=\"post\" action=\"/login\">\n")
+	if csrfToken != "" {
+		fmt.Fprintf(&b, "<input type=\"hidden\" name=\"%s\" value=\"%s\">\n",
+			auth.CSRFFieldName, html.EscapeString(csrfToken))
+	}
+	b.WriteString("<p><label for=\"username\">Username</label> <input id=\"username\" name=\"username\" type=\"text\" autocomplete=\"username\" required></p>\n")
+	b.WriteString("<p><label for=\"password\">Password</label> <input id=\"password\" name=\"password\" type=\"password\" autocomplete=\"current-password\" required></p>\n")
+	b.WriteString("<p><button type=\"submit\">Log in</button></p>\n")
+	b.WriteString("</form>\n")
+	writeHTML(w, http.StatusOK, "Log in", b.String())
+}
+
+// handleLogin processes the login form submission.
+func (h *WriteHandlers) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		writeDenied(w, http.StatusBadRequest, "bad form data")
+		return
+	}
+
+	// CSRF check (double-submit)
+	if h.SessionStore != nil {
+		submitted := auth.CSRFTokenFromRequest(r)
+		c, _ := r.Cookie(auth.CSRFCookieName)
+		var cookieToken string
+		if c != nil {
+			cookieToken = c.Value
+		}
+		if !auth.ValidateCSRFToken(cookieToken, submitted) {
+			writeDenied(w, http.StatusForbidden, "bad or missing CSRF token")
+			return
+		}
+	}
+
+	username := strings.TrimSpace(r.FormValue("username"))
+	password := r.FormValue("password")
+	if username == "" || password == "" {
+		writeDenied(w, http.StatusBadRequest, "username and password are required")
+		return
+	}
+
+	us := h.userStore()
+	if us == nil {
+		writeDenied(w, http.StatusInternalServerError, "user store not available")
+		return
+	}
+
+	limiter := h.rateLimiter()
+
+	// Use SessionConfig from handler (wired in serve.go)
+	cfg := h.SessionConfig
+	if cfg.Key == [32]byte{} {
+		writeDenied(w, http.StatusInternalServerError, "session key not configured")
+		return
+	}
+
+	sess, user, cookieVal, err := auth.Login(r.Context(), us, h.SessionStore, limiter, username, password, clientIP(r), cfg, time.Now())
+	if err != nil {
+		if errors.Is(err, auth.ErrRateLimited) {
+			writeDenied(w, http.StatusTooManyRequests, "too many login attempts, try again later")
+			return
+		}
+		if errors.Is(err, auth.ErrAccountLocked) {
+			writeDenied(w, http.StatusForbidden, "account locked, try again later")
+			return
+		}
+		// ErrInvalidCredentials or other: generic message (no oracle)
+		writeDenied(w, http.StatusUnauthorized, "invalid username or password")
+		return
+	}
+
+	_ = sess // session created, cookieVal has the signed cookie
+	_ = user // authenticated user
+
+	// Set session cookie
+	http.SetCookie(w, auth.BuildSessionCookie(cookieVal, time.Unix(sess.ExpiresAt, 0), cfg.Secure))
+	// Set CSRF cookie for subsequent requests
+	http.SetCookie(w, auth.BuildCSRFCookie(sess.CSRFToken, time.Unix(sess.ExpiresAt, 0), cfg.Secure))
+
+	// Redirect to /me or dashboard
+	http.Redirect(w, r, "/me", http.StatusSeeOther)
+}
+
+// clientIP extracts the client IP from the request (handles X-Forwarded-For for trusted proxies).
+func clientIP(r *http.Request) string {
+	// In production behind a trusted proxy, use X-Forwarded-For
+	// For now, use RemoteAddr directly (LAN/dev)
+	ip := r.RemoteAddr
+	if i := strings.LastIndex(ip, ":"); i >= 0 {
+		ip = ip[:i]
+	}
+	return ip
+}
+
+// LogoutHandler handles POST /logout.
+func (h *WriteHandlers) LogoutHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// CSRF check
+	if h.SessionStore != nil && !h.checkCSRF(r) {
+		writeDenied(w, http.StatusForbidden, "bad or missing CSRF token")
+		return
+	}
+
+	// Get session ID from cookie
+	c, err := r.Cookie(auth.SessionCookieName)
+	if err == nil {
+		sessID := c.Value
+		if i := strings.IndexByte(sessID, '|'); i >= 0 {
+			sessID = sessID[:i]
+		}
+		if auth.ValidateSessionID(sessID) {
+			_ = h.SessionStore.Delete(r.Context(), sessID)
+		}
+	}
+
+	// Clear session cookie
+	http.SetCookie(w, auth.ClearSessionCookie(false))
+	// Clear CSRF cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     auth.CSRFCookieName,
+		Value:    "",
+		Path:     "/",
+		Expires:  time.Unix(0, 0).UTC(),
+		MaxAge:   -1,
+		HttpOnly: false,
+		Secure:   false,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// ---------------------------------------------------------------------------
 // Frontmatter stamping (surgical: preserve comments/order, never rewrite)
 // ---------------------------------------------------------------------------
 
@@ -748,21 +972,33 @@ func conflictListHTML(parent string, rows []*store.ConflictRow) string {
 
 func editPathOf(r *http.Request) string {
 	p := r.URL.Path
-	if !strings.HasPrefix(p, "/p/") || !strings.HasSuffix(p, "/edit") {
-		if v := r.FormValue("path"); v != "" {
-			return v
+	// Support both old format (/p/{path...}/edit) and new format (/edit/p/{path...})
+	if strings.HasPrefix(p, "/p/") && strings.HasSuffix(p, "/edit") {
+		inner := strings.TrimSuffix(strings.TrimPrefix(p, "/p/"), "/edit")
+		inner = strings.TrimSuffix(inner, "/")
+		if un, err := url.PathUnescape(inner); err == nil {
+			inner = un
 		}
-		return ""
+		if inner == "" {
+			return r.FormValue("path")
+		}
+		return inner
 	}
-	inner := strings.TrimSuffix(strings.TrimPrefix(p, "/p/"), "/edit")
-	inner = strings.TrimSuffix(inner, "/")
-	if un, err := url.PathUnescape(inner); err == nil {
-		inner = un
+	if strings.HasPrefix(p, "/edit/p/") {
+		inner := strings.TrimPrefix(p, "/edit/p/")
+		inner = strings.TrimSuffix(inner, "/")
+		if un, err := url.PathUnescape(inner); err == nil {
+			inner = un
+		}
+		if inner == "" {
+			return r.FormValue("path")
+		}
+		return inner
 	}
-	if inner == "" {
-		return r.FormValue("path")
+	if v := r.FormValue("path"); v != "" {
+		return v
 	}
-	return inner
+	return ""
 }
 
 func revertPathOf(r *http.Request) string {
@@ -798,6 +1034,10 @@ func (h *WriteHandlers) PageEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	raw := editPathOf(r)
+	// Ensure .md extension for cleanWritePath
+	if !strings.HasSuffix(strings.ToLower(raw), ".md") {
+		raw += ".md"
+	}
 	rel, err := cleanWritePath(raw)
 	if err != nil {
 		writeDenied(w, http.StatusBadRequest, "bad page path: "+err.Error())
@@ -827,7 +1067,8 @@ func (h *WriteHandlers) PageEdit(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(&b, "<h1>Editing %s</h1>\n", html.EscapeString(rel))
 	b.WriteString(conflictListHTML(rel, conflicts))
 	b.WriteString(conflictBannerFor(rel, conflicts))
-	b.WriteString("<form method=\"post\" action=\"" + html.EscapeString("/p/"+rel+"/edit") + "\">\n")
+	editURL := "/edit/p/" + strings.TrimSuffix(strings.TrimSuffix(rel, ".md"), ".markdown")
+	b.WriteString("<form method=\"post\" action=\"" + html.EscapeString(editURL) + "\">\n")
 	fmt.Fprintf(&b, "<input type=\"hidden\" name=\"%s\" value=\"%s\">\n",
 		auth.CSRFFieldName, html.EscapeString(h.csrfTokenForForm(r)))
 	fmt.Fprintf(&b, "<p><label for=\"edit-content\">Content for %s</label></p>\n", html.EscapeString(rel))
@@ -904,6 +1145,10 @@ func (h *WriteHandlers) PageSave(w http.ResponseWriter, r *http.Request) {
 	if raw == "" {
 		raw = r.FormValue("path")
 	}
+	// Ensure .md extension for cleanWritePath
+	if !strings.HasSuffix(strings.ToLower(raw), ".md") {
+		raw += ".md"
+	}
 	rel, err := cleanWritePath(raw)
 	if err != nil {
 		writeDenied(w, http.StatusBadRequest, "bad page path: "+err.Error())
@@ -971,6 +1216,9 @@ func (h *WriteHandlers) PageSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/p/"+rel, http.StatusSeeOther)
+	if h.OnAfterWrite != nil {
+		_ = h.OnAfterWrite()
+	}
 }
 
 // renderPreview parses submitted content and renders the server preview:
@@ -1155,6 +1403,9 @@ func (h *WriteHandlers) PageCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/p/"+rel, http.StatusSeeOther)
+	if h.OnAfterWrite != nil {
+		_ = h.OnAfterWrite()
+	}
 }
 
 func secretFlag(v string) bool {
@@ -1224,6 +1475,9 @@ func (h *WriteHandlers) PageRevert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/p/"+rel, http.StatusSeeOther)
+	if h.OnAfterWrite != nil {
+		_ = h.OnAfterWrite()
+	}
 }
 
 // ---------------------------------------------------------------------------

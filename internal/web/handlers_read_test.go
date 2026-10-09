@@ -166,9 +166,10 @@ func (f *fakeStore) AssetDelete(_ context.Context, _ string) error       { retur
 func (f *fakeStore) Transact(_ context.Context, fn func(tx store.Store) error) error {
 	return fn(f)
 }
-func (f *fakeStore) IndexDB() *sql.DB { return nil }
-func (f *fakeStore) AppDB() *sql.DB   { return nil }
-func (f *fakeStore) Close() error     { return nil }
+func (f *fakeStore) IndexDB() *sql.DB                   { return nil }
+func (f *fakeStore) AppDB() *sql.DB                     { return nil }
+func (f *fakeStore) Close() error                       { return nil }
+func (f *fakeStore) RefreshIndex(context.Context) error { return nil }
 
 func testHandlers() *ReadHandlers {
 	return &ReadHandlers{Store: newFakeStore(), SlotRegistry: NewSlotRegistry()}

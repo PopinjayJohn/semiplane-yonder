@@ -36,6 +36,7 @@ type Campaign struct {
 	OverlayVersion  string
 	EnabledFeatures []string
 	EnabledPlugins  []string
+	LandingPage     string
 }
 
 var featureIDRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
@@ -97,6 +98,8 @@ func ParseCampaign(content string) (*Campaign, error) {
 			c.Overlay = unquote(val)
 		case "overlay-version":
 			c.OverlayVersion = unquote(val)
+		case "landing-page":
+			c.LandingPage = unquote(val)
 		case "enabled-features", "enabled-plugins":
 			if strings.HasPrefix(val, "[") {
 				for _, item := range parseFlowList(val) {
@@ -181,6 +184,7 @@ func UpsertCampaignYAML(existing string, c *Campaign) string {
 		"base-version":    quoteYAML(c.BaseVersion),
 		"overlay":         quoteYAML(c.Overlay),
 		"overlay-version": quoteYAML(c.OverlayVersion),
+		"landing-page":    quoteYAML(c.LandingPage),
 	}
 	// Drop empty optionals so `init --bare` scaffolds stay minimal.
 	skip := map[string]bool{}

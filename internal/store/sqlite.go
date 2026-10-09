@@ -82,6 +82,20 @@ func Open(indexPath, appPath string) (Store, error) {
 func (s *sqliteStore) IndexDB() *sql.DB { return s.indexDB }
 func (s *sqliteStore) AppDB() *sql.DB   { return s.appDB }
 
+func (s *sqliteStore) RefreshIndex(ctx context.Context) error {
+	// Close the old index DB connection
+	if err := s.indexDB.Close(); err != nil {
+		return fmt.Errorf("close old index db: %w", err)
+	}
+	// Reopen the index DB (which may have been replaced by reindex)
+	indexDB, err := openIndex(s.indexPath)
+	if err != nil {
+		return fmt.Errorf("reopen index db: %w", err)
+	}
+	s.indexDB = indexDB
+	return nil
+}
+
 func (s *sqliteStore) Close() error {
 	err1 := s.indexDB.Close()
 	err2 := s.appDB.Close()
@@ -495,6 +509,9 @@ func (t *transactor) AssetDelete(ctx context.Context, path string) error {
 func (t *transactor) IndexDB() *sql.DB { return t.base.indexDB }
 func (t *transactor) AppDB() *sql.DB   { return t.base.appDB }
 func (t *transactor) Close() error     { return nil }
+func (t *transactor) RefreshIndex(ctx context.Context) error {
+	return t.base.RefreshIndex(ctx)
+}
 func (t *transactor) Transact(ctx context.Context, fn func(tx Store) error) error {
 	return fn(t) // already in transaction; flatten
 }

@@ -2,10 +2,13 @@ package web
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"log/slog"
+	"math/big"
 	"net/http"
 	"os"
 	"path"
@@ -30,6 +33,57 @@ type ReadHandlers struct {
 	SlotRegistry *SlotRegistry
 	Slots        SlotProvider // gate G3: enabled-aware slot source (serve injects the plugin registry); nil = raw-registry test fallback
 	SessionStore auth.SessionStore
+	UserStore    auth.UserStore // for dashboard user management
+	Vault        VaultWriter    // for dashboard campaign save
+	Campaign     *Campaign      // campaign.yaml data (name, landing-page, etc.)
+}
+
+// csrfTokenForForm returns the session's CSRF token for embedding in forms
+// ("" when sessions are unwired or the request carries no session).
+func (h *ReadHandlers) csrfTokenForForm(r *http.Request) string {
+	if h.SessionStore == nil {
+		return ""
+	}
+	c, err := r.Cookie(auth.SessionCookieName)
+	if err != nil {
+		return ""
+	}
+	sessID := c.Value
+	if i := strings.IndexByte(sessID, '|'); i >= 0 {
+		sessID = sessID[:i]
+	}
+	if !auth.ValidateSessionID(sessID) {
+		return ""
+	}
+	sess, err := h.SessionStore.Get(r.Context(), sessID)
+	if err != nil || sess == nil {
+		return ""
+	}
+	return sess.CSRFToken
+}
+
+// csrfOK validates the CSRF token from the request (form field or header)
+// against the session's token. Returns true if valid or if SessionStore is nil.
+func (h *ReadHandlers) csrfOK(r *http.Request) bool {
+	if h.SessionStore == nil {
+		return true
+	}
+	c, err := r.Cookie(auth.SessionCookieName)
+	if err != nil {
+		return false
+	}
+	sessID := c.Value
+	if i := strings.IndexByte(sessID, '|'); i >= 0 {
+		sessID = sessID[:i]
+	}
+	if !auth.ValidateSessionID(sessID) {
+		return false
+	}
+	sess, err := h.SessionStore.Get(r.Context(), sessID)
+	if err != nil || sess == nil {
+		return false
+	}
+	return auth.ValidateCSRFToken(sess.CSRFToken, auth.CSRFTokenFromRequest(r))
 }
 
 // RegisterRoutes registers read-path routes with the registry.
@@ -48,6 +102,15 @@ func (h *ReadHandlers) RegisterRoutes(reg *RouteRegistry) {
 		ReadOnly:     true,
 		AuthRequired: false,
 	})
+	reg.Register(Route{
+		Method:         http.MethodGet,
+		Path:           RouteIndex,
+		Handler:        h.Index,
+		ReadOnly:       true,
+		AuthRequired:   false,
+		SecretFiltered: true,
+	})
+
 	reg.Register(Route{
 		Method:         http.MethodGet,
 		Path:           RoutePageView,
@@ -116,6 +179,54 @@ func (h *ReadHandlers) RegisterRoutes(reg *RouteRegistry) {
 		Path:         RouteDashboard,
 		Handler:      h.Dashboard,
 		ReadOnly:     true,
+		AuthRequired: true,
+		GMOnly:       true,
+	})
+	reg.Register(Route{
+		Method:       http.MethodPost,
+		Path:         RouteDashboard,
+		Handler:      h.DashboardSave,
+		ReadOnly:     false,
+		AuthRequired: true,
+		GMOnly:       true,
+	})
+	reg.Register(Route{
+		Method:       http.MethodPost,
+		Path:         "/dashboard/user/create",
+		Handler:      h.DashboardUserCreate,
+		ReadOnly:     false,
+		AuthRequired: true,
+		GMOnly:       true,
+	})
+	reg.Register(Route{
+		Method:       http.MethodPost,
+		Path:         "/dashboard/user/reset-password",
+		Handler:      h.DashboardUserResetPassword,
+		ReadOnly:     false,
+		AuthRequired: true,
+		GMOnly:       true,
+	})
+	reg.Register(Route{
+		Method:       http.MethodPost,
+		Path:         "/dashboard/user/revoke-sessions",
+		Handler:      h.DashboardUserRevokeSessions,
+		ReadOnly:     false,
+		AuthRequired: true,
+		GMOnly:       true,
+	})
+	reg.Register(Route{
+		Method:       http.MethodPost,
+		Path:         "/dashboard/user/make-gm",
+		Handler:      h.DashboardUserMakeGM,
+		ReadOnly:     false,
+		AuthRequired: true,
+		GMOnly:       true,
+	})
+	reg.Register(Route{
+		Method:       http.MethodPost,
+		Path:         "/dashboard/user/remove-gm",
+		Handler:      h.DashboardUserRemoveGM,
+		ReadOnly:     false,
 		AuthRequired: true,
 		GMOnly:       true,
 	})
@@ -282,6 +393,9 @@ func postProcessLinks(ctx context.Context, st store.Store, viewer *auth.Viewer, 
 		if sp := resolveTarget(ctx, st, target); sp != nil {
 			hrefPath = sp.Path
 		}
+		// Strip .md extension for clean URLs
+		hrefPath = strings.TrimSuffix(hrefPath, ".md")
+		hrefPath = strings.TrimSuffix(hrefPath, ".markdown")
 		rebuilt := `<a class="wikilink" data-target="` + html.EscapeString(target) +
 			`" href="/p/` + html.EscapeString(hrefPath) + asQ + `">` + html.EscapeString(alias) + `</a>`
 		htmlOut = htmlOut[:i] + rebuilt + htmlOut[end:]
@@ -395,8 +509,9 @@ func navEntries(ctx context.Context, st store.Store, viewer *auth.Viewer, active
 		if p.Secret && !secrets.CanViewPage(viewer, p.Secret, p.Path, p.Owner, p.EditableBy) {
 			continue
 		}
+		navPath := strings.TrimSuffix(strings.TrimSuffix(p.Path, ".md"), ".markdown")
 		out = append(out, templates.NavEntry{
-			Path:   p.Path,
+			Path:   navPath,
 			Title:  p.Title,
 			Secret: p.Secret,
 			Active: strings.EqualFold(p.Path, active),
@@ -423,13 +538,16 @@ func visibleBacklinks(ctx context.Context, st store.Store, viewer *auth.Viewer, 
 		if sp.Secret && !secrets.CanViewPage(viewer, sp.Secret, sp.Path, sp.Owner, sp.EditableBy) {
 			continue
 		}
-		out = append(out, templates.Backlink{Path: sp.Path, Title: sp.Title})
+		backlinkPath := strings.TrimSuffix(strings.TrimSuffix(sp.Path, ".md"), ".markdown")
+		out = append(out, templates.Backlink{Path: backlinkPath, Title: sp.Title})
 	}
 	return out
 }
 
 func (h *ReadHandlers) renderShell(w http.ResponseWriter, r *http.Request, status int, data templates.PageData, viewer *auth.Viewer, body templ.Component) {
 	slog.Info("read", "path", r.URL.Path, "user", viewerLabel(viewer))
+	// Include CSRF token for forms in shell (logout, etc.)
+	data.CSRFToken = h.csrfTokenForForm(r)
 	// Shell slot mounts resolve through the enabled-aware provider (gate
 	// G3): disabled plugins contribute no mount points. The provider also
 	// applies viewer/path gating (GM-only, grants, prefixes) server-side.
@@ -459,6 +577,17 @@ func viewerLabel(v *auth.Viewer) string {
 	return v.UserID
 }
 
+// randomPassword generates a random password of the given length.
+func randomPassword(length int) string {
+	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*"
+	result := make([]byte, length)
+	for i := 0; i < length; i++ {
+		n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(chars))))
+		result[i] = chars[n.Int64()]
+	}
+	return string(result)
+}
+
 // Healthz returns health check endpoint (version only; E1's ops mux owns the
 // canonical registration — see amend note in the final report).
 func (h *ReadHandlers) Healthz(w http.ResponseWriter, r *http.Request) {
@@ -474,6 +603,36 @@ func (h *ReadHandlers) Version(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"version": Version})
 }
 
+// Index redirects to the campaign landing page (from campaign.yaml
+// landing-page, default "welcome").
+func (h *ReadHandlers) Index(w http.ResponseWriter, r *http.Request) {
+	viewer := viewerFromRequest(r)
+	landingPage := h.landingPage()
+	// Redirect to the landing page, preserving demo identity (?as=)
+	redirectPath := "/p/" + landingPage
+	if as := asParam(r, viewer); as != "" {
+		redirectPath += as
+	}
+	http.Redirect(w, r, redirectPath, http.StatusSeeOther)
+}
+
+// landingPage returns the configured landing page from campaign.yaml,
+// or "welcome" as the default fallback.
+func (h *ReadHandlers) landingPage() string {
+	if h.Campaign != nil && h.Campaign.LandingPage != "" {
+		return h.Campaign.LandingPage
+	}
+	return "welcome"
+}
+
+// campaignName returns the campaign name from campaign.yaml, or "Yonder" as default.
+func (h *ReadHandlers) campaignName() string {
+	if h.Campaign != nil && h.Campaign.Name != "" {
+		return h.Campaign.Name
+	}
+	return "Yonder"
+}
+
 // PageView renders a page view: uniform 404 for missing OR unauthorized
 // secret pages; everything else secret-filtered server-side.
 func (h *ReadHandlers) PageView(w http.ResponseWriter, r *http.Request) {
@@ -486,22 +645,29 @@ func (h *ReadHandlers) PageView(w http.ResponseWriter, r *http.Request) {
 	}
 	page, err := loadFilteredPage(r.Context(), h.Store, viewer, pagePath)
 	if err != nil {
-		h.notFound(w, r, viewer)
-		return
+		// Retry with .md extension — index stores paths with extension.
+		page, err = loadFilteredPage(r.Context(), h.Store, viewer, pagePath+".md")
+		if err != nil {
+			h.notFound(w, r, viewer)
+			return
+		}
 	}
+	cleanPath := strings.TrimSuffix(strings.TrimSuffix(page.Path, ".md"), ".markdown")
 	data := templates.PageData{
-		Title:       page.Title,
-		Path:        page.Path,
-		BodyHTML:    page.HTML,
-		TOC:         page.TOC,
-		Backlinks:   visibleBacklinks(r.Context(), h.Store, viewer, page.Path),
-		Nav:         navEntries(r.Context(), h.Store, viewer, page.Path),
-		Secret:      page.Secret,
-		Owner:       page.Owner,
-		Quarantined: page.Quarantined,
-		Quarantine:  page.QuarantineReason,
-		ViewerLabel: viewerLabel(viewer),
-		AsParam:     asParam(r, viewer),
+		Title:        page.Title,
+		Path:         cleanPath,
+		BodyHTML:     page.HTML,
+		TOC:          page.TOC,
+		Backlinks:    visibleBacklinks(r.Context(), h.Store, viewer, page.Path),
+		Nav:          navEntries(r.Context(), h.Store, viewer, page.Path),
+		Secret:       page.Secret,
+		Owner:        page.Owner,
+		Quarantined:  page.Quarantined,
+		Quarantine:   page.QuarantineReason,
+		ViewerLabel:  viewerLabel(viewer),
+		AsParam:      asParam(r, viewer),
+		CampaignName: h.campaignName(),
+		LandingPage:  h.landingPage(),
 	}
 	if viewer != nil {
 		data.PreviewAs = viewer.PreviewAs
@@ -511,15 +677,17 @@ func (h *ReadHandlers) PageView(w http.ResponseWriter, r *http.Request) {
 
 func (h *ReadHandlers) notFound(w http.ResponseWriter, r *http.Request, viewer *auth.Viewer) {
 	data := templates.PageData{
-		Title:       "Not found",
-		Nav:         navEntries(r.Context(), h.Store, viewer, ""),
-		ViewerLabel: viewerLabel(viewer),
-		AsParam:     asParam(r, viewer),
+		Title:        "Not found",
+		Nav:          navEntries(r.Context(), h.Store, viewer, ""),
+		ViewerLabel:  viewerLabel(viewer),
+		AsParam:      asParam(r, viewer),
+		CampaignName: h.campaignName(),
+		LandingPage:  h.landingPage(),
 	}
 	if viewer != nil {
 		data.PreviewAs = viewer.PreviewAs
 	}
-	h.renderShell(w, r, http.StatusNotFound, data, viewer, templates.NotFound())
+	h.renderShell(w, r, http.StatusNotFound, data, viewer, templates.NotFound(data))
 }
 
 // Search handles search requests. The store filters by viewer ACL and cuts
@@ -556,10 +724,12 @@ func (h *ReadHandlers) Search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := templates.PageData{
-		Title:       "Search",
-		Nav:         navEntries(r.Context(), h.Store, viewer, ""),
-		ViewerLabel: viewerLabel(viewer),
-		AsParam:     asParam(r, viewer),
+		Title:        "Search",
+		Nav:          navEntries(r.Context(), h.Store, viewer, ""),
+		ViewerLabel:  viewerLabel(viewer),
+		AsParam:      asParam(r, viewer),
+		CampaignName: h.campaignName(),
+		LandingPage:  h.landingPage(),
 	}
 	if viewer != nil {
 		data.PreviewAs = viewer.PreviewAs
@@ -837,28 +1007,371 @@ func (h *ReadHandlers) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := templates.PageData{
-		Title:       "Me",
-		Nav:         navEntries(r.Context(), h.Store, viewer, ""),
-		ViewerLabel: viewerLabel(viewer),
-		AsParam:     asParam(r, viewer),
+		Title:        "Me",
+		Nav:          navEntries(r.Context(), h.Store, viewer, ""),
+		ViewerLabel:  viewerLabel(viewer),
+		AsParam:      asParam(r, viewer),
+		CampaignName: h.campaignName(),
+		LandingPage:  h.landingPage(),
 	}
 	h.renderShell(w, r, http.StatusOK, data, viewer, templates.Placeholder("Me", "Logged in as "+viewerLabel(viewer)+". Character sheets land in Phase 3 (Lane I1)."))
 }
 
-// Dashboard returns the GM dashboard placeholder (real dashboard is Lane I2).
+// Dashboard returns the GM dashboard with campaign settings and user management.
 func (h *ReadHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 	viewer := viewerFromRequest(r)
 	if viewer == nil || !viewer.IsGM || viewer.PreviewAs != "" {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	data := templates.PageData{
-		Title:       "Dashboard",
-		Nav:         navEntries(r.Context(), h.Store, viewer, ""),
-		ViewerLabel: viewerLabel(viewer),
-		AsParam:     asParam(r, viewer),
+
+	// Load current campaign settings
+	var campaign *Campaign
+	if h.Campaign != nil {
+		campaign = h.Campaign
+	} else {
+		campaign = &Campaign{}
 	}
-	h.renderShell(w, r, http.StatusOK, data, viewer, templates.Placeholder("Dashboard", "The GM dashboard assembly landed in Phase 3 (Lane I2); the live run view arrives with Lane K display."))
+
+	// Load users for management
+	var users []*auth.User
+	if h.UserStore != nil {
+		if list, err := h.UserStore.List(r.Context()); err == nil {
+			users = list
+		}
+	}
+
+	data := templates.PageData{
+		Title:        "Dashboard",
+		Nav:          navEntries(r.Context(), h.Store, viewer, ""),
+		ViewerLabel:  viewerLabel(viewer),
+		AsParam:      asParam(r, viewer),
+		CampaignName: h.campaignName(),
+		LandingPage:  h.landingPage(),
+	}
+
+	// Convert web.Campaign to template CampaignSettings
+	var tmplCampaign *templates.CampaignSettings
+	if campaign != nil {
+		tmplCampaign = &templates.CampaignSettings{
+			Name:            campaign.Name,
+			Created:         campaign.Created,
+			Base:            campaign.Base,
+			BaseVersion:     campaign.BaseVersion,
+			Overlay:         campaign.Overlay,
+			OverlayVersion:  campaign.OverlayVersion,
+			EnabledFeatures: campaign.EnabledFeatures,
+			EnabledPlugins:  campaign.EnabledPlugins,
+			LandingPage:     campaign.LandingPage,
+		}
+	}
+
+	dashboardData := templates.CampaignDashboardData{
+		Campaign:  tmplCampaign,
+		Users:     users,
+		CSRFToken: h.csrfTokenForForm(r),
+	}
+
+	h.renderShell(w, r, http.StatusOK, data, viewer, templates.DashboardBody(dashboardData))
+}
+
+// DashboardSave handles updating campaign settings.
+func (h *ReadHandlers) DashboardSave(w http.ResponseWriter, r *http.Request) {
+	viewer := viewerFromRequest(r)
+	if viewer == nil || !viewer.IsGM || viewer.PreviewAs != "" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	if !h.csrfOK(r) {
+		writeDenied(w, http.StatusForbidden, "bad or missing CSRF token")
+		return
+	}
+
+	c := &Campaign{
+		Name:           strings.TrimSpace(r.FormValue("name")),
+		Base:           strings.TrimSpace(r.FormValue("base")),
+		BaseVersion:    strings.TrimSpace(r.FormValue("base-version")),
+		Overlay:        strings.TrimSpace(r.FormValue("overlay")),
+		OverlayVersion: strings.TrimSpace(r.FormValue("overlay-version")),
+		LandingPage:    strings.TrimSpace(r.FormValue("landing-page")),
+	}
+
+	var features []string
+	for _, line := range strings.Split(r.FormValue("features"), "\n") {
+		if f := strings.TrimSpace(line); f != "" {
+			features = append(features, f)
+		}
+	}
+	c.EnabledFeatures = features
+
+	var plugins []string
+	for _, line := range strings.Split(r.FormValue("plugins"), "\n") {
+		if p := strings.TrimSpace(line); p != "" {
+			plugins = append(plugins, p)
+		}
+	}
+	c.EnabledPlugins = plugins
+
+	if err := ValidateCampaign(c); err != nil {
+		writeDenied(w, http.StatusUnprocessableEntity, "campaign: "+err.Error())
+		return
+	}
+
+	// Preserve created timestamp from existing campaign
+	if h.Campaign != nil && c.Created == "" {
+		c.Created = h.Campaign.Created
+	}
+	if c.Created == "" {
+		c.Created = time.Now().UTC().Format(time.RFC3339)
+	}
+
+	// Write campaign.yaml via vault (need VaultWriter)
+	if h.Vault == nil {
+		writeDenied(w, http.StatusInternalServerError, "vault is not configured")
+		return
+	}
+	// Read existing content to preserve comments/order
+	existing := ""
+	if b, err := h.Vault.ReadFile(r.Context(), "campaign.yaml"); err == nil {
+		existing = string(b)
+	}
+	// Use surgical upsert to preserve comments and order
+	content := UpsertCampaignYAML(existing, c)
+	if err := h.Vault.WriteFile(r.Context(), "campaign.yaml", content); err != nil {
+		writeDenied(w, http.StatusInternalServerError, "could not write campaign.yaml")
+		return
+	}
+	// Update in-memory campaign data
+	h.Campaign = c
+	http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
+}
+
+// DashboardUserCreate handles creating a new user.
+func (h *ReadHandlers) DashboardUserCreate(w http.ResponseWriter, r *http.Request) {
+	viewer := viewerFromRequest(r)
+	if viewer == nil || !viewer.IsGM || viewer.PreviewAs != "" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if h.UserStore == nil {
+		writeDenied(w, http.StatusInternalServerError, "user store not configured")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	if !h.csrfOK(r) {
+		writeDenied(w, http.StatusForbidden, "bad or missing CSRF token")
+		return
+	}
+
+	username := strings.TrimSpace(r.FormValue("username"))
+	password := r.FormValue("password")
+	isGM := r.FormValue("is_gm") == "1"
+
+	if err := auth.ValidateUsername(username); err != nil {
+		writeDenied(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := auth.ValidatePassword(password); err != nil {
+		writeDenied(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	nowUnix := time.Now().Unix()
+	_, err := auth.CreateUser(r.Context(), h.UserStore, username, password, isGM, nowUnix)
+	if err != nil {
+		if errors.Is(err, auth.ErrUserExists) {
+			writeDenied(w, http.StatusConflict, "user already exists")
+			return
+		}
+		writeDenied(w, http.StatusInternalServerError, "could not create user")
+		return
+	}
+
+	http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
+}
+
+// DashboardUserResetPassword handles resetting a user's password.
+func (h *ReadHandlers) DashboardUserResetPassword(w http.ResponseWriter, r *http.Request) {
+	viewer := viewerFromRequest(r)
+	if viewer == nil || !viewer.IsGM || viewer.PreviewAs != "" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if h.UserStore == nil || h.SessionStore == nil {
+		writeDenied(w, http.StatusInternalServerError, "user store not configured")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	if !h.csrfOK(r) {
+		writeDenied(w, http.StatusForbidden, "bad or missing CSRF token")
+		return
+	}
+
+	username := strings.TrimSpace(r.FormValue("username"))
+	if username == "" {
+		writeDenied(w, http.StatusBadRequest, "username required")
+		return
+	}
+
+	// Generate a random password
+	newPassword := randomPassword(16)
+	nowUnix := time.Now().Unix()
+
+	if err := auth.ResetPassword(r.Context(), h.UserStore, h.SessionStore, username, newPassword, nowUnix); err != nil {
+		if errors.Is(err, auth.ErrUserNotFound) {
+			writeDenied(w, http.StatusNotFound, "user not found")
+			return
+		}
+		writeDenied(w, http.StatusInternalServerError, "could not reset password")
+		return
+	}
+
+	// Show the new password to the GM
+	data := templates.PageData{
+		Title:        "Password Reset",
+		Nav:          navEntries(r.Context(), h.Store, viewer, ""),
+		ViewerLabel:  viewerLabel(viewer),
+		AsParam:      asParam(r, viewer),
+		CampaignName: h.campaignName(),
+		LandingPage:  h.landingPage(),
+	}
+	body := fmt.Sprintf(`<h1>Password Reset</h1><p>Password for <strong>%s</strong> has been reset.</p><p>New password: <code>%s</code></p><p><a href="/dashboard" class="btn">Back to Dashboard</a></p>`, html.EscapeString(username), html.EscapeString(newPassword))
+	h.renderShell(w, r, http.StatusOK, data, viewer, templates.RawBody(body))
+}
+
+// DashboardUserRevokeSessions handles revoking all sessions for a user.
+func (h *ReadHandlers) DashboardUserRevokeSessions(w http.ResponseWriter, r *http.Request) {
+	viewer := viewerFromRequest(r)
+	if viewer == nil || !viewer.IsGM || viewer.PreviewAs != "" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if h.UserStore == nil || h.SessionStore == nil {
+		writeDenied(w, http.StatusInternalServerError, "user store not configured")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	if !h.csrfOK(r) {
+		writeDenied(w, http.StatusForbidden, "bad or missing CSRF token")
+		return
+	}
+
+	username := strings.TrimSpace(r.FormValue("username"))
+	if username == "" {
+		writeDenied(w, http.StatusBadRequest, "username required")
+		return
+	}
+
+	nowUnix := time.Now().Unix()
+	if err := auth.RevokeAllSessions(r.Context(), h.UserStore, h.SessionStore, username, nowUnix); err != nil {
+		writeDenied(w, http.StatusInternalServerError, "could not revoke sessions")
+		return
+	}
+
+	http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
+}
+
+// DashboardUserMakeGM handles granting GM privileges to a user.
+func (h *ReadHandlers) DashboardUserMakeGM(w http.ResponseWriter, r *http.Request) {
+	viewer := viewerFromRequest(r)
+	if viewer == nil || !viewer.IsGM || viewer.PreviewAs != "" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if h.UserStore == nil {
+		writeDenied(w, http.StatusInternalServerError, "user store not configured")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	if !h.csrfOK(r) {
+		writeDenied(w, http.StatusForbidden, "bad or missing CSRF token")
+		return
+	}
+
+	username := strings.TrimSpace(r.FormValue("username"))
+	if username == "" {
+		writeDenied(w, http.StatusBadRequest, "username required")
+		return
+	}
+
+	u, err := h.UserStore.GetByUsername(r.Context(), username)
+	if err != nil {
+		if errors.Is(err, auth.ErrUserNotFound) {
+			writeDenied(w, http.StatusNotFound, "user not found")
+			return
+		}
+		writeDenied(w, http.StatusInternalServerError, "could not load user")
+		return
+	}
+
+	u.IsGM = true
+	u.UpdatedAt = time.Now().Unix()
+	if err := h.UserStore.Update(r.Context(), u); err != nil {
+		writeDenied(w, http.StatusInternalServerError, "could not update user")
+		return
+	}
+
+	http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
+}
+
+// DashboardUserRemoveGM handles removing GM privileges from a user.
+func (h *ReadHandlers) DashboardUserRemoveGM(w http.ResponseWriter, r *http.Request) {
+	viewer := viewerFromRequest(r)
+	if viewer == nil || !viewer.IsGM || viewer.PreviewAs != "" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if h.UserStore == nil {
+		writeDenied(w, http.StatusInternalServerError, "user store not configured")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	if !h.csrfOK(r) {
+		writeDenied(w, http.StatusForbidden, "bad or missing CSRF token")
+		return
+	}
+
+	username := strings.TrimSpace(r.FormValue("username"))
+	if username == "" {
+		writeDenied(w, http.StatusBadRequest, "username required")
+		return
+	}
+
+	// Prevent removing GM from the last GM
+	users, err := h.UserStore.List(r.Context())
+	if err == nil {
+		gmCount := 0
+		for _, u := range users {
+			if u.IsGM {
+				gmCount++
+			}
+		}
+		if gmCount <= 1 {
+			writeDenied(w, http.StatusBadRequest, "cannot remove the last GM")
+			return
+		}
+	}
+
+	u, err := h.UserStore.GetByUsername(r.Context(), username)
+	if err != nil {
+		if errors.Is(err, auth.ErrUserNotFound) {
+			writeDenied(w, http.StatusNotFound, "user not found")
+			return
+		}
+		writeDenied(w, http.StatusInternalServerError, "could not load user")
+		return
+	}
+
+	u.IsGM = false
+	u.UpdatedAt = time.Now().Unix()
+	if err := h.UserStore.Update(r.Context(), u); err != nil {
+		writeDenied(w, http.StatusInternalServerError, "could not update user")
+		return
+	}
+
+	http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
 }
 
 // VTT returns the VTT placeholder (real VTT is Lane K, Phase 4).
@@ -869,10 +1382,12 @@ func (h *ReadHandlers) VTT(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := templates.PageData{
-		Title:       "Table",
-		Nav:         navEntries(r.Context(), h.Store, viewer, ""),
-		ViewerLabel: viewerLabel(viewer),
-		AsParam:     asParam(r, viewer),
+		Title:        "Table",
+		Nav:          navEntries(r.Context(), h.Store, viewer, ""),
+		ViewerLabel:  viewerLabel(viewer),
+		AsParam:      asParam(r, viewer),
+		CampaignName: h.campaignName(),
+		LandingPage:  h.landingPage(),
 	}
 	h.renderShell(w, r, http.StatusOK, data, viewer, templates.Placeholder("Table", "The virtual tabletop lands in Phase 4 (Lane K)."))
 }
