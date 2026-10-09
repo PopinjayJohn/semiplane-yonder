@@ -75,3 +75,7 @@
 - JSON/PATCH API clients cannot send form-encoded CSRF fields → accept the `X-CSRF-Token` header fallback in `CSRFTokenFromRequest` (form field first) and send it from fetch/SSE clients (I1, Lane C owns the token mint).
 - Registry ownership checks matching only exact/prefix patterns silently drop mid-pattern wildcard routes at the outer mux → map parametrized routes to static prefixes first; never map two routes to one prefix under first-wins (Lane K).
 - Migration fixtures must build the FULL era shape, not just the tables the current migration touches — a partial 0001 fixture sailed through 0002 and broke 0003 (Lane K).
+
+## Phase 4 gate additions (Lane L harden + docs)
+- Sheet/wizard/write HTML funneled through `writeHTML` with no `Cache-Control` while the read path had a full no-store matrix → per-viewer pages one shared proxy away from cross-viewer leaks; set `private, no-store` centrally in `writeHTML` (+ the sheet JSON branch), pinned by `cache_headers_test` (Lane L).
+- `tools/axe/check.sh` probes `/` and `/notes`, which never serve 200 (routes are `/p/…`, and the script never builds the p01 index) → the gate SKIPs on healthy servers; probe a real page (`/p/welcome.md`) after a `reindex`, and serve with an explicit `--data-dir` outside the tree (default sibling dir litters `fixtures/p01-data/` into the checkout) (Lane L, filed).

@@ -13,7 +13,7 @@ real-world markdown to chew on.
    `testdata/markdown/` already cover the basics — real excerpts just widen them.
 
 ## Rules
-- SRD 5.1 only (CC-BY-4.0). No full Monster Manual / non-SRD spells — those are
+- SRD 5.2 only (CC-BY-4.0). No full Monster Manual / non-SRD spells — those are
   GM-imported homebrew, never fixtures. Keep the attribution note if your
   snapshot has one.
 - Obsidian-safe: files stay as authored; the parser never rewrites source.

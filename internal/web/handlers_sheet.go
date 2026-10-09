@@ -493,6 +493,8 @@ func (h *SheetHandlers) FieldsPatch(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.Contains(r.Header.Get("Accept"), "application/json") || r.Method == "PATCH" {
 		w.Header().Set("Content-Type", "application/json")
+		// Per-viewer sheet state: never shared-cache, never stored (P09).
+		w.Header().Set("Cache-Control", "private, no-store")
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "field": field, "value": next})
 		return
 	}
