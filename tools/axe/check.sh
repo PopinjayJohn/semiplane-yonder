@@ -75,7 +75,9 @@ if [ -n "$AXE_CHROME_PATH" ]; then
 	EXTRA="$EXTRA --chrome-path $AXE_CHROME_PATH"
 fi
 if [ -n "$AXE_CHROME_OPTIONS" ]; then
-	EXTRA="$EXTRA --chrome-options $AXE_CHROME_OPTIONS"
+	# `=` form: the value itself starts with `--`, which commander would
+	# otherwise parse as a new flag.
+	EXTRA="$EXTRA --chrome-options=$AXE_CHROME_OPTIONS"
 fi
 # shellcheck disable=SC2086
 if npx -y "$AXE_SPEC" $pages --exit $EXTRA; then
