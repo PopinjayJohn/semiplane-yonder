@@ -47,10 +47,13 @@ management (create user, reset password with revocation, revoke sessions,
 grant/remove GM with last-GM guard). Real sessions take precedence; `?as=`
 remains only as fallback.
 
-**P11 follow-up (recorded, not implemented): when HTTP login is the norm,
-the `?as=` demo identity must be retired or gated** (behind an explicit
-dev-only flag). Until then, treat any `?as=` identity as untrusted input:
-it is convenient for demos and tests, not authentication.
+**P11 follow-up (shipped as a flag):** the `?as=` demo identity is gated
+behind `serve --demo-auth` (default **true**, so `make dev`, serve-smoke,
+and axe work with zero login surface). Pass `--demo-auth=false` to retire
+it entirely: `?as=` is then ignored on every path (links stop propagating
+it too) and only session cookies authenticate. Until you flip it, treat
+any `?as=` identity as untrusted input: it is convenient for demos and
+tests, not authentication.
 
 ## 4. Secrets + ACL (the part you must not get wrong)
 

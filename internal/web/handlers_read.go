@@ -256,6 +256,17 @@ var Version = "dev"
 // (Phase 2; E1's runServe passes its --vault). Empty = assets unavailable.
 var VaultDir = ""
 
+// DemoAuth gates the `?as=` demo identity tier (B3 backlog, P11 follow-up).
+// True (default) preserves the shipped behavior: `?as=gm` / `?as=<name>`
+// resolve to demo viewers when no session is present, so `make dev`,
+// serve-smoke, and axe keep working with zero login surface. False retires
+// the tier entirely: `?as=` is ignored on every path and only session
+// cookies authenticate. Serve sets this from `--demo-auth` (default true);
+// tests flip it per-case and restore. preview_as is NOT separately gated:
+// it only ever activates on a GM viewer, which under false is a real
+// session GM (the Phase-0c bannered+logged impersonation contract).
+var DemoAuth = true
+
 // demoUsers are hardcoded stand-ins for auth (real auth is P11, Lane C).
 // `?as=gm` is the GM; any other `?as=<name>` is that player; absent = guest.
 // Ownership is resolved dynamically from page frontmatter (owner /
@@ -276,14 +287,18 @@ var demoUsers = map[string]*auth.Viewer{
 // middleware injects this into request contexts so session-only handlers
 // (I1 wizard/sheets, F2 writes) resolve the same demo identity live. There
 // is no HTTP login surface in v1; `?as=` is the de-facto live-server
-// identity tier (M1 smoke precedent). State-changing routes still require a
-// session-backed CSRF token — identity alone never authorizes a write.
+// identity tier (M1 smoke precedent) while DemoAuth holds. State-changing
+// routes still require a session-backed CSRF token — identity alone never
+// authorizes a write.
 func ViewerForRequest(r *http.Request) *auth.Viewer {
 	return viewerFromRequest(r)
 }
 func viewerFromRequest(r *http.Request) *auth.Viewer {
 	if v, ok := auth.ViewerFromContext(r.Context()); ok && v != nil {
 		return v
+	}
+	if !DemoAuth {
+		return nil // demo tier retired: ?as= ignored, sessions only
 	}
 	as := strings.TrimSpace(r.URL.Query().Get("as"))
 	if as == "" || strings.EqualFold(as, "guest") {
@@ -303,9 +318,13 @@ func viewerFromRequest(r *http.Request) *auth.Viewer {
 	return v
 }
 
-// asParam preserves the demo identity across links. Empty for guests and for
-// real-auth requests (no `as` query present).
+// asParam preserves the demo identity across links. Empty for guests, for
+// real-auth requests (no `as` query present), and whenever the demo tier is
+// retired (DemoAuth=false) so sessions-only deployments never propagate it.
 func asParam(r *http.Request, v *auth.Viewer) string {
+	if !DemoAuth {
+		return ""
+	}
 	as := strings.TrimSpace(r.URL.Query().Get("as"))
 	if as == "" || v == nil {
 		return ""

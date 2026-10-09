@@ -57,7 +57,8 @@ yonder --vault ./my-campaign
 
 Open `http://localhost:8080/healthz` (version JSON, nothing else), then
 `http://localhost:8080/?as=gm`. Flags beat env beat defaults:
-`--vault`, `--data-dir`, `--addr`.
+`--vault`, `--data-dir`, `--addr`, `serve --demo-auth` (default true;
+`false` retires the `?as=` demo tier — sessions only).
 
 - **LAN play:** serve binds `:8080` by default; hand out
   `http://<your-lan-ip>:8080/?as=<name>`. Cookies stay non-`Secure` on

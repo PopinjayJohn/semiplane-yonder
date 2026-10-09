@@ -305,10 +305,11 @@ func withDemoViewer(next http.Handler) http.Handler {
 }
 
 type serveOptions struct {
-	vault   string
-	dataDir string
-	addr    string
-	info    buildInfo
+	vault    string
+	dataDir  string
+	addr     string
+	demoAuth bool
+	info     buildInfo
 }
 
 // runServe opens the app DB (migrating), ensures the session key, and serves
@@ -320,6 +321,10 @@ func runServe(opts serveOptions, shutdown <-chan os.Signal) error {
 	if fi, err := os.Stat(opts.vault); err != nil || !fi.IsDir() {
 		return fmt.Errorf("vault dir not found: %s (run `init --bare` first)", opts.vault)
 	}
+	// B3: --demo-auth (default true) keeps the ?as= demo identity tier for
+	// dev/smoke/axe; false retires it (sessions only). Wired here, read by
+	// every handler through web.ViewerForRequest — one gate, all paths.
+	web.DemoAuth = opts.demoAuth
 	dataDir := resolveDataDir(opts.dataDir, opts.vault)
 	if err := ensureDir(dataDir); err != nil {
 		return err
