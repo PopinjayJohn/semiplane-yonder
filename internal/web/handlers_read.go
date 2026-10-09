@@ -789,12 +789,14 @@ func (h *ReadHandlers) Graph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	visible := map[string]string{}
+	fold := map[string]string{} // lower(path) -> path: page IDs are case-insensitive (Phase 0c)
 	var nodes []graphNode
 	for _, p := range pages {
 		if p.Secret && !secrets.CanViewPage(viewer, p.Secret, p.Path, p.Owner, p.EditableBy) {
 			continue
 		}
 		visible[p.Path] = p.Title
+		fold[strings.ToLower(p.Path)] = p.Path
 		nodes = append(nodes, graphNode{ID: p.Path, Title: p.Title, Secret: p.Secret})
 	}
 	var edges []graphEdge
@@ -804,14 +806,42 @@ func (h *ReadHandlers) Graph(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		for _, t := range targets {
-			if _, ok := visible[t]; ok {
-				edges = append(edges, graphEdge{From: id, To: t})
+			// The indexer stores RAW wikilink targets (`cinder-pact`)
+			// while page IDs carry extensions (`cinder-pact.md`): a
+			// direct map hit misses every live edge (F2-filed). Fix on
+			// the handler side with the same extension candidates
+			// resolveTarget uses — the index shape stays untouched.
+			if to, ok := resolveGraphTarget(fold, t); ok {
+				if _, ok := visible[to]; ok {
+					edges = append(edges, graphEdge{From: id, To: to})
+				}
 			}
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "private, no-store")
 	_ = json.NewEncoder(w).Encode(map[string]any{"nodes": nodes, "edges": edges})
+}
+
+// resolveGraphTarget maps a raw stored wikilink target to a visible page
+// path, mirroring resolveTarget's extension candidates (`[[cinder-pact]]`
+// → `cinder-pact.md`) plus the case-insensitive page-ID rule. Unresolvable
+// targets (missing pages, secret pages the viewer cannot see) return false
+// and stay out of the edge list — never redacted, just absent.
+func resolveGraphTarget(fold map[string]string, target string) (string, bool) {
+	base := strings.TrimSpace(strings.TrimPrefix(target, "./"))
+	if i := strings.LastIndex(base, "#"); i >= 0 {
+		base = base[:i]
+	}
+	if base == "" {
+		return "", false
+	}
+	for _, cand := range []string{base, base + ".md", base + ".markdown"} {
+		if p, ok := fold[strings.ToLower(cand)]; ok {
+			return p, true
+		}
+	}
+	return "", false
 }
 
 // Autocomplete returns title suggestions, secret-filtered (invisible secret
