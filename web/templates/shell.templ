@@ -1,6 +1,7 @@
 package templates
 
 import (
+	"strconv"
 	"strings"
 	"time"
 	"github.com/semiplane/yonder/internal/auth"
@@ -349,6 +350,21 @@ type CampaignDashboardData struct {
 	Campaign *CampaignSettings
 	Users    []*auth.User
 	CSRFToken string
+	// Dice is the recent dice log (newest last in render order), already
+	// secret-filtered server-side per viewer: Total is nil for blind rolls
+	// the viewer may not see. Templates-local mirror of plugins.DiceLogEntry
+	// (sharing the type would cycle: plugins imports web, web imports
+	// templates, so templates cannot import plugins).
+	Dice []DiceLogRow
+}
+
+// DiceLogRow is one rendered dice-log row (server-filtered).
+type DiceLogRow struct {
+	RollID   string
+	Actor    string
+	Notation string
+	Total    *int64 // nil = blind/redacted for this viewer
+	Blind    bool
 }
 
 templ DashboardBody(data CampaignDashboardData) {
@@ -503,7 +519,48 @@ templ DashboardBody(data CampaignDashboardData) {
 			</div>
 		</form>
 	</section>
+
+	<section aria-labelledby="dice-tray">
+		<h2 id="dice-tray">Dice</h2>
+		<form method="post" action="/api/dice/roll" class="dashboard-form">
+			<input type="hidden" name="csrf_token" value={ data.CSRFToken }>
+			<div class="form-group">
+				<label for="dice-notation">Notation (max 100 dice / 1000 faces)</label>
+				<input id="dice-notation" name="notation" type="text" size="20" required placeholder="2d6+3">
+			</div>
+			<div class="form-group">
+				<label>
+					<input type="checkbox" name="blind" value="on"> Blind (GM only)
+				</label>
+			</div>
+			<div class="actions">
+				<button class="btn primary" type="submit">Roll</button>
+			</div>
+		</form>
+		<h3>Recent rolls</h3>
+		<ol aria-live="polite">
+			for _, r := range data.Dice {
+				<li data-roll={ r.RollID }>
+					<span>{ r.Actor }</span>
+					<span>{ r.Notation }</span>
+					if r.Total != nil {
+						<span>{ diceTotalText(*r.Total) }</span>
+					} else {
+						<span>▓▓ blind roll (GM only)</span>
+					}
+					<a href={ "/api/dice/replay?roll_id=" + r.RollID }>replay</a>
+				</li>
+			}
+		</ol>
+	</section>
 }
+
+// diceTotalText renders a dice total for the dashboard log.
+func diceTotalText(n int64) string {
+	return strconv.FormatInt(n, 10)
+}
+
+// formatTime formats a Unix timestamp as a readable date.
 
 // formatTime formats a Unix timestamp as a readable date.
 func formatTime(ts int64) string {

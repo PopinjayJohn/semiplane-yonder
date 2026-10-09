@@ -1130,9 +1130,30 @@ func (h *ReadHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 		Campaign:  tmplCampaign,
 		Users:     users,
 		CSRFToken: h.csrfTokenForForm(r),
+		Dice:      h.dashboardDice(r.Context(), viewer),
 	}
 
 	h.renderShell(w, r, http.StatusOK, data, viewer, templates.DashboardBody(dashboardData))
+}
+
+// dashboardDice loads the recent dice log for the dashboard, newest last,
+// filtered server-side per viewer (blind totals GM-only, redacted otherwise).
+// A nil app DB (unwired fakes) yields an empty log, never an error.
+func (h *ReadHandlers) dashboardDice(ctx context.Context, viewer *auth.Viewer) []templates.DiceLogRow {
+	if h.Store == nil || h.Store.AppDB() == nil {
+		return nil
+	}
+	rows := filterDiceRows(recentDiceLog(ctx, h.Store.AppDB(), recentDiceLimit), viewer)
+	out := make([]templates.DiceLogRow, 0, len(rows))
+	// recentDiceLog returns newest-first; the dashboard renders oldest-first.
+	for i := len(rows) - 1; i >= 0; i-- {
+		row := rows[i]
+		out = append(out, templates.DiceLogRow{
+			RollID: row.RollID, Actor: row.Actor, Notation: row.Notation,
+			Total: row.Total, Blind: row.Blind,
+		})
+	}
+	return out
 }
 
 // DashboardSave handles updating campaign settings.
