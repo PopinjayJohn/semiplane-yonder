@@ -37,10 +37,9 @@ query tier:
   player, renders a persistent banner, and is logged. Any previewed request
   is treated as the player everywhere (dashboard, writes, VTT).
 
-## 3. Identity next (PENDING — PR #16, unmerged)
+## 3. Identity (SHIPPED — PR #16)
 
-A session-cookie tier exists on branch `fix/auth-wiring-integration`
-(reviewed, not merged): `RouteRegistry.BuildHandler` session middleware
+A session-cookie tier is shipped: `RouteRegistry.BuildHandler` session middleware
 (`AuthenticateRequest` → `Viewer` with owned slugs/grants), `GET/POST
 /login` (CSRF double-submit, 429 on rate-limit, 403 on lockout, generic
 401 otherwise — no oracle), `POST /logout`, and a GM dashboard with user
@@ -80,7 +79,7 @@ it is convenient for demos and tests, not authentication.
   shows a text-first (never color-only) banner with a manual-merge flow;
   only the owner or GM can resolve.
 
-## 5. Accounts + sessions (SHIPPED core, PENDING surface)
+## 5. Accounts + sessions (SHIPPED)
 
 - Passwords: argon2id (64 MiB, 3 passes, 4 lanes, PHC encoded), rehashed on
   login when parameters change; minimum length 8. Usernames: 1–64 chars of
@@ -124,8 +123,8 @@ it is convenient for demos and tests, not authentication.
 
 ## 7. Running the table
 
-- **Dashboard** (SHIPPED placeholder at `/dashboard`; full run view is the
-  PENDING PR #16 tier, §3): initiative + selected-token HP + secret toggles
+- **Dashboard** (`/dashboard`, SHIPPED: campaign settings, user management,
+  run view per §3): initiative + selected-token HP + secret toggles
   + dice log + session notes. Assembly only — it renders caller-filtered
   rows and refuses unmarked input fail-closed.
 - **Dice:** generic roller, maxima 100 dice / 1000 faces; the log replays

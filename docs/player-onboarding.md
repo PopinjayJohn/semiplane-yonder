@@ -15,11 +15,11 @@ Your GM gives you one of:
 - **A provisioned account** — a username + password from your GM.
 
 > Status note: the shipped binary identifies demo sessions with `?as=<name>`
-> in the address bar (absent = guest). A real login page (`/login` with a
-> session cookie) exists on an unmerged branch and is not in this build;
-> until it lands, keep your `?as=<name>` link private the way you would a
-> password — anyone holding it reads as you. (Recorded follow-up: the demo
-> identity must be retired/gated once HTTP login is the norm.)
+> in the address bar (absent = guest), and offers a real login page
+> (`/login` with a session cookie) — log in whenever you can. Until the
+> demo identity is retired, keep your `?as=<name>` link private the way you
+> would a password — anyone holding it reads as you. (Recorded follow-up:
+> the demo identity must be retired/gated now that HTTP login is the norm.)
 
 ## 2. Reading the wiki
 
