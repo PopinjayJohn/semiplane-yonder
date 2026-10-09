@@ -633,10 +633,17 @@ func (h *ReadHandlers) Version(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"version": Version})
 }
 
-// Index redirects to the campaign landing page (from campaign.yaml
-// landing-page, default "welcome").
+// Index redirects exactly "/" to the campaign landing page (from
+// campaign.yaml landing-page, default "welcome"). Every other path reaching
+// this handler (the registry's "/" pattern is the mux catch-all) gets a
+// uniform content-free 404 — unknown paths and retired routes must never
+// redirect to landing (that masked typos and dead features).
 func (h *ReadHandlers) Index(w http.ResponseWriter, r *http.Request) {
 	viewer := viewerFromRequest(r)
+	if r.URL.Path != "/" {
+		h.notFound(w, r, viewer)
+		return
+	}
 	landingPage := h.landingPage()
 	// Redirect to the landing page, preserving demo identity (?as=)
 	redirectPath := "/p/" + landingPage

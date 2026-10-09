@@ -145,7 +145,6 @@ templ Shell(data PageData, viewer *auth.Viewer, content templ.Component) {
 									<span class="badge" style="border-color: #b45309; color: #b45309;">GM</span>
 								}
 								<span>{ viewer.UserID }</span>
-								<a class="btn secondary" href="/settings">Settings</a>
 								<form method="post" action="/logout" style="display: inline;">
 									<input type="hidden" name="csrf_token" value={ data.CSRFToken }>
 									<button class="btn secondary" type="submit">Log out</button>

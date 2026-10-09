@@ -196,7 +196,6 @@ const (
 	RouteVersion         = "/version"
 	RouteLogin           = "/login"
 	RouteLogout          = "/logout"
-	RouteRegister        = "/register"
 	RouteIndex           = "/"
 	RoutePageView        = "/p/{path...}"
 	RoutePageEdit        = "/edit/p/{path...}"
@@ -216,7 +215,6 @@ const (
 	RouteDashboardExport = "/dashboard/vault.zip"
 	RouteEncounter       = "/encounter"
 	RouteVTT             = "/vtt/{mapID}"
-	RouteSettings        = "/settings"
 )
 
 // ToStdlibPattern converts frozen route patterns (using chi-style {path...}
