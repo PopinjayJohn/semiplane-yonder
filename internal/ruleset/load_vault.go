@@ -11,7 +11,7 @@ package ruleset
 // (campaign.ParsePackDoc — never a second YAML reader), then converts the
 // data-rules tree into Rulesets the engine executes.
 //
-// Fidelity rules (pinned by load_vault_test.go on fixtures/rules):
+// Fidelity rules (pinned by load_vault_test.go on fixtures/demo/rules):
 //   - stats / derived (real evaluator expressions) / rolls (dice notations)
 //     / intents / optionals convert verbatim.
 //   - Hooks convert with label→Reason and effect→Script, but ONLY when the

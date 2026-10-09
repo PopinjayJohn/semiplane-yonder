@@ -1,12 +1,12 @@
 #!/bin/sh
-# axe gate (P10): boot the app against fixtures/p01 and run axe-core over the
+# axe gate (P10): boot the app against fixtures/demo and run axe-core over the
 # served pages. Node is confined to this script (spec §2: no Node in binary).
 # Skeleton behavior: exits 0 SKIP until the server boots and serves a page;
 # once pages exist, axe failures (critical/serious) fail the gate.
 set -u
 
 ADDR="${AXE_ADDR:-127.0.0.1:8137}"
-VAULT="${AXE_VAULT:-fixtures/p01}"
+VAULT="${AXE_VAULT:-fixtures/demo}"
 AXE_SPEC="${AXE_SPEC:-@axe-core/cli@latest}"
 # Optional chromedriver override (CI installs a Chrome-matched driver via
 # browser-actions/setup-chrome and passes AXE_CHROMEDRIVER_PATH).
@@ -54,7 +54,7 @@ if [ "$healthy" -eq 0 ]; then
 	exit 0
 fi
 
-# Collect candidate P01 pages; skip the gate until at least one serves 200.
+# Collect candidate demo pages; skip the gate until at least one serves 200.
 pages=""
 for p in "/" "/notes" "/p/welcome.md" ; do
 	if curl -sf -o /dev/null "http://$ADDR$p"; then
@@ -62,7 +62,7 @@ for p in "/" "/notes" "/p/welcome.md" ; do
 	fi
 done
 if [ -z "$pages" ]; then
-	echo "axe: SKIP (server healthy, no P01 pages served yet)"
+	echo "axe: SKIP (server healthy, no demo pages served yet)"
 	exit 0
 fi
 

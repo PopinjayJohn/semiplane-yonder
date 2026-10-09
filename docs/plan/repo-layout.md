@@ -7,7 +7,7 @@ internal/
   vault/            fsnotify watcher, rescan, atomic WriteFile helper (all writes), conflict handling (Lane B; F2 consumes API)
   markdown/         goldmark + frontmatter + secret/optional/unsupported ext (Lane A)
   secrets/          Filter(viewer, page), redaction, owner/editable-by checks (Lane F1 implements; Lane G tests)
-  ruleset/          Base/overlay/homebrew resolve, evaluator, intents/hooks (code: Lane H2; fixture packs live in fixtures/rules/, Lane H1)
+  ruleset/          Base/overlay/homebrew resolve, evaluator, intents/hooks (code: Lane H2; demo vault packs live in fixtures/demo/rules/)
   dice/             generic engine + logs + replay (Lane H2)
   plugins/         registry, slots, plugin check incl. CSS/a11y lint (Lane I2)
   web/              routes (F1 read handlers, F2 write handlers, frozen registry), SSE, templates data (templates: Lane F1)
@@ -16,7 +16,7 @@ internal/
 web/
   templates/        shell + slots (Lane F1; header-*, sidebar-*, footer, page-actions, sheet-header)
   static/           core.css (tokens), themes/, mockups/ (Lane D1, P00 only), vendor/ (VERSIONS pin+checksums, Lane E1), a11y-tested markup
-fixtures/           runtime vaults: p01/, srd/ (dev only, never embedded); rules/ fixture packs (Lane H1)
+fixtures/           hand-written demo vault: demo/ (dev only, never embedded); srd/ read-only upstream mirror (out of scope)
 testdata/           golden files: markdown/{input.md, expected.html, expected-index.json}
 docs/               plan/ (this dir), gm-guide/, player-onboarding/, plugin-authoring/
 .github/workflows/ ci.yml (templ generate + diff check, vet, fmt, lint, unit+fuzz-short, snapshot, axe)

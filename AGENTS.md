@@ -8,9 +8,9 @@
 3. Verify with `go build ./...` + your lane's tests before finishing. Leak matrix (`p10.md`) must stay green.
 
 ## Commands
-- `make dev` — `templ generate --watch` + run against `fixtures/p01`
+- `make dev` — `templ generate --watch` + run against `fixtures/demo`
 - `make check` — `templ generate` + `git diff --exit-code`, `go vet`, `gofmt -l`, `golangci-lint run`, `go test ./...`
-- `go run ./cmd/app --vault fixtures/p01` — offline smoke
+- `go run ./cmd/app --vault fixtures/demo` — offline smoke
 - `go run ./cmd/app reindex --vault <dir>` — rebuild index
 
 ## File ownership (roadmap lanes)

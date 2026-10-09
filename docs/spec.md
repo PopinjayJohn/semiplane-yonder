@@ -6,7 +6,7 @@ Source of truth: `docs/plan/` (overview, p00–p13, roadmap, repo-layout). This 
 Single-binary (Linux/macOS/Windows) self-hosted app: Obsidian-compatible markdown Wiki first, Campaign Manager second, minimal VTT last. Each slice usable standalone with users. Order: M1 Wiki → M2 CM → M3 VTT (`docs/plan/roadmap.md`).
 
 ## 2. Stack (frozen)
-Go 1.27, templ (SSR) + Datastar (SSE, no WS in v1), SQLite via modernc (pure Go, WAL, `busy_timeout=5s`, single writer). Vanilla CSS + design tokens + `@layer core, plugins, overrides`. CodeMirror 6 only JS. Deps: templ, datastar-go, goldmark(+obsidian), fsnotify, modernc, x/crypto, x/image (draw/resize only). stdlib HMAC sessions. No Node in binary (CI-only for axe). `make dev` = `templ generate --watch` + `go run ./cmd/app --vault fixtures/p01`.
+Go 1.27, templ (SSR) + Datastar (SSE, no WS in v1), SQLite via modernc (pure Go, WAL, `busy_timeout=5s`, single writer). Vanilla CSS + design tokens + `@layer core, plugins, overrides`. CodeMirror 6 only JS. Deps: templ, datastar-go, goldmark(+obsidian), fsnotify, modernc, x/crypto, x/image (draw/resize only). stdlib HMAC sessions. No Node in binary (CI-only for axe). `make dev` = `templ generate --watch` + `go run ./cmd/app --vault fixtures/demo`.
 
 ## 3. Data truth
 Vault filesystem = truth; SQLite index (`<name>.index.db`) is rebuilt from it (`reindex`: temp + rename, index tables only — auth/app rows in `<name>.app.db` never touched). Sheet lives in `index.md` frontmatter; DB holds read index. Calibration in sidecar frontmatter; live token/fog/visibility in app DB (fog fail-closed hidden on data loss).

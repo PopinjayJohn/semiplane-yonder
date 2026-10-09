@@ -90,7 +90,7 @@ func copyTree(src, dst string) error {
 func newGateRig(t *testing.T) *gateRig {
 	t.Helper()
 	vault := t.TempDir()
-	if err := copyTree("../../fixtures/rules", filepath.Join(vault, "rules")); err != nil {
+	if err := copyTree("../../fixtures/demo/rules", filepath.Join(vault, "rules")); err != nil {
 		t.Fatal(err)
 	}
 	write := func(name, content string) {

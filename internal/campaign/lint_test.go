@@ -219,8 +219,8 @@ func TestValidateMissingDescriptor(t *testing.T) {
 	}
 }
 
-// TestTimeboxPacks lints the real H1 fixtures: every shipped pack must be
-// error-free (warnings allowed: attribution is present, so expect none).
+// TestTimeboxPacks lints the real demo vault packs: every shipped pack must
+// be error-free (warnings allowed: attribution is present, so expect none).
 func TestTimeboxPacks(t *testing.T) {
 	for _, dir := range []string{
 		"rules/base/dnd",
@@ -229,7 +229,7 @@ func TestTimeboxPacks(t *testing.T) {
 		"rules/homebrew/grit",
 	} {
 		t.Run(dir, func(t *testing.T) {
-			issues, err := ValidatePack("../../fixtures", dir)
+			issues, err := ValidatePack("../../fixtures/demo", dir)
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -1,0 +1,2 @@
+# CRLF witness: farrier-log.md must keep CRLF on every OS (git must never normalize it).
+farrier-log.md -text
