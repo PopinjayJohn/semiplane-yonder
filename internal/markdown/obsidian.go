@@ -54,6 +54,9 @@ func (e *obsidianExt) Extend(m goldmark.Markdown) {
 	m.Renderer().AddOptions(
 		renderer.WithNodeRenderers(
 			util.Prioritized(&obsidianRenderer{}, 1000),
+			// Below goldmark's own TaskList renderer (500): overrides
+			// ONLY ast.KindTaskCheckBox with the labeled equivalent.
+			util.Prioritized(&accessibleTaskRenderer{}, 499),
 		),
 	)
 }
