@@ -71,7 +71,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+      # Chrome + matching ChromeDriver (runner Chrome drifts from the
+      # driver bundled with axe-cli; mismatched pairs fail the job).
+      - name: Setup Chrome
+        id: chrome
+        uses: browser-actions/setup-chrome@latest
+        with:
+          install-chromedriver: true
+          install-dependencies: true
       - name: axe on P01 pages (skips until pages are served)
+        env:
+          AXE_CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
+          AXE_CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
         run: ./tools/axe/check.sh
 
   serve-smoke:

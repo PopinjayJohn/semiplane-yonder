@@ -138,8 +138,78 @@ func wireHandlers(info buildInfo, vaultDir, dataDir string, sessionStore auth.Se
 	reg := web.NewRouteRegistry()
 	plugReg := plugins.NewRegistry(slotReg, reg)
 	enablePlugins(vaultDir, plugReg)
-	readH := web.ReadHandlers{Store: st, SlotRegistry: slotReg, Slots: plugReg, SessionStore: sessionStore}
-	writeH := web.WriteHandlers{Store: st, Vault: v, SlotRegistry: slotReg, SessionStore: sessionStore}
+
+	// Load session keys for HMAC verification (key rotation support)
+	sessionKeys, err := auth.LoadSessionKeys(dataDir)
+	if err != nil {
+		panic(fmt.Errorf("load session keys: %w", err))
+	}
+
+	// Create user store for auth middleware
+	userStore, err := auth.NewUserStore(st.AppDB())
+	if err != nil {
+		panic(fmt.Errorf("create user store: %w", err))
+	}
+
+	// Load campaign.yaml for landing page and campaign name
+	var campaignData *web.Campaign
+	if c, err := campaign.Load(vaultDir); err == nil {
+		campaignData = &web.Campaign{
+			Name:            c.Name,
+			Created:         c.Created,
+			Base:            c.Base,
+			BaseVersion:     c.BaseVersion,
+			Overlay:         c.Overlay,
+			OverlayVersion:  c.OverlayVersion,
+			EnabledFeatures: c.EnabledFeatures,
+			EnabledPlugins:  c.EnabledPlugins,
+			LandingPage:     c.LandingPage,
+		}
+	}
+
+	readH := web.ReadHandlers{Store: st, SlotRegistry: slotReg, Slots: plugReg, SessionStore: sessionStore, UserStore: userStore, Vault: v, Campaign: campaignData}
+	sessionConfig := auth.DefaultSessionConfig(sessionKeys[0])
+
+	// Reindex function used by both write handlers and vault watcher
+	reindexAndRefresh := func() error {
+		indexPath, _, _ := dataPaths(dataDir, vaultDir)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := store.Reindex(ctx, vaultDir, indexPath, web.ParsePage); err != nil {
+			slog.Error("reindex failed", "err", err)
+			return err
+		}
+		slog.Info("reindex done, refreshing store")
+		if err := st.RefreshIndex(ctx); err != nil {
+			slog.Error("refresh failed", "err", err)
+			return err
+		}
+		slog.Info("refresh done")
+		return nil
+	}
+
+	// WriteHandlers gets a reindex callback to refresh the read Store after writes
+	writeH := web.WriteHandlers{
+		Store:         st,
+		Vault:         v,
+		SlotRegistry:  slotReg,
+		SessionStore:  sessionStore,
+		UserStore:     userStore,
+		SessionConfig: sessionConfig,
+		OnAfterWrite:  reindexAndRefresh,
+	}
+
+	// Vault watcher for external edits (Obsidian, text editor, etc.)
+	go func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		_ = v.Watch(ctx, func(events []vault.Event) {
+			slog.Info("vault changed externally, reindexing", "events", len(events))
+			if err := reindexAndRefresh(); err != nil {
+				slog.Error("external reindex failed", "err", err)
+			}
+		})
+	}()
 
 	// Gate G3 registration order (DELIBERATE first-wins): I1's wizard +
 	// sheet handlers register BEFORE F1's read handlers so GET /me serves
@@ -181,7 +251,7 @@ func wireHandlers(info buildInfo, vaultDir, dataDir string, sessionStore auth.Se
 	// params from r.URL.Path themselves.
 	ownedByRegistry := func(path string) bool {
 		for _, rt := range regRoutes {
-			stdpat := toStdlibPattern(rt.Path)
+			stdpat := web.ToStdlibPattern(rt.Path)
 			if strings.HasSuffix(stdpat, "/") {
 				if strings.HasPrefix(path, stdpat) {
 					return true
@@ -200,12 +270,10 @@ func wireHandlers(info buildInfo, vaultDir, dataDir string, sessionStore auth.Se
 		http.NotFound(w, r)
 	})
 
-	// Build registry handler with middleware chain.
-	regHandler := reg.BuildHandler(sessionStore)
-	if regHandler == nil {
-		// Fallback: build from routes directly (Phase 2: BuildHandler is stub).
-		regHandler = buildRegistryHandler(regRoutes, sessionStore)
-	}
+	// Build registry handler with middleware chain (auth + demo fallback).
+	regHandler := reg.BuildHandler(sessionStore, sessionKeys, userStore, st)
+	// Demo viewer fallback for unwired mode: real sessions take precedence.
+	regHandler = withDemoViewer(regHandler)
 
 	// Chain: ops-first for unowned paths, then registry.
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -216,43 +284,6 @@ func wireHandlers(info buildInfo, vaultDir, dataDir string, sessionStore auth.Se
 		}
 	}))
 	return &serverWiring{Handler: mux, Plugins: plugReg, Store: st, Vault: v}
-}
-
-// buildRegistryHandler constructs an http.Handler from registered routes
-// with session/viewer middleware (inline until RouteRegistry.BuildHandler
-// is implemented). stdlib ServeMux (Go 1.22+) supports {name} and {name...}
-// only at pattern END; frozen routes use {path...} mid-pattern. We map them
-// to prefix patterns. Duplicate method+pattern pairs keep the first
-// registered handler — that first-wins rule is what retires F1's GET /me
-// placeholder in favor of I1's MeSheet (deliberate registration order in
-// wireHandlers, never accidental).
-//
-// Gate G3: dedup keys on METHOD + pattern (stdlib "METHOD /path" patterns).
-// The old pattern-only collapse shadowed every POST twin behind its GET
-// registration (POST /wizard/setup, POST /c/..., F2 PageSave) — writes were
-// unreachable over the mux. Method-aware routing restores them; CSRF +
-// login still gate every write.
-func buildRegistryHandler(routes []web.Route, sessionStore auth.SessionStore) http.Handler {
-	mux := http.NewServeMux()
-	seen := make(map[string]bool)
-	for _, rt := range routes {
-		h := rt.Handler
-		if h == nil {
-			continue
-		}
-		// For Phase 2, let handlers resolve their own viewer (demo fallback).
-		// Real auth middleware lands in P11.
-		pattern := toStdlibPattern(rt.Path)
-		if rt.Method != "" {
-			pattern = rt.Method + " " + pattern
-		}
-		if seen[pattern] {
-			continue // skip duplicate method+pattern; first handler wins
-		}
-		seen[pattern] = true
-		mux.HandleFunc(pattern, h)
-	}
-	return withDemoViewer(mux)
 }
 
 // withDemoViewer injects the request's demo identity (`?as=`, same resolver
@@ -271,45 +302,6 @@ func withDemoViewer(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
-}
-
-// toStdlibPattern converts frozen route patterns (using chi-style {path...}
-// mid-pattern) to stdlib ServeMux-compatible patterns (Go 1.22+).
-// Handlers extract the full path from r.URL.Path themselves.
-func toStdlibPattern(pattern string) string {
-	// Patterns with {path...} not at end → register the static prefix.
-	// Handlers do exact matching on r.URL.Path.
-	switch pattern {
-	case web.RoutePageView: // "/p/{path...}" → "/p/"
-		return "/p/"
-	case web.RoutePageEdit: // "/p/{path...}/edit" → handled by PageEdit via /p/
-		return "/p/"
-	case web.RoutePageHistory: // "/p/{path...}/history" → handled by PageView via /p/
-		return "/p/"
-	case web.RoutePageHistory + "/revert": // "/p/{path...}/history/revert" → "/p/"
-		return "/p/"
-	case web.RouteAssets: // "/assets/{path...}" → "/assets/"
-		return "/assets/"
-	case web.RouteVTT: // "/vtt/{mapID}" → "/vtt/"
-		return "/vtt/"
-	// NOTE (Lane K): plugins.MapFragmentPath ("/vtt/{mapID}/fragment") is
-	// deliberately NOT mapped here: stdlib mux routes mid-pattern wildcards
-	// fine, and mapping it to "/vtt/" would collide with RouteVTT under the
-	// first-wins rule (the page handler would lose). Ownership of fragment
-	// URLs is covered by the RouteVTT "/vtt/" prefix check.
-	case plugins.StateSnapshotPath: // "/api/vtt/{mapID}/state" → "/api/vtt/"
-		// Lane K amend (Phase 4): the frozen snapshot path carries {mapID}
-		// mid-pattern, which the registry ownership check cannot match
-		// exactly (it only knows exact + trailing-slash prefixes). Map it to
-		// the static prefix like every other parameterized route; the Lane K
-		// handler extracts the map id from r.URL.Path itself. No collision:
-		// nothing else lives under /api/vtt/.
-		return "/api/vtt/"
-	case web.RouteWizard: // "/wizard/{step}" → "/wizard/"
-		return "/wizard/"
-	default:
-		return pattern // exact patterns like /healthz, /search, /p/new, /upload, etc.
-	}
 }
 
 type serveOptions struct {

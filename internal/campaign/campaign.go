@@ -21,6 +21,7 @@ var campaignKeys = []string{
 	"overlay-version",
 	"enabled-features",
 	"enabled-plugins",
+	"landing-page",
 }
 
 // ErrNoCampaign reports a missing campaign.yaml (I1's wizard creates it).
@@ -37,6 +38,7 @@ type Campaign struct {
 	OverlayVersion  string
 	EnabledFeatures []string
 	EnabledPlugins  []string
+	LandingPage     string
 }
 
 // Load reads and validates <vault>/campaign.yaml. Legacy scaffold files
@@ -98,6 +100,7 @@ func Parse(data []byte) (*Campaign, error) {
 		{"base-version", &c.BaseVersion},
 		{"overlay", &c.Overlay},
 		{"overlay-version", &c.OverlayVersion},
+		{"landing-page", &c.LandingPage},
 	} {
 		if err := str(kv.key, kv.dst); err != nil {
 			return nil, err

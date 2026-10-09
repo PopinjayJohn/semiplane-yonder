@@ -48,6 +48,11 @@ type Store interface {
 	// AppDB returns the migrated app database (<name>.app.db).
 	AppDB() *sql.DB
 
+	// RefreshIndex closes and reopens the index database connection.
+	// Called after reindex to pick up the new index file (which was
+	// atomically renamed over the old one).
+	RefreshIndex(ctx context.Context) error
+
 	// Close closes the database connections.
 	Close() error
 }
