@@ -12,6 +12,12 @@ AXE_SPEC="${AXE_SPEC:-@axe-core/cli@latest}"
 # browser-actions/setup-chrome and passes AXE_CHROMEDRIVER_PATH).
 AXE_CHROMEDRIVER_PATH="${AXE_CHROMEDRIVER_PATH:-}"
 AXE_CHROME_PATH="${AXE_CHROME_PATH:-}"
+# Chrome flags for containerized CI (throwaway scan browser only, not the
+# product): --no-sandbox (runner user namespaces), --disable-dev-shm-usage
+# (/dev/shm too small → instant "Chrome instance exited"), --disable-gpu.
+# axe-cli splits --chrome-options on commas, so this stays ONE comma-joined
+# argument (never space-separated).
+AXE_CHROME_OPTIONS="${AXE_CHROME_OPTIONS:---no-sandbox,--disable-dev-shm-usage,--disable-gpu}"
 # Data dir defaults to tmp (never litter the repo with sibling *-data dirs).
 AXE_DATA_DIR="${AXE_DATA_DIR:-}"
 
@@ -67,6 +73,9 @@ if [ -n "$AXE_CHROMEDRIVER_PATH" ]; then
 fi
 if [ -n "$AXE_CHROME_PATH" ]; then
 	EXTRA="$EXTRA --chrome-path $AXE_CHROME_PATH"
+fi
+if [ -n "$AXE_CHROME_OPTIONS" ]; then
+	EXTRA="$EXTRA --chrome-options $AXE_CHROME_OPTIONS"
 fi
 # shellcheck disable=SC2086
 if npx -y "$AXE_SPEC" $pages --exit $EXTRA; then
