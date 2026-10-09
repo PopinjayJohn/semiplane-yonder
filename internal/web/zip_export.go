@@ -78,9 +78,6 @@ func (h *ReadHandlers) VaultZip(w http.ResponseWriter, r *http.Request) {
 	slog.Info("vault zip download", "gm", viewer.UserID, "files", files, "skipped", skipped)
 }
 
-// exportEntry is one vault-relative posix path queued for the zip.
-type exportEntry = string
-
 // scanExportFiles walks the vault and returns the zip entry list (sorted by
 // walk order), failing fast on unreadable roots and oversized files so the
 // handler can refuse BEFORE headers go out. Data artifacts (*.db,
