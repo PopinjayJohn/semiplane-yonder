@@ -74,17 +74,17 @@ func (h *WriteHandlers) diceTransport() (*dice.TransportService, error) {
 	return h.diceSvc, nil
 }
 
-// diceEffGM reports the effective GM identity for dice routing: GM previews
+// effGM reports the effective GM identity for dice routing: GM previews
 // filter as the previewed user, never as GM (Phase 0c contract, same rule as
 // plugins.ViewerOf).
-func diceEffGM(v *auth.Viewer) bool { return v != nil && v.IsGM && v.PreviewAs == "" }
+func effGM(v *auth.Viewer) bool { return v != nil && v.IsGM && v.PreviewAs == "" }
 
 // diceViewerKey maps a request viewer to the transport routing identity:
 // "role:gm" for effective GMs, "actor:<user>" otherwise. Blind rows persist
 // this key in envelope_json so replay can re-authorize the original viewer
 // without a schema change (I2 contract).
 func diceViewerKey(v *auth.Viewer) string {
-	if diceEffGM(v) {
+	if effGM(v) {
 		return "role:gm"
 	}
 	id := ""
@@ -101,7 +101,7 @@ func diceViewerKey(v *auth.Viewer) string {
 // blind totals stay visible to effective GMs only (mirrors
 // plugins.RouteBlind). Open rolls are untouched.
 func diceTotalForViewer(total int64, blind bool, v *auth.Viewer) *int64 {
-	if blind && !diceEffGM(v) {
+	if blind && !effGM(v) {
 		return nil
 	}
 	out := total
@@ -232,7 +232,7 @@ func (h *WriteHandlers) diceRoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if isDiceFormPost(r) {
-		http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
+		redirectWithIdentity(w, r, "/dashboard")
 		return
 	}
 	writeDiceJSON(w, v, resp.Result, resp.LogID)

@@ -934,6 +934,32 @@ func writeDenied(w http.ResponseWriter, status int, msg string) {
 		"<h1>Not allowed</h1>\n<p>"+html.EscapeString(msg)+"</p>")
 }
 
+// redirectWithIdentity issues the write-path 303 back to a dashboard URL,
+// preserving the demo identity (?as=/preview_as=) when the demo tier holds
+// so session-backed POSTs from demo-identity URLs land back on the same
+// view. Identity is never authority: state-changing routes still require
+// the session CSRF check.
+func redirectWithIdentity(w http.ResponseWriter, r *http.Request, path string) {
+	target := path
+	if DemoAuth {
+		var q []string
+		if as := strings.TrimSpace(r.URL.Query().Get("as")); as != "" {
+			q = append(q, "as="+url.QueryEscape(as))
+		}
+		if p := strings.TrimSpace(r.URL.Query().Get("preview_as")); p != "" {
+			q = append(q, "preview_as="+url.QueryEscape(p))
+		}
+		if len(q) > 0 {
+			sep := "?"
+			if strings.Contains(path, "?") {
+				sep = "&"
+			}
+			target += sep + strings.Join(q, "&")
+		}
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
+}
+
 // conflictBanner renders the conflict notice: text-first (never color-only),
 // assertive live region, with a link into the manual-merge flow.
 func conflictBanner(parent, cpath string) string {
@@ -1549,9 +1575,12 @@ func (h *WriteHandlers) WizardStep(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "the character wizard is not implemented in this milestone", http.StatusNotImplemented)
 }
 
-// EncounterAction handles encounter actions (Lane I2 owns run-mode).
+// EncounterAction handles encounter build→spawn + HP adjust: the
+// implementation lives in encounter.go (I2 builder semantics over Lane K's
+// vtt_* tables; GM-only). The F2 501 stub is retired deliberately (UI-2),
+// never accidentally.
 func (h *WriteHandlers) EncounterAction(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "encounters are not implemented in this milestone", http.StatusNotImplemented)
+	h.encounterAction(w, r)
 }
 
 // VTTStateUpdate handles VTT state updates (Lane K/P08 owns the table).

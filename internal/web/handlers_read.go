@@ -1130,7 +1130,9 @@ func (h *ReadHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 		Campaign:  tmplCampaign,
 		Users:     users,
 		CSRFToken: h.csrfTokenForForm(r),
+		AsParam:   asParam(r, viewer),
 		Dice:      h.dashboardDice(r.Context(), viewer),
+		Encounter: h.dashboardEncounter(r),
 	}
 
 	h.renderShell(w, r, http.StatusOK, data, viewer, templates.DashboardBody(dashboardData))
@@ -1154,6 +1156,14 @@ func (h *ReadHandlers) dashboardDice(ctx context.Context, viewer *auth.Viewer) [
 		})
 	}
 	return out
+}
+
+// dashboardEncounter builds the dashboard encounter section: the closed
+// compendium roster (HP resolved server-side), the map list, and the
+// selected map's live tokens. GM-only callers; tokens carry positions +
+// hidden flags because unauthorized viewers never reach this page.
+func (h *ReadHandlers) dashboardEncounter(r *http.Request) templates.EncounterData {
+	return buildEncounterData(r.Context(), h.Store, strings.TrimSpace(r.URL.Query().Get("map")))
 }
 
 // DashboardSave handles updating campaign settings.
