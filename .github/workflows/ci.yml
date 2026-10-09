@@ -76,6 +76,8 @@ jobs:
       - name: Setup Chrome
         id: chrome
         uses: browser-actions/setup-chrome@latest
+        with:
+          install-chromedriver: true
       - name: axe on P01 pages (skips until pages are served)
         env:
           AXE_CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
