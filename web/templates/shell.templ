@@ -1,6 +1,8 @@
 package templates
 
 import (
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 	"github.com/semiplane/yonder/internal/auth"
@@ -143,7 +145,6 @@ templ Shell(data PageData, viewer *auth.Viewer, content templ.Component) {
 									<span class="badge" style="border-color: #b45309; color: #b45309;">GM</span>
 								}
 								<span>{ viewer.UserID }</span>
-								<a class="btn secondary" href="/settings">Settings</a>
 								<form method="post" action="/logout" style="display: inline;">
 									<input type="hidden" name="csrf_token" value={ data.CSRFToken }>
 									<button class="btn secondary" type="submit">Log out</button>
@@ -349,6 +350,53 @@ type CampaignDashboardData struct {
 	Campaign *CampaignSettings
 	Users    []*auth.User
 	CSRFToken string
+	// AsParam threads the demo identity (?as=) across dashboard links/forms.
+	AsParam string
+	// Dice is the recent dice log (newest last in render order), already
+	// secret-filtered server-side per viewer: Total is nil for blind rolls
+	// the viewer may not see. Templates-local mirror of plugins.DiceLogEntry
+	// (sharing the type would cycle: plugins imports web, web imports
+	// templates, so templates cannot import plugins).
+	Dice []DiceLogRow
+	// Encounter is the encounter builder + live token list (GM-only).
+	Encounter EncounterData
+}
+
+// DiceLogRow is one rendered dice-log row (server-filtered).
+type DiceLogRow struct {
+	RollID   string
+	Actor    string
+	Notation string
+	Total    *int64 // nil = blind/redacted for this viewer
+	Blind    bool
+}
+
+// EncounterCreature is one spawnable compendium creature (HP resolved
+// server-side at render).
+type EncounterCreature struct {
+	ID   string
+	Name string
+	HP   int
+}
+
+// EncounterToken is one live token on the selected map (GM-only viewers).
+type EncounterToken struct {
+	ID     string
+	Name   string
+	X      int
+	Y      int
+	HP     int
+	MaxHP  int
+	Hidden bool
+}
+
+// EncounterData is the dashboard encounter section (all server-resolved,
+// GM-only).
+type EncounterData struct {
+	Roster []EncounterCreature
+	Maps   []string
+	Map    string // selected map
+	Tokens []EncounterToken
 }
 
 templ DashboardBody(data CampaignDashboardData) {
@@ -503,7 +551,111 @@ templ DashboardBody(data CampaignDashboardData) {
 			</div>
 		</form>
 	</section>
+
+	<section aria-labelledby="dice-tray">
+		<h2 id="dice-tray">Dice</h2>
+		<form method="post" action={ "/api/dice/roll" + data.AsParam } class="dashboard-form">
+			<input type="hidden" name="csrf_token" value={ data.CSRFToken }>
+			<div class="form-group">
+				<label for="dice-notation">Notation (max 100 dice / 1000 faces)</label>
+				<input id="dice-notation" name="notation" type="text" size="20" required placeholder="2d6+3">
+			</div>
+			<div class="form-group">
+				<label>
+					<input type="checkbox" name="blind" value="on"> Blind (GM only)
+				</label>
+			</div>
+			<div class="actions">
+				<button class="btn primary" type="submit">Roll</button>
+			</div>
+		</form>
+		<h3>Recent rolls</h3>
+		<ol aria-live="polite">
+			for _, r := range data.Dice {
+				<li data-roll={ r.RollID }>
+					<span>{ r.Actor }</span>
+					<span>{ r.Notation }</span>
+					if r.Total != nil {
+						<span>{ diceTotalText(*r.Total) }</span>
+					} else {
+						<span>▓▓ blind roll (GM only)</span>
+					}
+					<a href={ "/api/dice/replay?roll_id=" + r.RollID }>replay</a>
+				</li>
+			}
+		</ol>
+	</section>
+
+	<section aria-labelledby="encounters">
+		<h2 id="encounters">Encounters</h2>
+		<h3>Build & spawn</h3>
+		<form method="post" action={ "/encounter" + data.AsParam } class="dashboard-form">
+			<input type="hidden" name="csrf_token" value={ data.CSRFToken }>
+			<input type="hidden" name="action" value="spawn">
+			<div class="form-group">
+				<label for="enc-map">Map</label>
+				<input id="enc-map" name="map" type="text" size="20" required value={ data.Encounter.Map } pattern="[A-Za-z0-9_-]{1,64}">
+			</div>
+			for _, c := range data.Encounter.Roster {
+				<div class="form-group">
+					<label for={ "enc-count-" + c.ID }>{ c.Name } (HP { diceTotalText(int64(c.HP)) })</label>
+					<input id={ "enc-count-" + c.ID } name={ c.ID } type="number" min="0" max="20" value="0">
+				</div>
+			}
+			<div class="actions">
+				<button class="btn primary" type="submit">Spawn encounter</button>
+			</div>
+		</form>
+		<h3>Tokens on { data.Encounter.Map }</h3>
+		<p class="hint">
+			for _, m := range data.Encounter.Maps {
+				<a href={ dashMapURL(m, data.AsParam) }>{ m }</a>
+				<span> </span>
+			}
+		</p>
+		if len(data.Encounter.Tokens) == 0 {
+			<p class="hint">No tokens on this map yet.</p>
+		} else {
+			<ul>
+				for _, t := range data.Encounter.Tokens {
+					<li data-token={ t.ID }>
+						<span>{ t.Name }</span>
+						<span>({ diceTotalText(int64(t.X)) },{ diceTotalText(int64(t.Y)) })</span>
+						<span>{ diceTotalText(int64(t.HP)) }/{ diceTotalText(int64(t.MaxHP)) } HP</span>
+						if t.Hidden {
+							<span class="tag">hidden</span>
+						}
+						<form method="post" action={ "/encounter" + data.AsParam } style="display: inline;">
+							<input type="hidden" name="csrf_token" value={ data.CSRFToken }>
+							<input type="hidden" name="action" value="hp">
+							<input type="hidden" name="map" value={ data.Encounter.Map }>
+							<input type="hidden" name="token" value={ t.ID }>
+							<label>Adjust HP <input name="delta" type="number" min="-999" max="999" value="-1" size="5"></label>
+							<button class="btn secondary" type="submit">Apply</button>
+						</form>
+					</li>
+				}
+			</ul>
+		}
+	</section>
 }
+
+// diceTotalText renders a dice total for the dashboard log.
+func diceTotalText(n int64) string {
+	return strconv.FormatInt(n, 10)
+}
+
+// dashMapURL threads the demo identity across dashboard map links (map ids
+// are charset-bound server-side, escaped here for URL safety).
+func dashMapURL(m, asParam string) string {
+	u := "/dashboard?map=" + url.QueryEscape(m)
+	if strings.HasPrefix(asParam, "?") {
+		u += "&" + strings.TrimPrefix(asParam, "?")
+	}
+	return u
+}
+
+// formatTime formats a Unix timestamp as a readable date.
 
 // formatTime formats a Unix timestamp as a readable date.
 func formatTime(ts int64) string {

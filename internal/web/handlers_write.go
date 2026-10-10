@@ -12,9 +12,11 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/semiplane/yonder/internal/auth"
+	"github.com/semiplane/yonder/internal/dice"
 	"github.com/semiplane/yonder/internal/markdown"
 	"github.com/semiplane/yonder/internal/store"
 	"github.com/semiplane/yonder/internal/vault"
@@ -50,6 +52,14 @@ type WriteHandlers struct {
 	RateLimiter   *auth.RateLimiter
 	SessionConfig auth.SessionConfig
 	OnAfterWrite  func() error // called after successful write to trigger reindex + store refresh
+	// diceRoller/diceLogs are test seams for the dice tray (UI follow-up):
+	// nil = production defaults (H2 roller + dice_logs over the app DB).
+	// Set them before the first roll; diceSvc caches the built transport
+	// (rate-limit windows live in the instance).
+	diceRoller dice.Roller
+	diceLogs   dice.LogStore
+	diceSvc    *dice.TransportService
+	diceSvcMu  sync.Mutex
 }
 
 // userStore returns the UserStore, creating it lazily from the app DB if needed.
@@ -171,6 +181,14 @@ func (h *WriteHandlers) RegisterRoutes(reg *RouteRegistry) {
 		Handler:      h.DiceRoll,
 		ReadOnly:     false,
 		AuthRequired: true,
+	})
+	reg.Register(Route{
+		Method:         http.MethodGet,
+		Path:           RouteDiceReplay,
+		Handler:        h.DiceReplay,
+		ReadOnly:       true,
+		AuthRequired:   true,
+		SecretFiltered: true, // per-viewer blind filtering in the handler
 	})
 	reg.Register(Route{
 		Method:       http.MethodPost,
@@ -916,6 +934,32 @@ func writeDenied(w http.ResponseWriter, status int, msg string) {
 		"<h1>Not allowed</h1>\n<p>"+html.EscapeString(msg)+"</p>")
 }
 
+// redirectWithIdentity issues the write-path 303 back to a dashboard URL,
+// preserving the demo identity (?as=/preview_as=) when the demo tier holds
+// so session-backed POSTs from demo-identity URLs land back on the same
+// view. Identity is never authority: state-changing routes still require
+// the session CSRF check.
+func redirectWithIdentity(w http.ResponseWriter, r *http.Request, path string) {
+	target := path
+	if DemoAuth {
+		var q []string
+		if as := strings.TrimSpace(r.URL.Query().Get("as")); as != "" {
+			q = append(q, "as="+url.QueryEscape(as))
+		}
+		if p := strings.TrimSpace(r.URL.Query().Get("preview_as")); p != "" {
+			q = append(q, "preview_as="+url.QueryEscape(p))
+		}
+		if len(q) > 0 {
+			sep := "?"
+			if strings.Contains(path, "?") {
+				sep = "&"
+			}
+			target += sep + strings.Join(q, "&")
+		}
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
+}
+
 // conflictBanner renders the conflict notice: text-first (never color-only),
 // assertive live region, with a link into the manual-merge flow.
 func conflictBanner(parent, cpath string) string {
@@ -1513,9 +1557,17 @@ func (h *WriteHandlers) Upload(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "uploads are staged: pipeline library exists, handler/ACL/UI land together (see comment)", http.StatusNotImplemented)
 }
 
-// DiceRoll handles dice roll requests (Lane H2/P12 owns the engine).
+// DiceRoll handles dice roll requests: the implementation lives in dice.go
+// (H2 roller + transport over dice_logs; blind routing + replay re-auth per
+// I2). The F2 501 stub is retired deliberately (UI-1), never accidentally.
 func (h *WriteHandlers) DiceRoll(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "dice rolls are not implemented in this milestone", http.StatusNotImplemented)
+	h.diceRoll(w, r)
+}
+
+// DiceReplay serves GET /api/dice/replay (registered above on the frozen
+// RouteDiceReplay constant): stored-value replay with per-viewer re-auth.
+func (h *WriteHandlers) DiceReplay(w http.ResponseWriter, r *http.Request) {
+	h.diceReplay(w, r)
 }
 
 // WizardStep handles wizard steps (Lane I1/P07 owns onboarding).
@@ -1523,9 +1575,12 @@ func (h *WriteHandlers) WizardStep(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "the character wizard is not implemented in this milestone", http.StatusNotImplemented)
 }
 
-// EncounterAction handles encounter actions (Lane I2 owns run-mode).
+// EncounterAction handles encounter build→spawn + HP adjust: the
+// implementation lives in encounter.go (I2 builder semantics over Lane K's
+// vtt_* tables; GM-only). The F2 501 stub is retired deliberately (UI-2),
+// never accidentally.
 func (h *WriteHandlers) EncounterAction(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "encounters are not implemented in this milestone", http.StatusNotImplemented)
+	h.encounterAction(w, r)
 }
 
 // VTTStateUpdate handles VTT state updates (Lane K/P08 owns the table).

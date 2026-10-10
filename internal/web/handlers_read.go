@@ -547,6 +547,15 @@ func navEntries(ctx context.Context, st store.Store, viewer *auth.Viewer, active
 			Active: strings.EqualFold(p.Path, active),
 		})
 	}
+	// Deterministic sidebar order: index/store iteration order is not
+	// stable (map-backed fakes, concurrent scanners), and byte-identical
+	// uniform-404 bodies plus a non-reshuffling sidebar depend on it.
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Path == out[j].Path {
+			return out[i].Title < out[j].Title
+		}
+		return strings.ToLower(out[i].Path) < strings.ToLower(out[j].Path)
+	})
 	return out
 }
 
@@ -633,10 +642,17 @@ func (h *ReadHandlers) Version(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"version": Version})
 }
 
-// Index redirects to the campaign landing page (from campaign.yaml
-// landing-page, default "welcome").
+// Index redirects exactly "/" to the campaign landing page (from
+// campaign.yaml landing-page, default "welcome"). Every other path reaching
+// this handler (the registry's "/" pattern is the mux catch-all) gets a
+// uniform content-free 404 — unknown paths and retired routes must never
+// redirect to landing (that masked typos and dead features).
 func (h *ReadHandlers) Index(w http.ResponseWriter, r *http.Request) {
 	viewer := viewerFromRequest(r)
+	if r.URL.Path != "/" {
+		h.notFound(w, r, viewer)
+		return
+	}
 	landingPage := h.landingPage()
 	// Redirect to the landing page, preserving demo identity (?as=)
 	redirectPath := "/p/" + landingPage
@@ -1130,9 +1146,40 @@ func (h *ReadHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 		Campaign:  tmplCampaign,
 		Users:     users,
 		CSRFToken: h.csrfTokenForForm(r),
+		AsParam:   asParam(r, viewer),
+		Dice:      h.dashboardDice(r.Context(), viewer),
+		Encounter: h.dashboardEncounter(r),
 	}
 
 	h.renderShell(w, r, http.StatusOK, data, viewer, templates.DashboardBody(dashboardData))
+}
+
+// dashboardDice loads the recent dice log for the dashboard, newest last,
+// filtered server-side per viewer (blind totals GM-only, redacted otherwise).
+// A nil app DB (unwired fakes) yields an empty log, never an error.
+func (h *ReadHandlers) dashboardDice(ctx context.Context, viewer *auth.Viewer) []templates.DiceLogRow {
+	if h.Store == nil || h.Store.AppDB() == nil {
+		return nil
+	}
+	rows := filterDiceRows(recentDiceLog(ctx, h.Store.AppDB(), recentDiceLimit), viewer)
+	out := make([]templates.DiceLogRow, 0, len(rows))
+	// recentDiceLog returns newest-first; the dashboard renders oldest-first.
+	for i := len(rows) - 1; i >= 0; i-- {
+		row := rows[i]
+		out = append(out, templates.DiceLogRow{
+			RollID: row.RollID, Actor: row.Actor, Notation: row.Notation,
+			Total: row.Total, Blind: row.Blind,
+		})
+	}
+	return out
+}
+
+// dashboardEncounter builds the dashboard encounter section: the closed
+// compendium roster (HP resolved server-side), the map list, and the
+// selected map's live tokens. GM-only callers; tokens carry positions +
+// hidden flags because unauthorized viewers never reach this page.
+func (h *ReadHandlers) dashboardEncounter(r *http.Request) templates.EncounterData {
+	return buildEncounterData(r.Context(), h.Store, strings.TrimSpace(r.URL.Query().Get("map")))
 }
 
 // DashboardSave handles updating campaign settings.
