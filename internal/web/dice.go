@@ -21,7 +21,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"html"
 	"io"
 	"net/http"
 	"strconv"
@@ -349,22 +348,4 @@ func ptrValue(p *int64) int64 {
 		return 0
 	}
 	return *p
-}
-
-// renderDiceRowHTML renders one dashboard dice-log row: notation shape is
-// always shown; withheld totals render the placeholder as TEXT (never
-// color-only; redactions announced via the polite live region on the list).
-func renderDiceRowHTML(row diceRow) string {
-	var b strings.Builder
-	b.WriteString(`<li data-roll="` + html.EscapeString(row.RollID) + `">`)
-	b.WriteString(`<span>` + html.EscapeString(row.Actor) + `</span> `)
-	b.WriteString(`<span>` + html.EscapeString(row.Notation) + `</span> `)
-	if row.Total != nil {
-		b.WriteString(`<span>` + strconv.FormatInt(*row.Total, 10) + `</span>`)
-	} else {
-		b.WriteString(`<span>` + html.EscapeString(blindPlaceholder) + `</span>`)
-	}
-	b.WriteString(` <a href="/api/dice/replay?roll_id=` + html.EscapeString(row.RollID) + `">replay</a>`)
-	b.WriteString(`</li>` + "\n")
-	return b.String()
 }

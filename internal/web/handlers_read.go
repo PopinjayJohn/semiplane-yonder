@@ -547,6 +547,15 @@ func navEntries(ctx context.Context, st store.Store, viewer *auth.Viewer, active
 			Active: strings.EqualFold(p.Path, active),
 		})
 	}
+	// Deterministic sidebar order: index/store iteration order is not
+	// stable (map-backed fakes, concurrent scanners), and byte-identical
+	// uniform-404 bodies plus a non-reshuffling sidebar depend on it.
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Path == out[j].Path {
+			return out[i].Title < out[j].Title
+		}
+		return strings.ToLower(out[i].Path) < strings.ToLower(out[j].Path)
+	})
 	return out
 }
 
