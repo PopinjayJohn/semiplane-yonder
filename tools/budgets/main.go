@@ -82,6 +82,34 @@ func dirSize(root string) (int64, int, error) {
 	return total, count, err
 }
 
+// dirSizeExcept is dirSize with an exclusion predicate over full paths.
+func dirSizeExcept(root string, exclude func(path string) bool) (int64, int, error) {
+	var total int64
+	var count int
+	err := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			if p != root && len(info.Name()) > 0 && info.Name()[0] == '.' {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		name := info.Name()
+		if len(name) > 0 && name[0] == '.' {
+			return nil // dotfiles (.gitkeep, .obsidian) are not shipped weight
+		}
+		if exclude(p) {
+			return nil
+		}
+		total += info.Size()
+		count++
+		return nil
+	})
+	return total, count, err
+}
+
 func checkUploadCaps() {
 	if uploads.MaxImageBytes != 5*1024*1024 {
 		fail("upload-image-cap", fmt.Sprintf("MaxImageBytes=%d, want 5MB", uploads.MaxImageBytes))
@@ -125,7 +153,13 @@ func checkStaticWeight(root string) {
 }
 
 func checkTemplates(root string) {
-	total, count, err := dirSize(filepath.Join(root, "web/templates"))
+	total, count, err := dirSizeExcept(filepath.Join(root, "web/templates"), func(p string) bool {
+		// Generated Go code (templ codegen) is never served over the wire:
+		// the spec §8 budget constrains rendered HTML/CSS, so the proxy
+		// measures hand-authored sources only. (Without this, feature work
+		// trips the gate on codegen boilerplate instead of page weight.)
+		return strings.HasSuffix(p, "_templ.go")
+	})
 	if err != nil || count == 0 {
 		skip("rendered-page", "no templates yet (F1); per-page <100KB enforced when pages exist")
 		return
