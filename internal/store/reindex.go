@@ -114,6 +114,14 @@ func Rescan(ctx context.Context, db *sql.DB, vaultRoot string, p Parser) (Rescan
 	if err != nil {
 		return st, err
 	}
+	// W1 backfill: incremental rescans leave mixed-shape links rows behind
+	// (raw `cinder-pact` next to normalized `cinder-pact.md`) because
+	// unchanged files skip indexOne via the mtime fast path. Rewrite every
+	// stale target through NormalizeLinkTarget BEFORE the purge sweep below
+	// so target-side purges (`links.target = ?` with page paths) match.
+	if err := backfillLinkTargets(ctx, db); err != nil {
+		return st, err
+	}
 	// Purge rows for files that vanished from the vault.
 	rows, err := db.QueryContext(ctx, `SELECT path FROM vault_files`)
 	if err != nil {
@@ -154,6 +162,61 @@ func Rescan(ctx context.Context, db *sql.DB, vaultRoot string, p Parser) (Rescan
 		return st, err
 	}
 	return st, nil
+}
+
+// backfillLinkTargets rewrites mixed-shape links rows to the normalized
+// form (see NormalizeLinkTarget): raw `cinder-pact` → `cinder-pact.md`,
+// `B#frag` → `B.md`, blank/fragment-only targets deleted. Rows already in
+// the normalized shape are untouched, so the pass is idempotent and a
+// no-op on fresh Reindex builds. Collisions from spelling variants
+// (`[[b]]` + `[[b.md]]`) collapse via INSERT OR IGNORE under the
+// (source,target) primary key. Dangling targets (deleted pages, assets)
+// are kept — only their spelling is normalized; readers still fail closed
+// on unresolvable targets, and the purge sweep drops rows for vanished
+// sources either way.
+func backfillLinkTargets(ctx context.Context, db *sql.DB) error {
+	rows, err := db.QueryContext(ctx, `SELECT source, target FROM links`)
+	if err != nil {
+		return err
+	}
+	type edge struct{ source, target string }
+	var stale []edge
+	for rows.Next() {
+		var e edge
+		if err := rows.Scan(&e.source, &e.target); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if NormalizeLinkTarget(e.target) != e.target {
+			stale = append(stale, e)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	_ = rows.Close()
+	if len(stale) == 0 {
+		return nil
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, e := range stale {
+		norm := NormalizeLinkTarget(e.target)
+		if _, err := tx.ExecContext(ctx, `DELETE FROM links WHERE source = ? AND target = ?`, e.source, e.target); err != nil {
+			return err
+		}
+		if norm == "" {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO links(source,target) VALUES(?,?)`, e.source, norm); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // walkVault yields vault-relative posix paths for all regular files under
@@ -295,8 +358,17 @@ func writePageTx(ctx context.Context, db *sql.DB, rel, content, hash string, mti
 	if _, err := tx.ExecContext(ctx, `DELETE FROM links WHERE source = ?`, rel); err != nil {
 		return err
 	}
+	// W1: store NORMALIZED targets (`[[cinder-pact]]` → `cinder-pact.md`)
+	// so graph/backlink readers match page paths directly. Blank and
+	// fragment-only targets normalize to "" and carry no edge (fail
+	// closed); INSERT OR IGNORE collapses alias/fragment/extension
+	// spelling variants of one target to a single row.
 	for _, tgt := range parsed.Links {
-		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO links(source,target) VALUES(?,?)`, rel, tgt); err != nil {
+		norm := NormalizeLinkTarget(tgt)
+		if norm == "" {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO links(source,target) VALUES(?,?)`, rel, norm); err != nil {
 			return err
 		}
 	}

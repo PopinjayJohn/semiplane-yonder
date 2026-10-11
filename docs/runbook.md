@@ -132,6 +132,15 @@ zip (.zip)" (`GET /dashboard/vault.zip`, GM-only + logged, same
   max-age=3600`, `X-Content-Type-Options: nosniff`, sandboxed CSP; SVG
   serves as `text/plain` (never sniffed as image).
 - Print stylesheet (`/static/print.css`): `public, max-age=86400`.
+- Sheet core stylesheet (`/static/core/sheet.css`): `public,
+  max-age=86400`, `X-Content-Type-Options: nosniff`. Same file the sheet
+  pages inline as fallback — identical bytes either way.
+- Vendored JS (`/static/vendor/…`, pinned by `web/static/vendor/VERSIONS`,
+  `yonder vendor verify`): `public, max-age=31536000, immutable`,
+  `X-Content-Type-Options: nosniff`.
+- All three mounts serve embedded public files only — vault bytes never
+  appear here (vault assets stay on the ACL-checked `/assets` handler);
+  directory roots and traversal escapes 404.
 - SSE, `/healthz`, `/version`: `no-store`.
 - No service worker in v1; the server stays offline-first regardless.
 

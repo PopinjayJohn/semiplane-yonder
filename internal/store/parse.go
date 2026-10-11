@@ -37,7 +37,7 @@ type ParsedPage struct {
 	EditableBy      []string
 	Tags            []string
 	Chunks          []ParsedBlock // body chunks in source order
-	Links           []string      // wikilink targets (raw)
+	Links           []string      // wikilink targets as parsed (raw); normalized at write via NormalizeLinkTarget (writePageTx + Rescan backfill)
 	Optionals       []ParsedOptional
 }
 
