@@ -102,3 +102,12 @@
 ## W3 additions (static core/vendor serving)
 - `ownedByRegistry` + the registry `/` catch-all silently swallows every ops path (even `/static/print.css` 404'd live) → carve public static out *before* the registry check (`isPublicStatic`); keep unknown paths flowing to the styled 404 (W3).
 - Shared-tree branch hazard: a sibling `checkout` moved HEAD mid-task and a commit landed on the wrong branch (W3's commit shipped inside PR #25) → recovered via `git branch -f <branch> <sha>` (no worktree touch), fast-forward push, then `reset` + revert only own paths; prefer isolated worktrees for parallel agents (W3).
+
+## Statblock additions (S1/S2: statblock-first UI)
+- The YAML subset has no `[[...]]` scalar form: an unquoted `image: [[pic.png|Alt]]` arrives as nested one-element flow lists (`[]any{[]any{"pic.png|Alt"}}`), not a string → unwrap single-item lists recursively, then split a bare `|` for the alias; quoted values keep their brackets for the normal bracket parse.
+- Unquoted `+2` is the integer `2` by the time statblock code sees it (correct YAML, wrong D&D display: "DEX 2") → re-sign numeric save/skill mods at render (`sbSigned`); desc strings are untouched.
+
+## Admonition additions (S3: callout/admonition polish)
+- The secret scrub matches the outer `<div class="callout callout-secret">` + `data-fold="expand|collapse"` vocabulary only: fold UI (`<details>/<summary>`) must nest INSIDE that div, never replace it — a `<details>`-as-outer refactor silently disables scrubbing (verified with a throwaway `secrets.Filter` test, then removed to stay in-package).
+- Stripping the callout title from the first paragraph must pre-scan before mutating segments: a structured inline (wikilink) inside the title span aborts the strip (`TitleInBody`), otherwise the link edge is destroyed and FTS/graph lose it.
+- `ad-` bodies indexed via sub-`Parse` must OR the enclosing secret flag into merged links/embeds and exclude inner-hidden text from open chunks (emitted as a separate secret block instead) — merging raw sub-block contents under `Secret=false` leaks hidden text into FTS snippets.

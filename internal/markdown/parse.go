@@ -86,7 +86,7 @@ func Parse(ctx context.Context, content string, pagePath string) (*Page, error) 
 	}
 	page.HTML = htmlBuf.String()
 
-	extract(doc, bodyBytes, prefixLen, content, page)
+	extract(doc, bodyBytes, prefixLen, content, page, ctx)
 
 	// `<!-- optional:id=... -->` structural markers (kept invisible in
 	// HTML; they are index metadata for the optionals table).
@@ -168,6 +168,7 @@ func titleFromPath(p string) string {
 
 // extractor walks the rendered AST and fills index-facing page fields.
 type extractor struct {
+	ctx       context.Context
 	source    []byte // body bytes
 	full      string // full content (for absolute positions)
 	prefixLen int
@@ -178,8 +179,9 @@ type extractor struct {
 	secrets   int // depth inside secret (`-`/default) callouts
 }
 
-func extract(doc *ast.Document, body []byte, prefixLen int, full string, page *Page) {
+func extract(doc *ast.Document, body []byte, prefixLen int, full string, page *Page, ctx context.Context) {
 	ex := &extractor{
+		ctx:    ctx,
 		source: body, full: full, prefixLen: prefixLen,
 		page: page, anchors: map[string]int{}, seenTags: map[string]bool{},
 	}
@@ -206,6 +208,23 @@ func extract(doc *ast.Document, body []byte, prefixLen int, full string, page *P
 					Secret:   ex.secrets > 0,
 					Position: ex.pos(t.Offset),
 				})
+			}
+			return ast.WalkSkipChildren, nil
+		case *StatblockNode:
+			// One `statblock` block per fence; the secret flag follows
+			// the enclosing secret-callout depth (same as every block).
+			// Emitted even inside callouts: inlineText cannot see fence
+			// bodies, so without this the text would never reach FTS.
+			if entering {
+				ex.emitStatblock(t)
+			}
+			return ast.WalkSkipChildren, nil
+		case *AdmonitionNode:
+			// One `callout` block per `ad-` fence; the secret flag
+			// follows the enclosing secret-callout depth, so FTS +
+			// secrets behave like native callouts.
+			if entering {
+				ex.emitAdmonition(t)
 			}
 			return ast.WalkSkipChildren, nil
 		}
@@ -357,8 +376,42 @@ func (ex *extractor) codeText(n ast.Node) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
+func (ex *extractor) emitStatblock(t *StatblockNode) {
+	ex.page.Blocks = append(ex.page.Blocks, Block{
+		Type: "statblock", Content: t.IndexText(),
+		Secret:   ex.secrets > 0,
+		Position: ex.pos(t.Offset),
+	})
+	// Desc wikilinks reuse the existing link path (graph + read-path
+	// secret-target redaction); the image rides the embed path.
+	for _, lt := range statblockBracketLinks(t.IndexText()) {
+		ex.page.Links = append(ex.page.Links, Link{
+			Target: lt[0], Alias: lt[1],
+			Secret:   ex.secrets > 0,
+			Position: ex.pos(t.Offset),
+		})
+	}
+	if img := strings.TrimSpace(t.Data.Image); img != "" {
+		ex.page.Embeds = append(ex.page.Embeds, Embed{
+			Target: img, Alt: strings.TrimSpace(t.Data.ImageAlt),
+			Secret:   ex.secrets > 0,
+			Position: ex.pos(t.Offset),
+		})
+	}
+}
+
 func (ex *extractor) emitCallout(t *CalloutNode) {
 	inner := inlineText(t, ex.source)
+	// Stripped plain titles left the body for the title row; keep them in
+	// the index text so title search recall is unchanged. Structured titles
+	// stayed in the body (TitleInBody) and need no prefix.
+	if strings.TrimSpace(t.Title) != "" && !t.TitleInBody {
+		if inner == "" {
+			inner = strings.TrimSpace(t.Title)
+		} else {
+			inner = strings.TrimSpace(t.Title) + "\n" + inner
+		}
+	}
 	block := Block{
 		Content:  inner,
 		Secret:   ex.secrets > 0,
@@ -378,6 +431,137 @@ func (ex *extractor) emitCallout(t *CalloutNode) {
 		block.Type = "callout"
 	}
 	ex.page.Blocks = append(ex.page.Blocks, block)
+}
+
+// emitAdmonition indexes one `ad-` fence as a `callout` block (the same
+// type native non-secret/non-optional callouts emit, so FTS, preview, and
+// the index treat them alike). The secret flag follows the enclosing
+// secret-callout depth. Body + title are sub-parsed so their text feeds the
+// block and their links/embeds/tags/TOC join the page under the same flag
+// (positions approximate to the fence: same convention as statblock).
+// Sub-parse failures fall back to the raw strings — never a crash, and the
+// fence body is always searchable.
+//
+// Indexing contract (fail closed): every render-visible string is indexed
+// exactly once under the enclosing flag; inner-hidden (`-`/default secret)
+// text is excluded from an open chunk and instead appended as its own
+// secret block — the native shape for inner callout blocks, so GM search,
+// FilterBlocks withholding, and preview all behave alike.
+func (ex *extractor) emitAdmonition(t *AdmonitionNode) {
+	secret := ex.secrets > 0
+	pos := ex.pos(t.Offset)
+	ctx := ex.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var parts []string
+	if title := strings.TrimSpace(t.Title); title != "" {
+		if sub, err := Parse(ctx, title, ex.page.Path); err == nil && sub != nil {
+			added := false
+			for _, b := range sub.Blocks {
+				if strings.TrimSpace(b.Content) != "" {
+					parts = append(parts, b.Content)
+					added = true
+				}
+			}
+			if !added {
+				parts = append(parts, title)
+			}
+			ex.mergeSubPage(sub, secret, pos)
+		} else {
+			parts = append(parts, title)
+		}
+	}
+	if strings.TrimSpace(t.Body) != "" {
+		if sub, err := Parse(ctx, t.Body, ex.page.Path); err == nil && sub != nil {
+			for _, b := range sub.Blocks {
+				if b.Secret && !secret {
+					nb := b
+					nb.Secret = true
+					nb.Position = pos
+					ex.page.Blocks = append(ex.page.Blocks, nb)
+					continue
+				}
+				if strings.TrimSpace(b.Content) != "" {
+					parts = append(parts, b.Content)
+				}
+			}
+			// Tight lists carry text in TextBlocks, which emit no blocks
+			// (same gap as top-level native); collect them from safe
+			// regions so list-heavy ad- bodies stay searchable.
+			if doc, ok := sub.AST.(*ast.Document); ok && doc != nil {
+				parts = append(parts, tightListTexts(doc, []byte(t.Body), secret)...)
+			}
+			ex.mergeSubPage(sub, secret, pos)
+		} else {
+			parts = append(parts, t.Body)
+		}
+	}
+	ex.page.Blocks = append(ex.page.Blocks, Block{
+		Type: "callout", Content: strings.Join(parts, "\n"),
+		Secret:   secret,
+		Position: pos,
+	})
+}
+
+// tightListTexts returns the plain text of top-level tight lists in a
+// sub-parsed admonition body, skipping lists inside inner-hidden secret
+// callouts unless the enclosing chunk is itself secret (same audience).
+func tightListTexts(doc *ast.Document, body []byte, enclosingSecret bool) []string {
+	var out []string
+	depth := 0
+	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if cn, ok := n.(*CalloutNode); ok {
+			if cn.CalloutType == "secret" && cn.Fold != "+" {
+				if entering {
+					depth++
+				} else {
+					depth--
+				}
+			}
+			return ast.WalkContinue, nil
+		}
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		if lst, ok := n.(*ast.List); ok && lst.IsTight {
+			if enclosingSecret || depth == 0 {
+				if s := strings.TrimSpace(inlineText(lst, body)); s != "" {
+					out = append(out, s)
+				}
+			}
+			return ast.WalkSkipChildren, nil
+		}
+		return ast.WalkContinue, nil
+	})
+	return out
+}
+
+// mergeSubPage folds a sub-parsed admonition body/title into the enclosing
+// page: links/embeds/tags/TOC join with the enclosing secret flag OR-ed in
+// (a secret link inside an open ad- block stays secret-flagged for the
+// graph + read-path redaction) and positions collapse to the fence.
+func (ex *extractor) mergeSubPage(sub *Page, secret bool, pos Position) {
+	for _, l := range sub.Links {
+		l.Secret = l.Secret || secret
+		l.Position = pos
+		ex.page.Links = append(ex.page.Links, l)
+	}
+	for _, e := range sub.Embeds {
+		e.Secret = e.Secret || secret
+		e.Position = pos
+		ex.page.Embeds = append(ex.page.Embeds, e)
+	}
+	for _, te := range sub.TOC {
+		te.Secret = te.Secret || secret
+		ex.page.TOC = append(ex.page.TOC, te)
+	}
+	for _, tag := range sub.Tags {
+		if !ex.seenTags[tag] {
+			ex.seenTags[tag] = true
+			ex.page.Tags = append(ex.page.Tags, tag)
+		}
+	}
 }
 
 // inlineText renders a subtree to plain display text (custom inline nodes

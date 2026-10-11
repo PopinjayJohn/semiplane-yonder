@@ -1,0 +1,38 @@
+<p>A malformed body renders the labeled fallback box:</p>
+<section class="statblock statblock-error" aria-label="Statblock (unparseable)">
+<p class="statblock-note"><strong>Statblock could not be parsed.</strong> Showing the source as text; the vault file is unchanged.</p>
+<pre>name: Broken
+stats: [unclosed</pre>
+</section>
+<p>An empty body is a valid empty box:</p>
+<section class="statblock" aria-label="Statblock: Unnamed creature">
+<h2 class="statblock-name">Unnamed creature</h2>
+</section>
+<p>A statblock inside a secret callout keeps its secret flag:</p>
+<div class="callout callout-secret" data-callout="secret" data-fold="collapse">
+<details>
+<summary class="callout-title"><svg class="callout-icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.2" y="7" width="9.6" height="6.2" rx="1"/><path d="M5.5 7V5.4a2.5 2.5 0 0 1 5 0V7"/></svg><span class="callout-title-text">Secret</span></summary>
+<div class="callout-body">
+<section class="statblock" aria-label="Statblock: Hidden Horror">
+<h2 class="statblock-name">Hidden Horror</h2>
+<p><strong>Armor Class</strong> 12</p>
+<h3 class="statblock-group">Actions</h3>
+<p class="statblock-entry"><strong>Whisper.</strong> It knows <a class="wikilink" data-target="cinder-pact" href="cinder-pact">the pact</a>.</p>
+</section>
+</div>
+</details>
+</div>
+<p>Layout echoes as data-layout, monster is a note only, short stats drop the table:</p>
+<section class="statblock" aria-label="Statblock: Ooze" data-layout="wide-frame">
+<h2 class="statblock-name">Ooze</h2>
+<p class="statblock-note">Extends/overrides bestiary entry &quot;Black Pudding&quot; (bestiary lookup is not resolved in v1).</p>
+<p><strong>Armor Class</strong> 7</p>
+<p><strong>Damage Resistances</strong> acid, cold</p>
+<p><strong>Condition Immunities</strong> blinded, charmed</p>
+<h3 class="statblock-group">Bonus Actions</h3>
+<p class="statblock-entry">Pseudopod feint</p>
+<h3 class="statblock-group">Reactions</h3>
+<p class="statblock-entry"><strong>Split.</strong> When subjected to lightning or slashing damage, it splits.</p>
+<h3 class="statblock-group">Legendary Actions</h3>
+<p class="statblock-entry"><strong>Engulf.</strong> It engulfs a creature in its space.</p>
+</section>

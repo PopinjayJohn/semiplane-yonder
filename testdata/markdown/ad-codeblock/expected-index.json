@@ -1,0 +1,114 @@
+{
+  "path": "ad-codeblock.md",
+  "title": "Field Guide",
+  "secret": false,
+  "frontmatter": {},
+  "links": [
+    {
+      "Target": "Dungeon#Entrance",
+      "Alias": "the entrance",
+      "Secret": false,
+      "Position": {
+        "Line": 6,
+        "Column": 1,
+        "Offset": 61
+      }
+    }
+  ],
+  "embeds": [],
+  "toc": [
+    {
+      "Level": 1,
+      "Title": "Field Guide",
+      "Anchor": "field-guide",
+      "Secret": false
+    }
+  ],
+  "blocks": [
+    {
+      "Type": "heading",
+      "Content": "Field Guide",
+      "Level": 1,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 1,
+        "Column": 3,
+        "Offset": 2
+      }
+    },
+    {
+      "Type": "paragraph",
+      "Content": "A tip with full admonition params:",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 3,
+        "Column": 1,
+        "Offset": 15
+      }
+    },
+    {
+      "Type": "callout",
+      "Content": "Pack light\nBring rope and chalk. See the entrance.",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 6,
+        "Column": 1,
+        "Offset": 61
+      }
+    },
+    {
+      "Type": "paragraph",
+      "Content": "An unknown type falls back to a labeled box:",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 15,
+        "Column": 1,
+        "Offset": 214
+      }
+    },
+    {
+      "Type": "callout",
+      "Content": "Nothing fancy here.",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 18,
+        "Column": 1,
+        "Offset": 277
+      }
+    },
+    {
+      "Type": "paragraph",
+      "Content": "A folded note without a title row:",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 21,
+        "Column": 1,
+        "Offset": 302
+      }
+    },
+    {
+      "Type": "callout",
+      "Content": "The fine print.",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 24,
+        "Column": 1,
+        "Offset": 349
+      }
+    }
+  ],
+  "quarantined": false
+}

@@ -133,7 +133,7 @@
     },
     {
       "Type": "callout",
-      "Content": "Nested outerNested inner callout\nwith a title link nearby.",
+      "Content": "Nested outer\nwith a title link nearby.",
       "Level": 0,
       "Secret": false,
       "Children": null,

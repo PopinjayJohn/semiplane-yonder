@@ -22,6 +22,7 @@ import (
 
 var w3StaticPairs = []struct{ src, embedded string }{
 	{"web/static/core/sheet.css", "static/core/sheet.css"},
+	{"web/static/core/statblock.css", "static/core/statblock.css"},
 	{"web/static/vendor/codemirror.js", "static/vendor/codemirror.js"},
 	{"web/static/vendor/datastar.js", "static/vendor/datastar.js"},
 }
