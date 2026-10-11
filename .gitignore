@@ -38,6 +38,12 @@ opencode.jsonc
 .opencode/
 .openchamber/
 
+# Demo vault's default sibling data dir (serve/make dev create it; the
+# vault gitignore covers a real vault, this covers fixtures/demo-data).
+# Holds accounts, .sessionkey and app DB — never commit any of it.
+/fixtures/demo-data/
+fixtures/*-data/
+
 # Editor/IDE
 # .idea/
 # .vscode/

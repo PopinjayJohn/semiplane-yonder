@@ -67,6 +67,39 @@ Open `http://localhost:8080/healthz` (version JSON, nothing else), then
   proxy, and only then behind a trusted-proxy config).
 - **Shutdown** is graceful: SSE connections drain before exit.
 
+## 3b. Demo vault login accounts (dev only)
+
+`fixtures/demo` ships **no** accounts — the demo vault is hand-authored, so
+`init` never ran against it and there is nothing to log in with. Whether this
+matters depends on the identity tier:
+
+| Tier | Needs seeding | Who |
+|---|---|---|
+| `?as=gm` / `?as=mira` / `?as=bram` / `?as=cass` (`serve --demo-auth`, default true) | No — resolved from the vault per request | dev/smoke/axe |
+| Real password login at `/login` | **Yes** — `make demo-seed` | demos where you hand out a URL and want a login prompt |
+
+```sh
+make demo-seed                                 # accounts into fixtures/demo-data
+make demo-seed DATA_DIR=/path/to/demo-data     # ... or an explicit data dir
+go run ./tools/demo-seed --data-dir <dir>      # tool directly
+```
+
+Seeds `gm` / `mira` / `bram` / `cass` (GM first, then the players who own the
+`characters/<pc>/` trees the demo vault ships). Idempotent: accounts that
+already exist are reported and left untouched, so re-running is also how you
+confirm a data dir is intact. It hashes through the product's own
+`auth.CreateUser` (argon2id, the same validation `init` and the GM dashboard
+use) and runs the app migrations first, so it works on a brand-new data dir.
+
+**The demo data dir is disposable** — wiping it drops the accounts (and every
+session, VTT live state, and dice log). Re-run `make demo-seed` to restore
+them. That is the whole point of the target: a reset should never cost more
+than one command.
+
+> The `demo-seed` target writes to the default sibling data dir
+> (`fixtures/demo-data/`), which the repo's `.gitignore` excludes — never
+> commit accounts, `.sessionkey`, or `*.db` from it.
+
 ## 4. Day-to-day ops
 
 | Task | Command |
