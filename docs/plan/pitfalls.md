@@ -93,6 +93,9 @@
 ## W1 additions (graph link-target normalization)
 - Index-shape changeovers need the backfill BEFORE the purge sweep in the same Rescan: target-side purges (`links.target = ?` with page paths) miss legacy raw rows on the first post-changeover run, leaving dangling edges behind → order Rescan as walk → backfill → purge so one pass converges (W1, pinned by `TestRescanBackfillsRawLinkTargets`).
 
+## Engine pack-pin additions
+- Overlay switches must move the version/hash pins with the overlay id: a `campaign.yaml` pinning `overlay-version: "2024"` fails closed (`ErrPinMismatch`) after a bare `5e-2024`→`5e-2014` id swap — update `overlay-version`/`overlay-hash` in the same edit (pinned by `TestGateM2OverlaySwitchLive`).
+
 ## W2 additions (preview-write rule)
 - Under `DemoAuth=true`, `applySessionPreview` early-returns for session viewers, so `?preview_as=` on a request is inert in default-tier tests → pin write-path preview tests by injecting `PreviewAs` directly on the context viewer (`withViewer`), never via query param (W2).
 

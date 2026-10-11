@@ -50,7 +50,8 @@ later).
 
 Engine: full expression language for the ruleset evaluator (graduating from
 the v1 hand-rolled arithmetic/boolean core); pack version enforcement
-(manifest hashes, pin mismatch fail-closed, drift warnings — v1 is
-display-only); media upgrades (EXIF-orientation auto-rotate, webp
+V1 SHIPPED (inline `base-hash`/`overlay-hash` pins, descriptor-only sha256,
+pin mismatch fail-closed via `ErrPinMismatch`, empty pins float, homebrew
+audit-only; content-prose hash deferred); media upgrades (EXIF-orientation auto-rotate, webp
 decode/resize, PDF page-count — each needs a maintained dep, propose first
 per AGENTS.md).

@@ -174,3 +174,20 @@ func TestExponentLikeIDsStayStrings(t *testing.T) {
 		t.Fatalf("zero literal: %q", zero.BaseVersion)
 	}
 }
+
+func TestParseHashes(t *testing.T) {
+	h := strings.Repeat("a", 64)
+	c, err := Parse([]byte("name: x\nbase: dnd\nbase-hash: \"" + h + "\"\noverlay-hash: \"" + strings.ToUpper(h) + "\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.BaseHash != h || c.OverlayHash != strings.ToUpper(h) {
+		t.Fatalf("hashes: %+v", c)
+	}
+	if err := Validate(c); err != nil {
+		t.Fatalf("valid hashes rejected: %v", err)
+	}
+	if err := Validate(&Campaign{Name: "x", BaseHash: "nope"}); err == nil {
+		t.Fatal("bad hash must fail validation")
+	}
+}

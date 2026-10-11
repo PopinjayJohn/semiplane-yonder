@@ -5,7 +5,7 @@ name: Ashfall Demo
 created: "2026-10-08T17:18:58Z"
 
 # Ruleset layers (P05) — dnd base + 5e-2024 overlay from rules/ below.
-# Versions are display-only in v1: recorded, never enforced.
+# Pinned versions/hashes are enforced (mismatch fails closed); empty pins float.
 base: dnd
 base-version: "5.2"
 overlay: 5e-2024

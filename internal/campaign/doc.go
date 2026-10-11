@@ -5,10 +5,13 @@
 // evaluator, intent execution, and expression-function validation).
 //
 // Contracts (frozen): campaign.yaml keys are append-only after Phase 1. The
-// frozen set is name, created, base, base-version, overlay, overlay-version,
-// enabled-features[], enabled-plugins[] (ruleset optionals and feature
-// plugins live in separate namespaces per P04/P06). Versions are recorded,
-// never enforced: the resolver surfaces them but never gates on them.
+// frozen set is name, created, base, base-version, base-hash, overlay,
+// overlay-version, overlay-hash, enabled-features[], enabled-plugins[]
+// (ruleset optionals and feature plugins live in separate namespaces per
+// P04/P06). Version/hash pins are enforced when set (mismatch fails
+// closed); empty pins float for legacy vaults. Descriptor-only hashes:
+// content-prose drift is warn-only, revisit if compendium becomes
+// executable.
 //
 // Red lines: no evaluator code here (H2's engine executes pack rules), no
 // system content beyond the Fighter/Goblin/1-spell timebox, stdlib only

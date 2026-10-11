@@ -105,18 +105,32 @@ func TestOverlaySwitchNoRebuild(t *testing.T) {
 	}
 }
 
-func TestVersionsRecordedNeverEnforced(t *testing.T) {
+func TestVersionsFloatingWhenUnpinned(t *testing.T) {
 	root := writeVault(t, map[string]string{
-		"campaign.yaml": "name: x\nbase: dnd\nbase-version: \"9.9\"\noverlay: 5e-2024\noverlay-version: \"9.9\"\n",
+		"campaign.yaml": "name: x\nbase: dnd\noverlay: 5e-2024\n",
 	})
 	writePack(t, root, "rules/base/dnd", basePack)
 	writePack(t, root, "rules/overlay/5e-2024", withID(overlayPack, "5e-2024"))
 	st, err := Resolve(root)
 	if err != nil {
-		t.Fatalf("version skew must not fail resolution: %v", err)
+		t.Fatalf("unpinned skew must resolve: %v", err)
 	}
 	if st.Base.Version != "5.2" || st.Overlay.Version != "1.0" {
 		t.Fatalf("pack versions not surfaced: %+v %+v", st.Base, st.Overlay)
+	}
+	if st.Base.Hash == "" || st.Overlay.Hash == "" {
+		t.Fatalf("pack hashes not surfaced: %+v %+v", st.Base, st.Overlay)
+	}
+}
+
+func TestVersionsEnforcedWhenPinned(t *testing.T) {
+	root := writeVault(t, map[string]string{
+		"campaign.yaml": "name: x\nbase: dnd\nbase-version: \"9.9\"\noverlay: 5e-2024\noverlay-version: \"9.9\"\n",
+	})
+	writePack(t, root, "rules/base/dnd", basePack)
+	writePack(t, root, "rules/overlay/5e-2024", withID(overlayPack, "5e-2024"))
+	if _, err := Resolve(root); !errors.Is(err, ErrPinMismatch) {
+		t.Fatalf("version skew with pins must fail closed, got %v", err)
 	}
 }
 
@@ -277,5 +291,54 @@ func TestHomebrewShadowDeterministic(t *testing.T) {
 	}
 	if len(st.Homebrew) != 1 || st.Homebrew[0].Dir != "homebrew/grit" {
 		t.Fatalf("shadow: %+v", st.Homebrew)
+	}
+}
+
+func TestHashEnforcedWhenPinned(t *testing.T) {
+	root := writeVault(t, map[string]string{"campaign.yaml": "name: x\nbase: dnd\n"})
+	writePack(t, root, "rules/base/dnd", basePack)
+	h, err := HashPackDescriptor(root, "rules/base/dnd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(h) != 64 {
+		t.Fatalf("hash length: %q", h)
+	}
+	// Matching pin resolves.
+	ok := writeVault(t, map[string]string{"campaign.yaml": "name: x\nbase: dnd\nbase-version: \"5.2\"\nbase-hash: \"" + h + "\"\n"})
+	writePack(t, ok, "rules/base/dnd", basePack)
+	if _, err := Resolve(ok); err != nil {
+		t.Fatalf("matching pins must resolve: %v", err)
+	}
+	// Wrong hash fails closed.
+	bad := writeVault(t, map[string]string{"campaign.yaml": "name: x\nbase: dnd\nbase-hash: \"" + strings.Repeat("0", 64) + "\"\n"})
+	writePack(t, bad, "rules/base/dnd", basePack)
+	if _, err := Resolve(bad); !errors.Is(err, ErrPinMismatch) {
+		t.Fatalf("hash skew must fail closed, got %v", err)
+	}
+	// Edited descriptor fails against the old pin.
+	drift := writeVault(t, map[string]string{"campaign.yaml": "name: x\nbase: dnd\nbase-hash: \"" + h + "\"\n"})
+	writePack(t, drift, "rules/base/dnd", basePack+"\n# drift\n")
+	if _, err := Resolve(drift); !errors.Is(err, ErrPinMismatch) {
+		t.Fatalf("descriptor drift must fail closed, got %v", err)
+	}
+}
+
+func TestHashCRLFStable(t *testing.T) {
+	if HashDescriptor([]byte("id: dnd\r\n")) != HashDescriptor([]byte("id: dnd\n")) {
+		t.Fatal("CRLF and LF must hash identically")
+	}
+}
+
+func TestHomebrewDriftNeverGates(t *testing.T) {
+	// Homebrew is audit-only: version/hash skew never fails Resolve.
+	root := writeVault(t, map[string]string{"campaign.yaml": "name: x\n"})
+	writePack(t, root, "rules/homebrew/grit", "id: grit\nname: Grit\ntype: homebrew\nversion: \"0.1\"\nparent: dnd\n")
+	st, err := Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Homebrew) != 1 || st.Homebrew[0].Hash == "" {
+		t.Fatalf("homebrew hash not surfaced: %+v", st.Homebrew)
 	}
 }

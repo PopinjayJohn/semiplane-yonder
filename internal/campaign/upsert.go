@@ -34,8 +34,10 @@ func Upsert(existing string, c *Campaign) string {
 		"created":         quoteScalar(c.Created),
 		"base":            quoteScalar(c.Base),
 		"base-version":    quoteScalar(c.BaseVersion),
+		"base-hash":       quoteScalar(c.BaseHash),
 		"overlay":         quoteScalar(c.Overlay),
 		"overlay-version": quoteScalar(c.OverlayVersion),
+		"overlay-hash":    quoteScalar(c.OverlayHash),
 		"landing-page":    quoteScalar(c.LandingPage),
 	}
 	// Empty optionals drop their lines so scaffolds stay minimal.
@@ -174,7 +176,7 @@ func Upsert(existing string, c *Campaign) string {
 		flushList(inList)
 	}
 	// Missing keys append in canonical order (deterministic fresh files).
-	for _, k := range []string{"name", "created", "base", "base-version", "overlay", "overlay-version", "landing-page"} {
+	for _, k := range []string{"name", "created", "base", "base-version", "base-hash", "overlay", "overlay-version", "overlay-hash", "landing-page"} {
 		if !skip[k] && !done[k] {
 			out = append(out, k+": "+vals[k]+newEOL)
 		}
@@ -201,6 +203,14 @@ func Validate(c *Campaign) error {
 	if c.Overlay != "" && c.Base == "" {
 		return fmt.Errorf("overlay requires a base ruleset")
 	}
+	for _, h := range []string{c.BaseHash, c.OverlayHash} {
+		if h == "" {
+			continue
+		}
+		if len(h) != 64 || !isHex(h) {
+			return fmt.Errorf("bad pack hash %q: want 64 hex chars", h)
+		}
+	}
 	seen := map[string]bool{}
 	for _, f := range c.EnabledFeatures {
 		if !campaignIDRe.MatchString(f) {
@@ -224,6 +234,17 @@ func Validate(c *Campaign) error {
 }
 
 var campaignIDRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+
+func isHex(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F' {
+			continue
+		}
+		return false
+	}
+	return true
+}
 
 // listItemPad finds the indent prefix of the first `- ` item under key in
 // the existing content ("" when the key is absent or flow-styled), so

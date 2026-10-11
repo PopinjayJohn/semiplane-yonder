@@ -17,8 +17,10 @@ var campaignKeys = []string{
 	"created",
 	"base",
 	"base-version",
+	"base-hash",
 	"overlay",
 	"overlay-version",
+	"overlay-hash",
 	"enabled-features",
 	"enabled-plugins",
 	"landing-page",
@@ -28,14 +30,19 @@ var campaignKeys = []string{
 var ErrNoCampaign = errors.New("campaign.yaml not found")
 
 // Campaign is the validated vault campaign descriptor. Versions are
-// display-only in v1: recorded here, never enforced by the resolver.
+// enforced when pinned: a set base-version/overlay-version must equal the
+// resolved pack's descriptor version, and a set base-hash/overlay-hash must
+// equal the descriptor hash (sha256 of pack.yaml, CRLF-normalized). Empty
+// pins float (legacy vaults resolve any version with no gate).
 type Campaign struct {
 	Name            string
 	Created         string
 	Base            string
 	BaseVersion     string
+	BaseHash        string
 	Overlay         string
 	OverlayVersion  string
+	OverlayHash     string
 	EnabledFeatures []string
 	EnabledPlugins  []string
 	LandingPage     string
@@ -98,8 +105,10 @@ func Parse(data []byte) (*Campaign, error) {
 		{"created", &c.Created},
 		{"base", &c.Base},
 		{"base-version", &c.BaseVersion},
+		{"base-hash", &c.BaseHash},
 		{"overlay", &c.Overlay},
 		{"overlay-version", &c.OverlayVersion},
+		{"overlay-hash", &c.OverlayHash},
 		{"landing-page", &c.LandingPage},
 	} {
 		if err := str(kv.key, kv.dst); err != nil {
