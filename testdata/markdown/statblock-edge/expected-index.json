@@ -1,0 +1,133 @@
+{
+  "path": "statblock-edge.md",
+  "title": "Edge Cases",
+  "secret": false,
+  "frontmatter": {
+    "title": "Edge Cases"
+  },
+  "links": [
+    {
+      "Target": "cinder-pact",
+      "Alias": "the pact",
+      "Secret": true,
+      "Position": {
+        "Line": 21,
+        "Column": 3,
+        "Offset": 272
+      }
+    }
+  ],
+  "embeds": [],
+  "toc": [],
+  "blocks": [
+    {
+      "Type": "paragraph",
+      "Content": "A malformed body renders the labeled fallback box:",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 5,
+        "Column": 1,
+        "Offset": 27
+      }
+    },
+    {
+      "Type": "statblock",
+      "Content": "name: Broken\nstats: [unclosed",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 8,
+        "Column": 1,
+        "Offset": 92
+      }
+    },
+    {
+      "Type": "paragraph",
+      "Content": "An empty body is a valid empty box:",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 12,
+        "Column": 1,
+        "Offset": 127
+      }
+    },
+    {
+      "Type": "statblock",
+      "Content": "",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 4,
+        "Column": 1,
+        "Offset": 26
+      }
+    },
+    {
+      "Type": "paragraph",
+      "Content": "A statblock inside a secret callout keeps its secret flag:",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 17,
+        "Column": 1,
+        "Offset": 182
+      }
+    },
+    {
+      "Type": "secret",
+      "Content": "",
+      "Level": 0,
+      "Secret": true,
+      "Children": null,
+      "Position": {
+        "Line": 19,
+        "Column": 3,
+        "Offset": 244
+      }
+    },
+    {
+      "Type": "statblock",
+      "Content": "Hidden Horror\n12\nWhisper It knows [[cinder-pact|the pact]].",
+      "Level": 0,
+      "Secret": true,
+      "Children": null,
+      "Position": {
+        "Line": 21,
+        "Column": 3,
+        "Offset": 272
+      }
+    },
+    {
+      "Type": "paragraph",
+      "Content": "Layout echoes as data-layout, monster is a note only, short stats drop the table:",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 28,
+        "Column": 1,
+        "Offset": 386
+      }
+    },
+    {
+      "Type": "statblock",
+      "Content": "Ooze\n7\nacid, cold\nblinded, charmed\nPseudopod feint\nSplit When subjected to lightning or slashing damage, it splits.\nEngulf It engulfs a creature in its space.\nBlack Pudding\nWide Frame",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 31,
+        "Column": 1,
+        "Offset": 482
+      }
+    }
+  ],
+  "quarantined": false
+}

@@ -1,0 +1,102 @@
+{
+  "path": "callout-title-fold.md",
+  "title": "Callouts",
+  "secret": false,
+  "frontmatter": {},
+  "links": [
+    {
+      "Target": "cinder-pact",
+      "Alias": "the pact",
+      "Secret": false,
+      "Position": {
+        "Line": 16,
+        "Column": 7,
+        "Offset": 229
+      }
+    }
+  ],
+  "embeds": [],
+  "toc": [
+    {
+      "Level": 1,
+      "Title": "Callouts",
+      "Anchor": "callouts",
+      "Secret": false
+    }
+  ],
+  "blocks": [
+    {
+      "Type": "heading",
+      "Content": "Callouts",
+      "Level": 1,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 1,
+        "Column": 3,
+        "Offset": 2
+      }
+    },
+    {
+      "Type": "callout",
+      "Content": "Watch out\nThe bridge is trapped.",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 3,
+        "Column": 3,
+        "Offset": 14
+      }
+    },
+    {
+      "Type": "callout",
+      "Content": "Expanded by default.",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 6,
+        "Column": 3,
+        "Offset": 63
+      }
+    },
+    {
+      "Type": "callout",
+      "Content": "Folded by default.",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 9,
+        "Column": 3,
+        "Offset": 97
+      }
+    },
+    {
+      "Type": "callout",
+      "Content": "Short version\nAliases fold to their canonical type.",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 12,
+        "Column": 3,
+        "Offset": 130
+      }
+    },
+    {
+      "Type": "callout",
+      "Content": "As the ranger says\nSee the pact for details.",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 15,
+        "Column": 3,
+        "Offset": 195
+      }
+    }
+  ],
+  "quarantined": false
+}

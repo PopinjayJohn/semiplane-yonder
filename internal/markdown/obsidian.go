@@ -120,12 +120,16 @@ func (n *TagNode) Dump(source []byte, level int) {
 
 // CalloutNode is a `> [!type]` blockquote promoted to a typed callout.
 // Fold is "", "-" (collapsed/hidden, default) or "+" (expanded/visible).
+// TitleInBody reports the title text stayed in the first body paragraph
+// (structured titles with inline markup); plain titles are stripped into
+// Title for the title row.
 type CalloutNode struct {
 	ast.BaseBlock
 	CalloutType string
 	Fold        string
 	Params      map[string]string
 	Title       string
+	TitleInBody bool
 	// Offset is the byte offset of the callout in the parsed body source.
 	Offset int
 }
@@ -326,6 +330,58 @@ func (t *calloutTransformer) Transform(doc *ast.Document, reader text.Reader, pc
 			p.ReplaceChild(p, fc, u)
 		}
 	}
+	// Replace `statblock` fences with parsed statblock nodes (S1). The
+	// swap is in place, so fences nested in secret callouts stay nested
+	// and the depth-counted secret scrub keeps covering them.
+	var sbFences []*ast.FencedCodeBlock
+	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if entering {
+			if fc, ok := n.(*ast.FencedCodeBlock); ok && isStatblockFence(fc, source) {
+				sbFences = append(sbFences, fc)
+			}
+		}
+		return ast.WalkContinue, nil
+	})
+	for _, fc := range sbFences {
+		body := fenceBodyText(fc, source)
+		data, malformed := parseStatblockBody(body)
+		sb := &StatblockNode{
+			Data:      data,
+			Raw:       strings.TrimRight(body, "\n"),
+			Malformed: malformed,
+		}
+		if lines := fc.Lines(); lines != nil && lines.Len() > 0 {
+			sb.Offset = lines.At(0).Start
+		}
+		if p := fc.Parent(); p != nil {
+			p.ReplaceChild(p, fc, sb)
+		}
+	}
+	// Replace `ad-<type>` fences with admonition nodes (S3). In place, so
+	// fences nested in secret callouts stay nested and the depth-counted
+	// secret scrub keeps covering them.
+	var adFences []*ast.FencedCodeBlock
+	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if entering {
+			if fc, ok := n.(*ast.FencedCodeBlock); ok {
+				if _, ok := isAdmonitionFence(fc, source); ok {
+					adFences = append(adFences, fc)
+				}
+			}
+		}
+		return ast.WalkContinue, nil
+	})
+	for _, fc := range adFences {
+		slug, _ := isAdmonitionFence(fc, source)
+		body := fenceBodyText(fc, source)
+		ad := newAdmonitionNode(slug, body, 0)
+		if lines := fc.Lines(); lines != nil && lines.Len() > 0 {
+			ad.Offset = lines.At(0).Start
+		}
+		if p := fc.Parent(); p != nil {
+			p.ReplaceChild(p, fc, ad)
+		}
+	}
 }
 
 func isUnsupportedFence(fc *ast.FencedCodeBlock, source []byte) bool {
@@ -396,11 +452,49 @@ func promoteBlockquote(bq *ast.Blockquote, source []byte) {
 	if aborted || remaining > 0 {
 		return
 	}
+	// S3: the title row renders node.Title separately, so strip the title
+	// text from the first paragraph when it is plain text across leading
+	// Text nodes (pre-scan first: a structured inline inside the title span
+	// leaves the paragraph intact instead of a destructive partial strip,
+	// and the title row still shows the full title).
+	titleStripped := false
+	if rest != "" {
+		strip := len(rest)
+		consumable := true
+		have := 0
+		for c := para.FirstChild(); c != nil && have < strip; c = c.NextSibling() {
+			tx, ok := c.(*ast.Text)
+			if !ok {
+				consumable = false
+				break
+			}
+			have += tx.Segment.Stop - tx.Segment.Start
+		}
+		if consumable && have >= strip {
+			titleStripped = true
+			remaining := strip
+			for c := para.FirstChild(); c != nil && remaining > 0; {
+				next := c.NextSibling()
+				tx := c.(*ast.Text)
+				seg := tx.Segment
+				span := seg.Stop - seg.Start
+				if remaining >= span {
+					remaining -= span
+					para.RemoveChild(para, tx)
+				} else {
+					seg.Start += remaining
+					tx.Segment = seg
+					remaining = 0
+				}
+				c = next
+			}
+		}
+	}
 	// Drop the paragraph if the marker was its only content.
 	if para.FirstChild() == nil {
 		bq.RemoveChild(bq, para)
 	}
-	callout := &CalloutNode{CalloutType: calloutType, Fold: fold, Params: params, Title: rest}
+	callout := &CalloutNode{CalloutType: canonicalCalloutType(calloutType), Fold: fold, Params: params, Title: rest, TitleInBody: rest != "" && !titleStripped}
 	if lines := para.Lines(); lines != nil && lines.Len() > 0 {
 		callout.Offset = lines.At(0).Start
 	}
@@ -426,7 +520,9 @@ func (r *obsidianRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer
 	reg.Register(kindEmbed, r.renderEmbed)
 	reg.Register(kindTag, r.renderTag)
 	reg.Register(kindCallout, r.renderCallout)
+	reg.Register(kindAdmonition, r.renderAdmonition)
 	reg.Register(kindUnsupported, r.renderUnsupported)
+	reg.Register(kindStatblock, r.renderStatblock)
 }
 
 func (r *obsidianRenderer) renderWikilink(w util.BufWriter, source []byte, n ast.Node, entering bool) (ast.WalkStatus, error) {
@@ -524,26 +620,85 @@ func (r *obsidianRenderer) renderTag(w util.BufWriter, source []byte, n ast.Node
 
 func (r *obsidianRenderer) renderCallout(w util.BufWriter, source []byte, n ast.Node, entering bool) (ast.WalkStatus, error) {
 	node := n.(*CalloutNode)
+	cfg := calloutConfigForNode(node)
 	if entering {
-		attrs := fmt.Sprintf(`class="callout callout-%s" data-callout="%s"`,
-			html.EscapeString(node.CalloutType), html.EscapeString(node.CalloutType))
-		if node.Fold == "+" || node.Fold == "-" {
-			fold := "collapse"
-			if node.Fold == "+" {
-				fold = "expand"
-			}
-			attrs += fmt.Sprintf(` data-fold="%s"`, fold)
-		}
-		if id, ok := node.Params["id"]; ok && id != "" {
-			attrs += fmt.Sprintf(` data-optional-id="%s"`, html.EscapeString(id))
-		}
-		if _, err := fmt.Fprintf(w, "<div %s>\n", attrs); err != nil {
-			return ast.WalkStop, err
-		}
+		writeCalloutOpen(w, cfg)
 		return ast.WalkContinue, nil
 	}
-	_, _ = w.WriteString("</div>\n")
+	writeCalloutClose(w, cfg)
 	return ast.WalkContinue, nil
+}
+
+// calloutConfigForNode maps a native CalloutNode onto the shared component.
+// The outer div + data-fold vocabulary are frozen: the server-side secret
+// scrub (internal/secrets) matches on them, so `secret` keeps byte-identical
+// open-tag semantics (only the new title/body/details children are added).
+func calloutConfigForNode(node *CalloutNode) calloutConfig {
+	typ := cssCalloutSlug(node.CalloutType)
+	titleHTML := calloutIcon(typ, "") + `<span class="callout-title-text">` +
+		renderCalloutTitle(node.Title, typ) + `</span>`
+	cfg := calloutConfig{Type: typ, TitleHTML: titleHTML}
+	if node.Fold == "+" || node.Fold == "-" {
+		cfg.Foldable = true
+		cfg.Open = node.Fold == "+"
+		cfg.FoldAttr = "collapse"
+		if node.Fold == "+" {
+			cfg.FoldAttr = "expand"
+		}
+	}
+	if id, ok := node.Params["id"]; ok && id != "" {
+		cfg.OptionalID = id
+	}
+	return cfg
+}
+
+func (r *obsidianRenderer) renderAdmonition(w util.BufWriter, source []byte, n ast.Node, entering bool) (ast.WalkStatus, error) {
+	node := n.(*AdmonitionNode)
+	if !entering {
+		return ast.WalkContinue, nil
+	}
+	typ := node.CalloutType
+	var titleHTML string
+	omit := node.TitleSet && strings.TrimSpace(node.Title) == ""
+	if omit {
+		// Title row omitted: the writer still needs an icon for the
+		// blank-summary control.
+		titleHTML = calloutIcon(typ, node.Icon)
+	} else {
+		title := node.Title
+		if !node.TitleSet {
+			title = calloutDisplayName(typ)
+		}
+		// renderCalloutTitle escapes plain defaults and markdown-renders
+		// explicit titles; a pre-rendered default would double-escape, so
+		// branch here.
+		var inner string
+		if !node.TitleSet {
+			inner = html.EscapeString(title)
+		} else {
+			inner = renderCalloutTitle(title, typ)
+		}
+		titleHTML = calloutIcon(typ, node.Icon) + `<span class="callout-title-text">` + inner + `</span>`
+	}
+	cfg := calloutConfig{
+		Type: typ, TitleHTML: titleHTML, OmitTitle: omit,
+		Metadata: node.Metadata, Color: node.Color,
+	}
+	switch node.Collapse {
+	case "open":
+		cfg.Foldable, cfg.Open, cfg.FoldAttr = true, true, "expand"
+	case "closed":
+		cfg.Foldable, cfg.Open, cfg.FoldAttr = true, false, "collapse"
+	}
+	writeCalloutOpen(w, cfg)
+	if body := renderAdBody(node.Body); body != "" {
+		_, _ = w.WriteString(body)
+		if !strings.HasSuffix(body, "\n") {
+			_, _ = w.WriteString("\n")
+		}
+	}
+	writeCalloutClose(w, cfg)
+	return ast.WalkSkipChildren, nil
 }
 
 func (r *obsidianRenderer) renderUnsupported(w util.BufWriter, source []byte, n ast.Node, entering bool) (ast.WalkStatus, error) {

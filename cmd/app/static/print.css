@@ -76,4 +76,49 @@
   h1, h2, h3, figure, table {
     break-inside: avoid;
   }
+
+  /* Statblock handouts (S2): plain black-on-white box, never color-only
+     (labels already carry the meaning), tables unbroken where possible. */
+  section.statblock {
+    background: #fff;
+    color: #000;
+    border: 2px solid #000;
+    border-top: 4px solid #000;
+    border-bottom: 4px solid #000;
+    break-inside: avoid;
+  }
+  section.statblock h2.statblock-name,
+  section.statblock h3.statblock-group,
+  section.statblock strong,
+  section.statblock table.statblock-abilities caption {
+    color: #000;
+  }
+  section.statblock p.statblock-meta,
+  section.statblock h3.statblock-group,
+  section.statblock table.statblock-abilities th,
+  section.statblock table.statblock-abilities td {
+    border-color: #000;
+  }
+  section.statblock p.statblock-note {
+    border-left: 4px solid #000;
+  }
+  section.statblock.statblock-error pre {
+    border: 1px solid #000;
+    white-space: pre-wrap;
+  }
+
+  /* Callout/admonition handouts (S3): plain black-on-white box, never
+     color-only (icon + title text already carry the meaning). Folded
+     <details> already expand via the global details rule above. */
+  div.callout {
+    background: #fff;
+    color: #000;
+    border: 1px solid #000;
+    border-left: 6px solid #000;
+    break-inside: avoid;
+  }
+  div.callout-title,
+  svg.callout-icon {
+    color: #000;
+  }
 }

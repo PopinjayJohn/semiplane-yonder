@@ -1,0 +1,201 @@
+/* Statblock box UI (S2): fantasy-statblocks parchment identity as vanilla
+   CSS in @layer core. Palette rides tokens defaulting to the plugin's four
+   variables (--sb-paper/--sb-red/--sb-rule/--sb-amber); [data-theme="dark"]
+   re-points them, future themes can do the same. Source of truth:
+   web/static/core/statblock.css; cmd/app/static/core/statblock.css is the
+   verbatim served mirror (go:embed cannot reach outside cmd/app). Read-only
+   output: no interactive elements, so no motion and no focus management
+   beyond the standard visible-focus guard. Meaning never rides color
+   alone: every value carries a text label. */
+@layer core {
+:root {
+  --sb-paper: #fdf1dc;
+  --sb-red: #7a200d;
+  --sb-rule: #922610;
+  --sb-amber: #e69a28;
+  --sb-ink: #1a1a1a;
+}
+[data-theme="dark"] {
+  --sb-paper: #241c12;
+  --sb-red: #e8a084;
+  --sb-rule: #c07a4a;
+  --sb-amber: #e69a28;
+  --sb-ink: #f3e9d2;
+}
+section.statblock {
+  background: var(--sb-paper);
+  color: var(--sb-ink);
+  border: 2px solid var(--sb-rule);
+  border-top: 6px solid var(--sb-red);
+  border-bottom: 6px solid var(--sb-red);
+  border-radius: 0.3rem;
+  padding: 1rem 1.2rem;
+  margin: 1rem 0;
+  max-width: 42rem;
+}
+section.statblock h2.statblock-name {
+  color: var(--sb-red);
+  margin: 0 0 0.2rem;
+  font-size: 1.5rem;
+  letter-spacing: 0.02em;
+}
+section.statblock p.statblock-meta {
+  margin: 0 0 0.6rem;
+  font-style: italic;
+  border-bottom: 3px solid var(--sb-amber);
+  padding-bottom: 0.5rem;
+}
+section.statblock p { margin: 0.35rem 0; }
+section.statblock strong { color: var(--sb-red); }
+section.statblock h3.statblock-group {
+  color: var(--sb-red);
+  margin: 0.8rem 0 0.2rem;
+  font-size: 1.1rem;
+  border-bottom: 2px solid var(--sb-rule);
+  padding-bottom: 0.15rem;
+}
+section.statblock table.statblock-abilities {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.6rem 0;
+}
+section.statblock table.statblock-abilities caption {
+  text-align: left;
+  font-weight: 700;
+  color: var(--sb-red);
+}
+section.statblock table.statblock-abilities th,
+section.statblock table.statblock-abilities td {
+  text-align: center;
+  padding: 0.35rem 0.4rem;
+  border-bottom: 1px solid var(--sb-rule);
+}
+section.statblock img.embed {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 0.6rem auto;
+  border: 2px solid var(--sb-rule);
+}
+section.statblock p.statblock-note {
+  border-left: 4px solid var(--sb-amber);
+  padding: 0.4rem 0.7rem;
+  margin: 0.6rem 0;
+}
+section.statblock.statblock-error { border-style: dashed; }
+section.statblock.statblock-error pre {
+  white-space: pre-wrap;
+  overflow-x: auto;
+  border: 1px solid var(--sb-rule);
+  padding: 0.5rem 0.7rem;
+}
+section.statblock :focus-visible {
+  outline: 3px solid var(--sb-rule);
+  outline-offset: 2px;
+}
+section.statblock a { text-decoration: underline; }
+@media (prefers-reduced-motion: reduce) {
+  section.statblock *,
+  section.statblock *::before,
+  section.statblock *::after { animation: none; transition: none; }
+}
+
+/* Callout + admonition component (S3): native `> [!type]` and `ad-<type>`
+   fences share this box. Per-type color tokens default to the Obsidian
+   callout palette (RGB triads); an ad- `color: R, G, B` header overrides
+   via `--callout-accent` inline. [data-theme="dark"] re-points the tokens.
+   Meaning never rides color alone: every box carries an icon (decorative,
+   aria-hidden) plus a text title row. Foldable callouts use native
+   details/summary (keyboard-reachable, announced, no JS); motion only on
+   the marker, disabled under prefers-reduced-motion. */
+:root {
+  --callout-note: 68, 138, 255;
+  --callout-abstract: 0, 176, 255;
+  --callout-info: 0, 184, 212;
+  --callout-tip: 0, 191, 165;
+  --callout-success: 0, 200, 83;
+  --callout-question: 255, 145, 0;
+  --callout-warning: 255, 145, 0;
+  --callout-failure: 255, 82, 82;
+  --callout-danger: 255, 23, 68;
+  --callout-bug: 245, 0, 87;
+  --callout-example: 124, 77, 255;
+  --callout-quote: 158, 158, 158;
+  --callout-default: 136, 136, 136;
+  --callout-bg: #ffffff;
+  --callout-ink: #1a1a1a;
+}
+[data-theme="dark"] {
+  --callout-note: 120, 170, 255;
+  --callout-abstract: 77, 208, 255;
+  --callout-info: 77, 208, 225;
+  --callout-tip: 77, 225, 200;
+  --callout-success: 105, 240, 174;
+  --callout-question: 255, 171, 64;
+  --callout-warning: 255, 171, 64;
+  --callout-failure: 255, 138, 128;
+  --callout-danger: 255, 110, 130;
+  --callout-bug: 250, 100, 150;
+  --callout-example: 179, 136, 255;
+  --callout-quote: 189, 189, 189;
+  --callout-default: 170, 170, 170;
+  --callout-bg: #1e1e24;
+  --callout-ink: #f3ead8;
+}
+div.callout {
+  --callout-accent: var(--callout-default);
+  background: var(--callout-bg);
+  color: var(--callout-ink);
+  border: 1px solid rgb(var(--callout-accent));
+  border-left: 6px solid rgb(var(--callout-accent));
+  border-radius: 0.3rem;
+  padding: 0.6rem 0.9rem;
+  margin: 0.8rem 0;
+  max-width: 42rem;
+}
+div.callout-note { --callout-accent: var(--callout-note); }
+div.callout-abstract { --callout-accent: var(--callout-abstract); }
+div.callout-info { --callout-accent: var(--callout-info); }
+div.callout-tip { --callout-accent: var(--callout-tip); }
+div.callout-success { --callout-accent: var(--callout-success); }
+div.callout-question { --callout-accent: var(--callout-question); }
+div.callout-warning { --callout-accent: var(--callout-warning); }
+div.callout-failure { --callout-accent: var(--callout-failure); }
+div.callout-danger { --callout-accent: var(--callout-danger); }
+div.callout-bug { --callout-accent: var(--callout-bug); }
+div.callout-example { --callout-accent: var(--callout-example); }
+div.callout-quote { --callout-accent: var(--callout-quote); }
+div.callout-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 700;
+  margin: 0 0 0.3rem;
+}
+summary.callout-title {
+  cursor: pointer;
+  min-height: 44px;
+  border-radius: 0.25rem;
+}
+summary.callout-title::-webkit-details-marker { color: rgb(var(--callout-accent)); }
+summary.callout-title::marker { color: rgb(var(--callout-accent)); }
+svg.callout-icon {
+  flex: none;
+  width: 1.1em;
+  height: 1.1em;
+  color: rgb(var(--callout-accent));
+}
+div.callout-body > :first-child { margin-top: 0; }
+div.callout-body > :last-child { margin-bottom: 0; }
+div.callout details { margin: 0; }
+div.callout :focus-visible {
+  outline: 3px solid rgb(var(--callout-accent));
+  outline-offset: 2px;
+}
+div.callout a { text-decoration: underline; }
+@media (prefers-reduced-motion: reduce) {
+  div.callout *,
+  div.callout *::before,
+  div.callout *::after { animation: none; transition: none; }
+}
+}

@@ -1,0 +1,82 @@
+{
+  "path": "statblock-basic.md",
+  "title": "Goblin",
+  "secret": false,
+  "frontmatter": {
+    "tags": [
+      "bestiary"
+    ],
+    "title": "Goblin"
+  },
+  "links": [
+    {
+      "Target": "Hide Rules",
+      "Alias": "hiding",
+      "Secret": false,
+      "Position": {
+        "Line": 9,
+        "Column": 1,
+        "Offset": 63
+      }
+    }
+  ],
+  "embeds": [
+    {
+      "Target": "goblin.png",
+      "Alt": "A grinning goblin",
+      "Secret": false,
+      "Position": {
+        "Line": 9,
+        "Column": 1,
+        "Offset": 63
+      }
+    }
+  ],
+  "toc": [
+    {
+      "Level": 1,
+      "Title": "Goblin",
+      "Anchor": "goblin",
+      "Secret": false
+    }
+  ],
+  "blocks": [
+    {
+      "Type": "heading",
+      "Content": "Goblin",
+      "Level": 1,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 6,
+        "Column": 3,
+        "Offset": 42
+      }
+    },
+    {
+      "Type": "statblock",
+      "Content": "Goblin\nSmall humanoid (goblinoid), neutral evil\n15 (leather armor, shield)\n7 (2d6)\n2d6\n30 ft.\n8 14 10 10 8 8\nDEX +2\nStealth +6\ndarkvision 60 ft., passive Perception 9\nCommon, Goblin\n1/4\nNimble Escape The goblin can take the Disengage or Hide action as a bonus action on each of its turns. See [[Hide Rules|hiding]].\nScimitar Melee Weapon Attack. Hit: 5 (1d6 + 2) slashing damage.\nShortbow Ranged Weapon Attack. Hit: 5 (1d6 + 3) piercing damage.\ndancing lights, minor illusion\ngoblin.png",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 9,
+        "Column": 1,
+        "Offset": 63
+      }
+    },
+    {
+      "Type": "paragraph",
+      "Content": "The war band camps nearby.",
+      "Level": 0,
+      "Secret": false,
+      "Children": null,
+      "Position": {
+        "Line": 38,
+        "Column": 1,
+        "Offset": 805
+      }
+    }
+  ],
+  "quarantined": false
+}
