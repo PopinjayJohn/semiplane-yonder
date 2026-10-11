@@ -5,9 +5,11 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
+	"path"
 	"strings"
 	"time"
 
@@ -21,7 +23,7 @@ import (
 	"github.com/semiplane/yonder/internal/web"
 )
 
-//go:embed static/print.css
+//go:embed static/print.css static/core static/vendor
 var staticFS embed.FS
 
 // Ops HTTP surface owned by Lane E1 (P09): /healthz + /version expose the
@@ -82,6 +84,46 @@ func versionHandler(info buildInfo) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		writeVersionJSON(w, info)
 	}
+}
+
+// Cache directives for embedded public assets (runbook §5). Core CSS is
+// unversioned, so it gets the same day-long public cache as print.css.
+// Vendor JS is version-pinned (web/static/vendor/VERSIONS, `yonder vendor
+// verify`), so it is immutable for a year.
+const (
+	staticCoreCache   = "public, max-age=86400"
+	staticVendorCache = "public, max-age=31536000, immutable"
+)
+
+// staticDirHandler serves one embedded public-asset subtree (static/core or
+// static/vendor) at its /static/... URL prefix with cache + nosniff
+// headers. The embed FS holds only committed public files — vault bytes can
+// never appear here (vault assets stay on the ACL-checked /assets handler).
+// Directory roots and traversal escapes 404 (no listings, no escapes).
+func staticDirHandler(urlPrefix, subdir, cacheControl string) http.Handler {
+	sub, err := fs.Sub(staticFS, subdir)
+	if err != nil {
+		panic(fmt.Errorf("static %s: %w", subdir, err))
+	}
+	inner := http.StripPrefix(urlPrefix, http.FileServer(http.FS(sub)))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		name := path.Clean(strings.TrimPrefix(r.URL.Path, urlPrefix))
+		if name == "." || name == "/" || strings.HasPrefix(name, "..") {
+			http.NotFound(w, r)
+			return
+		}
+		if fi, err := fs.Stat(sub, name); err != nil || fi.IsDir() {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Cache-Control", cacheControl)
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		inner.ServeHTTP(w, r)
+	})
 }
 
 func printCSSHandler(w http.ResponseWriter, r *http.Request) {
@@ -242,13 +284,16 @@ func wireHandlers(info buildInfo, vaultDir, dataDir string, sessionStore auth.Se
 	readH.RegisterRoutes(reg)
 	writeH.RegisterRoutes(reg)
 
-	// Ops mux handles /healthz, /version, /static/print.css first,
-	// but ONLY if the registry doesn't already have them (F1 registers both).
+	// Ops mux handles /healthz, /version, /static/print.css + the /static/core/
+	// + /static/vendor/ subtrees first, but ONLY if the registry doesn't
+	// already own them (F1 registers /healthz + /version).
 	mux := http.NewServeMux()
 	opsMux := http.NewServeMux()
 	opsMux.HandleFunc("/healthz", healthzHandler(info))
 	opsMux.HandleFunc("/version", versionHandler(info))
 	opsMux.HandleFunc("/static/print.css", printCSSHandler)
+	opsMux.Handle("/static/core/", staticDirHandler("/static/core/", "static/core", staticCoreCache))
+	opsMux.Handle("/static/vendor/", staticDirHandler("/static/vendor/", "static/vendor", staticVendorCache))
 
 	// Install ops handlers for paths NOT owned by the registry.
 	regRoutes := reg.Routes()
@@ -256,6 +301,12 @@ func wireHandlers(info buildInfo, vaultDir, dataDir string, sessionStore auth.Se
 	// exact patterns match exactly, prefix patterns (mapped through
 	// toStdlibPattern, e.g. "/p/") match their subtree. Handlers extract
 	// params from r.URL.Path themselves.
+	//
+	// NOTE: the registry's "/" catch-all (Index, which 404s every non-root
+	// path itself) prefix-matches everything here, so the check below would
+	// swallow the ops-owned static paths too — /static/print.css 404d over
+	// live HTTP for the same reason before W3. isPublicStatic carves the
+	// embedded public subtrees back out BEFORE this check runs.
 	ownedByRegistry := func(path string) bool {
 		for _, rt := range regRoutes {
 			stdpat := web.ToStdlibPattern(rt.Path)
@@ -282,15 +333,35 @@ func wireHandlers(info buildInfo, vaultDir, dataDir string, sessionStore auth.Se
 	// Demo viewer fallback for unwired mode: real sessions take precedence.
 	regHandler = withDemoViewer(regHandler)
 
-	// Chain: ops-first for unowned paths, then registry.
+	// Chain: public static first (carved out of the registry catch-all),
+	// then registry-owned paths, then ops leftovers.
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if ownedByRegistry(r.URL.Path) {
+		if isPublicStatic(r.URL.Path) {
+			opsMux.ServeHTTP(w, r)
+		} else if ownedByRegistry(r.URL.Path) {
 			regHandler.ServeHTTP(w, r)
 		} else {
 			opsMux.ServeHTTP(w, r)
 		}
 	}))
 	return &serverWiring{Handler: mux, Plugins: plugReg, Store: st, Vault: v}
+}
+
+// isPublicStatic reports the embedded public-asset paths served by the ops
+// mux: the print stylesheet plus the core/vendor subtrees (W3). The registry
+// never registers these, but its "/" catch-all prefix-matches everything in
+// ownedByRegistry — so the outer mux consults this FIRST and unknown paths
+// (e.g. /bogus) keep flowing to the registry's styled 404 untouched.
+func isPublicStatic(path string) bool {
+	if path == "/static/print.css" {
+		return true
+	}
+	for _, prefix := range []string{"/static/core/", "/static/vendor/"} {
+		if path == strings.TrimSuffix(prefix, "/") || strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // withDemoViewer injects the request's demo identity (`?as=`, same resolver

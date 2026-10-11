@@ -89,3 +89,6 @@
 - `path.Dir` returns `"."` at vault root while bundle rules normalize asset dirs to `""` — root pages silently never count as same-directory; only surfaces after fail-closed tightening (normalize `pdir == "."`; rulings trio).
 - `templ` does not evaluate `if` directives inside `<script>` blocks (emits literal JS) → branch whole `<script>` elements at HTML level; keep the shipped branch byte-identical (rulings templates).
 - `{...}` in template text (flow-style YAML) parses as a templ expression → use block-style YAML in template-visible examples (rulings templates).
+
+## W1 additions (graph link-target normalization)
+- Index-shape changeovers need the backfill BEFORE the purge sweep in the same Rescan: target-side purges (`links.target = ?` with page paths) miss legacy raw rows on the first post-changeover run, leaving dangling edges behind → order Rescan as walk → backfill → purge so one pass converges (W1, pinned by `TestRescanBackfillsRawLinkTargets`).

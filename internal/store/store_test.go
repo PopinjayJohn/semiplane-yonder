@@ -265,7 +265,7 @@ func TestReindexRestoresAfterDelete(t *testing.T) {
 	if got := searchPaths(t, ctx, s, "light", guest()); len(got) != 1 || got[0] != "a.md" {
 		t.Fatalf("search after rebuild = %v", got)
 	}
-	back, err := s.Backlinks(ctx, "a")
+	back, err := s.Backlinks(ctx, "a.md")
 	if err != nil || len(back) != 1 || back[0] != "b.md" {
 		t.Fatalf("backlinks after rebuild = %v, %v", back, err)
 	}
