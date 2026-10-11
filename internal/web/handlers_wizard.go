@@ -306,8 +306,12 @@ func (h *WizardHandlers) ClaimWizard(w http.ResponseWriter, r *http.Request) {
 
 // ClaimWizardPost saves step fields into the draft, or finalizes on preview.
 func (h *WizardHandlers) ClaimWizardPost(w http.ResponseWriter, r *http.Request) {
-	draft, token, _, ok := h.loadClaim(w, r)
+	draft, token, v, ok := h.loadClaim(w, r)
 	if !ok {
+		return
+	}
+	if previewReadOnly(v) {
+		writeDenied(w, http.StatusForbidden, "GM preview is read-only — exit preview to use an invitation")
 		return
 	}
 	if h.Vault == nil {

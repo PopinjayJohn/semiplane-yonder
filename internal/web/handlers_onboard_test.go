@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -224,6 +225,77 @@ func TestClaimWizardValidation(t *testing.T) {
 		"step": "stats", "str": "18", "dex": "18", "con": "18", "int": "18", "wis": "18", "cha": "18"}, true)
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("god stats = %d, want 422", rec.Code)
+	}
+}
+
+// TestPreviewSheetWritesAreReadOnly pins the W2 rule on the sheet flows:
+// a previewing GM (even previewing as the sheet owner) gets 403 on every
+// mutating sheet endpoint, and nothing is written.
+func TestPreviewSheetWritesAreReadOnly(t *testing.T) {
+	sh, v, _ := testSheets(t)
+	seedSheet(t, v, sh.Store, "alice", "alice", aliceSheetMD)
+	previewOwner := &auth.Viewer{UserID: "gm", IsGM: true, PreviewAs: "alice"}
+
+	rec := patchJSON(t, sh, "/characters/alice/fields", previewOwner, `{"field":"hp","value":7}`)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("preview fields patch = %d, want 403", rec.Code)
+	}
+	rec = postForm(t, sh.Rest, "/characters/alice/rest", previewOwner, map[string]string{"mode": "long"}, true)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("preview rest = %d, want 403", rec.Code)
+	}
+	rec = postForm(t, sh.Level, "/characters/alice/level", previewOwner, map[string]string{"direction": "up"}, true)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("preview level = %d, want 403", rec.Code)
+	}
+	edited := strings.Replace(aliceSheetMD, "  xp: 0\n", "  xp: 250\n", 1)
+	rec = postForm(t, sh.AdvancedSave, "/characters/alice/advanced", previewOwner, map[string]string{"content": edited}, true)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("preview advanced save = %d, want 403", rec.Code)
+	}
+	if got := readVault(t, v, "characters/alice/index.md"); strings.Contains(got, "xp: 250") || !strings.Contains(got, "hp: 11") {
+		t.Fatalf("preview sheet write mutated the vault:\n%s", got)
+	}
+}
+
+// TestPreviewClaimFinalizeIsReadOnly pins the W2 rule on the player wizard:
+// a previewing GM cannot save steps or finalize an invitation (even the
+// previewed user's own), and the 403 consumes nothing — the owner can still
+// finalize afterwards.
+func TestPreviewClaimFinalizeIsReadOnly(t *testing.T) {
+	h, v, _ := testWizard(t)
+	rec := gmPostForm(t, h.ClaimIssue, "/wizard/claims", gm(), map[string]string{"slug": "alice", "username": "alice"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("claim = %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	i := strings.Index(body, "/c/")
+	link := body[i : i+strings.Index(body[i:], "/create")+len("/create")]
+	previewOwner := &auth.Viewer{UserID: "gm", IsGM: true, PreviewAs: "alice"}
+
+	// A mid-wizard step save as preview: 403.
+	rec = postForm(t, h.ClaimWizardPost, link, previewOwner, map[string]string{"step": "start", "name": "Sneaky"}, true)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("preview wizard step = %d, want 403", rec.Code)
+	}
+	// Run the arc as the owner, then finalize as preview: 403, draft intact.
+	runWizardToPreview(t, h, link, alice())
+	rec = postForm(t, h.ClaimWizardPost, link, previewOwner, map[string]string{"step": "done"}, true)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("preview finalize = %d, want 403", rec.Code)
+	}
+	if _, err := v.ReadFile(context.Background(), "characters/alice/index.md"); !os.IsNotExist(err) {
+		t.Fatalf("preview finalize created the sheet (err %v)", err)
+	}
+	// The owner finalizes cleanly right after: the preview 403 consumed nothing.
+	rec = postForm(t, h.ClaimWizardPost, link, alice(), map[string]string{"step": "done"}, true)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("owner finalize after preview 403 = %d, want 303: %s", rec.Code, rec.Body.String())
+	}
+	// GM-only issuance stays closed to previews too (gmOf, pinned here).
+	rec = gmPostForm(t, h.ClaimIssue, "/wizard/claims", previewOwner, map[string]string{"slug": "mallory", "username": "mallory"})
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("preview claim issue = %d, want 403", rec.Code)
 	}
 }
 

@@ -195,6 +195,10 @@ func (h *WriteHandlers) diceRoll(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "login required", http.StatusUnauthorized)
 		return
 	}
+	if previewReadOnly(v) {
+		http.Error(w, "GM preview is read-only — exit preview to roll", http.StatusForbidden)
+		return
+	}
 	if !h.checkCSRF(r) {
 		http.Error(w, "bad or missing CSRF token", http.StatusForbidden)
 		return
