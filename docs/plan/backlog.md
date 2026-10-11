@@ -3,49 +3,37 @@
 Ship record: M1 Wiki → M2 CM → M3 VTT **SHIPPED** (G0–G4 GO 2026-10-09);
 backlog sweep B0–B7 + UI-1/UI-2/UI-3 **DONE** 2026-10-10. Execution plans
 (`p00–p13`, `overview.md`, `roadmap.md`, `lanes/`) were removed 2026-10-11 —
-history lives in git. What remains is below: three concrete work items, then
-unscoped post-v1 feature ideas.
+history lives in git. Work items W1–W3 below are **DONE** 2026-10-11; what
+remains is the unscoped post-v1 feature ideas at the bottom.
 
 Standing rules for every item: no new dependencies (spec §2 frozen); every
 read path stays server-side secret-filtered; vault writes stay atomic via
 `vault.WriteFile`; frontmatter keys append-only.
 
-## W1 — Graph link-target normalization at write (+ backfill)
+## W1 — Graph link-target normalization at write (+ backfill) — DONE (PR #25)
 
-Symptom: the indexer stores raw wikilink targets (`cinder-pact`) while the
-graph handler matches against page paths (`cinder-pact.md`), so live
-`/graph` can return `"edges":null` even for the GM.
-Workaround today (do not regress): `normalizeLinkBase` shared by
-`resolveTarget` and `resolveGraphTarget`; newly resolved secret targets fail
-closed to redaction. `TestLinkTargetsStoredRaw` pins the raw `ForwardLinks`
-shape and fails loudly if the index shape changes without updating the test.
-Scope: `internal/store` (normalize `links.target` at write) + backfill for
-mixed-shape DBs left by incremental rescan + handler-side `resolveGraphTarget`
-follow-up in `internal/web/handlers_read.go`. Secret drop rule unchanged.
-Acceptance: stored targets normalized; mixed-shape DB backfilled; pin test
-updated to the new shape; leak-matrix + `go test ./...` green.
+Shipped: `internal/store/links.go` (`NormalizeLinkTarget`), write-side
+normalization in `reindex.go` + `backfillLinkTargets` in `Rescan` (backfill
+before purge sweep), `resolveGraphTarget` probes normalized-first with legacy
+fallback. Secret drop rule unchanged. Live proof: GM `/graph` returns 24
+edges incl. `welcome.md→cinder-pact.md`.
+(Note: W3's commit rode into `main` inside this PR's merge via shared-tree
+contamination — see pitfalls; PR #26 auto-closed as a result.)
 
-## W2 — Canonical preview-write rule
+## W2 — Canonical preview-write rule — DONE (PR #27)
 
-Symptom: `viewerOf` applies `preview_as` on the write path too, so a
-previewing GM writes AS the previewed user — while the dashboard instead
-403s all preview writes. Two shapes, one needs to be canonical.
-Scope: `internal/web` (`viewerOf` / `applySessionPreview` + dashboard write
-handlers) + tests pinning the chosen behavior.
-Acceptance: one documented + tested rule (either preview-writes-as or
-preview-writes-403 everywhere); no per-handler divergence.
+Rule: **preview-writes-403 everywhere — GM preview is read-only.** One
+central `previewReadOnly()` helper (`handlers_write.go`) guards every
+state-changing handler; reads (filtering as previewed user, banner, logging)
+untouched. Login/logout exempt; GET forms stay readable.
 
-## W3 — Serve `/static/core` + `/static/vendor`
+## W3 — Serve `/static/core` + `/static/vendor` — DONE (PR #26, landed via #25)
 
-Symptom: only `/static/print.css` is served (`cmd/app/serve.go`). The
-`<link>` to `/static/core/sheet.css` and the `/static/vendor/codemirror.js`
-hook are inert — inline fallbacks and textarea degradation carry use today.
-Scope: `cmd/app` static mounts (embed or dir) for `core/` + `vendor/`;
-immutable caching for versioned vendor bytes, `private, no-store` anywhere
-per-viewer; public assets only, never vault bytes (vault assets stay on the
-ACL-checked `/assets` handler).
-Acceptance: sheet `<link>` resolves, CodeMirror boots from the vendored
-bundle offline, `make check` + budgets green.
+Shipped: `cmd/app` embeds + serves `static/core/` (`public, max-age=86400`)
+and `static/vendor/` (`public, max-age=31536000, immutable`); `isPublicStatic`
+carve-out before the registry check (even `/static/print.css` 404'd live
+before this). Public assets only, never vault bytes. Runbook §5 documents
+the mounts.
 
 ## Post-v1 feature ideas (unscoped — carried from overview §8–§10)
 

@@ -92,3 +92,10 @@
 
 ## W1 additions (graph link-target normalization)
 - Index-shape changeovers need the backfill BEFORE the purge sweep in the same Rescan: target-side purges (`links.target = ?` with page paths) miss legacy raw rows on the first post-changeover run, leaving dangling edges behind → order Rescan as walk → backfill → purge so one pass converges (W1, pinned by `TestRescanBackfillsRawLinkTargets`).
+
+## W2 additions (preview-write rule)
+- Under `DemoAuth=true`, `applySessionPreview` early-returns for session viewers, so `?preview_as=` on a request is inert in default-tier tests → pin write-path preview tests by injecting `PreviewAs` directly on the context viewer (`withViewer`), never via query param (W2).
+
+## W3 additions (static core/vendor serving)
+- `ownedByRegistry` + the registry `/` catch-all silently swallows every ops path (even `/static/print.css` 404'd live) → carve public static out *before* the registry check (`isPublicStatic`); keep unknown paths flowing to the styled 404 (W3).
+- Shared-tree branch hazard: a sibling `checkout` moved HEAD mid-task and a commit landed on the wrong branch (W3's commit shipped inside PR #25) → recovered via `git branch -f <branch> <sha>` (no worktree touch), fast-forward push, then `reset` + revert only own paths; prefer isolated worktrees for parallel agents (W3).
