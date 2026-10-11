@@ -1,4 +1,4 @@
-.PHONY: dev check generate test build lint vet fmt tools fuzz-short bench budgets snapshot smoke
+.PHONY: dev check generate test build lint vet fmt tools fuzz-short bench budgets snapshot smoke demo-seed
 
 TEMPL_VERSION := v0.3.1070
 GOLANGCI_VERSION := v2.14.0
@@ -6,6 +6,14 @@ FUZZ_TIME ?= 20s
 
 dev:
 	templ generate --watch & go run ./cmd/app --vault fixtures/demo
+
+# Seeds the demo campaign's login accounts (gm/mira/bram/cass) into the demo
+# data dir using the product's own auth path. Idempotent: existing accounts
+# are reported and left alone. Run after any data-dir reset — the data dir is
+# disposable and wiping it drops the accounts. `?as=<name>` logins
+# (serve --demo-auth, default true) do NOT need this.
+demo-seed:
+	go run ./tools/demo-seed $(if $(DATA_DIR),--data-dir $(DATA_DIR),)
 
 generate:
 	templ generate
