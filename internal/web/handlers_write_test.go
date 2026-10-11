@@ -285,15 +285,126 @@ func TestGMCanCreateAnywhere(t *testing.T) {
 	}
 }
 
-func TestGMPreviewAsIsTreatedAsPlayer(t *testing.T) {
-	h, _, s := testSetup(t)
+// TestPreviewWritesAreReadOnly pins the canonical W2 rule: GM preview
+// (PreviewAs) is read-only everywhere. Every state-changing handler rejects
+// preview viewers with 403 before mutating anything — even when the previewed
+// user could themselves write there (preview-as-owner), so a previewing GM
+// can never mutate state under another identity. Reads (filtering as the
+// previewed user, banner, logging) are untouched and pinned elsewhere.
+func TestPreviewWritesAreReadOnly(t *testing.T) {
+	h, v, s := testSetupApp(t)
 	seedPage(t, s, "characters/alice/index.md", "Alice", false, "alice", nil)
-	previewer := &auth.Viewer{UserID: "gm", IsGM: true, PreviewAs: "bob"}
-	rec := postForm(t, h.PageCreate, "/p/new", previewer, map[string]string{
+	seedOwnedPage(t, s, v, "characters/alice/notes.md", "---\nowner: alice\n---\n# N\n\nv1\n")
+
+	// Preview AS THE OWNER: previously this wrote as alice (viewerOf applied
+	// preview_as on the write path). Now it must 403 like every other write.
+	previewOwner := &auth.Viewer{UserID: "gm", IsGM: true, PreviewAs: "alice"}
+	previewOther := &auth.Viewer{UserID: "gm", IsGM: true, PreviewAs: "bob"}
+
+	// Create: denied even in the previewed owner's own tree.
+	rec := postForm(t, h.PageCreate, "/p/new", previewOwner, map[string]string{
+		"parent": "characters/alice", "name": "sneaky", "content": "hi\n",
+	}, true)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("preview-as-owner create = %d, want 403", rec.Code)
+	}
+	if _, err := v.ReadFile(context.Background(), "characters/alice/sneaky.md"); !os.IsNotExist(err) {
+		t.Fatalf("preview create wrote to the vault (err %v)", err)
+	}
+	// Create in a foreign tree: still denied (old TestGMPreviewAsIsTreatedAsPlayer case).
+	rec = postForm(t, h.PageCreate, "/p/new", previewOther, map[string]string{
 		"parent": "characters/alice", "name": "x", "content": "hi\n",
 	}, true)
-	if rec.Code == http.StatusSeeOther {
-		t.Fatal("GM previewing as bob must not write to alice's tree")
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("preview-as-other create = %d, want 403", rec.Code)
+	}
+
+	// Save: denied, content untouched.
+	rec = postForm(t, h.PageSave, "/p/characters/alice/notes.md/edit", previewOwner,
+		map[string]string{"content": "---\nowner: alice\n---\n# N\n\nv2-sneaky\n"}, true)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("preview save = %d, want 403", rec.Code)
+	}
+	if got := readVault(t, v, "characters/alice/notes.md"); !strings.Contains(got, "v1") || strings.Contains(got, "sneaky") {
+		t.Fatalf("preview save mutated the vault:\n%s", got)
+	}
+
+	// Revert: denied before even looking at the conflict file.
+	rec = postForm(t, h.PageRevert, "/p/characters/alice/notes.md/history/revert", previewOwner,
+		map[string]string{"conflict": "characters/alice/notes.conflict-1.md", "content": "merged\n"}, true)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("preview revert = %d, want 403", rec.Code)
+	}
+
+	// Upload: denied before parsing the multipart body.
+	rec = postForm(t, h.Upload, "/upload", previewOwner, map[string]string{}, true)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("preview upload = %d, want 403", rec.Code)
+	}
+
+	// Dice roll: denied, nothing logged.
+	rec = jsonDiceRequest(t, h.DiceRoll, "/api/dice/roll", previewOwner, `{"notation":"1d6"}`, true)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("preview dice roll = %d, want 403", rec.Code)
+	}
+	var n int
+	if err := s.AppDB().QueryRow(`SELECT COUNT(*) FROM dice_logs`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("dice_logs rows = %d, err = %v; want 0 (preview rolled nothing)", n, err)
+	}
+	// Non-preview roll still works (the guard is preview-scoped, not a blanket ban).
+	rec = jsonDiceRequest(t, h.DiceRoll, "/api/dice/roll", alice(), `{"notation":"1d6"}`, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("plain roll = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+
+	// Encounter spawn: denied (already 403 via effGM; pinned here as part of the matrix).
+	rec = postForm(t, h.EncounterAction, "/encounter", previewOwner,
+		map[string]string{"action": "spawn", "map": "arena", "fighter": "1"}, true)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("preview encounter spawn = %d, want 403", rec.Code)
+	}
+
+	// Unimplemented write stubs: previews 403 (not 501).
+	for name, fn := range map[string]http.HandlerFunc{
+		"wizard": h.WizardStep, "vtt": h.VTTStateUpdate,
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/stub", nil)
+		req.AddCookie(sessionCookie())
+		rec := httptest.NewRecorder()
+		fn(rec, withViewer(req, previewOwner))
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("preview %s stub = %d, want 403", name, rec.Code)
+		}
+		req = httptest.NewRequest(http.MethodPost, "/stub", nil)
+		req.AddCookie(sessionCookie())
+		rec = httptest.NewRecorder()
+		fn(rec, withViewer(req, alice()))
+		if rec.Code != http.StatusNotImplemented {
+			t.Errorf("plain %s stub = %d, want 501", name, rec.Code)
+		}
+	}
+
+	// Dashboard writes (ReadHandlers): preview 403s before any gate.
+	rh := testHandlers()
+	for name, fn := range map[string]http.HandlerFunc{
+		"save": rh.DashboardSave, "user-create": rh.DashboardUserCreate,
+		"flip": rh.NewMux().ServeHTTP,
+	} {
+		var req *http.Request
+		if name == "flip" {
+			req = httptest.NewRequest(http.MethodPost, "/events",
+				strings.NewReader(url.Values{"path": {"welcome.md"}}.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		} else {
+			req = httptest.NewRequest(http.MethodPost, "/dashboard",
+				strings.NewReader(url.Values{"name": {"x"}}.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		}
+		rec := httptest.NewRecorder()
+		fn(rec, withViewer(req, previewOwner))
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("preview dashboard %s = %d, want 403", name, rec.Code)
+		}
 	}
 }
 

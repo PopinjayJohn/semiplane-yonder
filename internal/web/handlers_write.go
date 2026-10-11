@@ -45,6 +45,10 @@ import (
 //   - Non-GM writers are confined to their own PC subtree
 //     (characters/<pc>/...): prefix check + owner stamp on create, owner /
 //     secret / editable-by validation on every save (never-widen wins).
+//   - GM preview (PreviewAs) is read-only on every state-changing handler:
+//     preview viewers get 403 before any mutation (W2 canonical rule), so a
+//     previewing GM can never write as the previewed user nor regain GM
+//     powers through the preview. Reads filter as the previewed user.
 //   - Concurrent saves surface as *.conflict-<ts>.md (single pattern,
 //     created by the vault layer, never auto-merged) plus a conflict banner
 //     with a manual-merge flow. No error path emits secret content: titles,
@@ -455,13 +459,26 @@ func (h *WriteHandlers) authorizeWrite(ctx context.Context, v *auth.Viewer, rel 
 
 // viewerOf returns the request viewer (nil = guest). Under DemoAuth=false a
 // session GM's ?preview_as= applies (same bannered+logged contract as the
-// read path), so previewing GMs write as the previewed user.
+// read path) for READS: filtering, banner, and logging. Writes are never
+// applied as the previewed user — see previewReadOnly (W2: GM preview is
+// read-only everywhere).
 func viewerOf(r *http.Request) *auth.Viewer {
 	if v, ok := auth.ViewerFromContext(r.Context()); ok {
 		return applySessionPreview(v, r)
 	}
 	return nil
 }
+
+// previewReadOnly reports whether v carries an active GM preview (GM-only
+// PreviewAs impersonation).
+//
+// Canonical W2 rule — GM preview is read-only: every state-changing handler
+// rejects such viewers with 403 before mutating anything, so a previewing GM
+// can never mutate state under another identity (and never regains GM powers
+// through the preview either). Reads — secret filtering as the previewed
+// user, the persistent banner, request logging — are untouched. Login/logout
+// (the auth surface, not identity-scoped writes) are exempt.
+func previewReadOnly(v *auth.Viewer) bool { return v != nil && v.PreviewAs != "" }
 
 // checkCSRF enforces double-submit CSRF on state-changing routes: the
 // submitted token (form field or fetch header) must equal the token bound to
@@ -1277,6 +1294,10 @@ func (h *WriteHandlers) PageSave(w http.ResponseWriter, r *http.Request) {
 		writeDenied(w, http.StatusUnauthorized, "log in to save pages")
 		return
 	}
+	if previewReadOnly(v) {
+		writeDenied(w, http.StatusForbidden, "GM preview is read-only — exit preview to save")
+		return
+	}
 	if h.Vault == nil {
 		writeDenied(w, http.StatusInternalServerError, "vault is not configured")
 		return
@@ -1489,6 +1510,10 @@ func (h *WriteHandlers) PageCreate(w http.ResponseWriter, r *http.Request) {
 		writeDenied(w, http.StatusUnauthorized, "log in to create pages")
 		return
 	}
+	if previewReadOnly(v) {
+		writeDenied(w, http.StatusForbidden, "GM preview is read-only — exit preview to create pages")
+		return
+	}
 	if h.Vault == nil {
 		writeDenied(w, http.StatusInternalServerError, "vault is not configured")
 		return
@@ -1570,6 +1595,10 @@ func (h *WriteHandlers) PageRevert(w http.ResponseWriter, r *http.Request) {
 	user, isGM, _, _ := store.SplitViewer(v)
 	if user == "" && !isGM {
 		writeDenied(w, http.StatusUnauthorized, "log in to resolve conflicts")
+		return
+	}
+	if previewReadOnly(v) {
+		writeDenied(w, http.StatusForbidden, "GM preview is read-only — exit preview to resolve conflicts")
 		return
 	}
 	if h.Vault == nil {
@@ -1739,6 +1768,10 @@ func (h *WriteHandlers) Upload(w http.ResponseWriter, r *http.Request) {
 		writeDenied(w, http.StatusUnauthorized, "log in to upload files")
 		return
 	}
+	if previewReadOnly(v) {
+		writeDenied(w, http.StatusForbidden, "GM preview is read-only — exit preview to upload files")
+		return
+	}
 	if h.Vault == nil {
 		writeDenied(w, http.StatusInternalServerError, "vault is not configured")
 		return
@@ -1834,6 +1867,10 @@ func (h *WriteHandlers) DiceReplay(w http.ResponseWriter, r *http.Request) {
 
 // WizardStep handles wizard steps (Lane I1/P07 owns onboarding).
 func (h *WriteHandlers) WizardStep(w http.ResponseWriter, r *http.Request) {
+	if previewReadOnly(viewerOf(r)) {
+		writeDenied(w, http.StatusForbidden, "GM preview is read-only — exit preview to use the wizard")
+		return
+	}
 	http.Error(w, "the character wizard is not implemented in this milestone", http.StatusNotImplemented)
 }
 
@@ -1848,5 +1885,9 @@ func (h *WriteHandlers) EncounterAction(w http.ResponseWriter, r *http.Request) 
 // VTTStateUpdate handles VTT state updates (Lane K owns the live path;
 // this stays 501 — see the B6-style stub discipline, never half-wire).
 func (h *WriteHandlers) VTTStateUpdate(w http.ResponseWriter, r *http.Request) {
+	if previewReadOnly(viewerOf(r)) {
+		writeDenied(w, http.StatusForbidden, "GM preview is read-only — exit preview to change VTT state")
+		return
+	}
 	http.Error(w, "VTT state is not implemented in this milestone", http.StatusNotImplemented)
 }

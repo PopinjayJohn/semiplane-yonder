@@ -607,6 +607,10 @@ func (h *SheetHandlers) FieldsPatch(w http.ResponseWriter, r *http.Request) {
 		writeDenied(w, http.StatusUnauthorized, "log in to change sheets")
 		return
 	}
+	if previewReadOnly(v) {
+		writeDenied(w, http.StatusForbidden, "GM preview is read-only — exit preview to change sheets")
+		return
+	}
 	if !h.csrfOK(r) {
 		writeDenied(w, http.StatusForbidden, "bad or missing CSRF token")
 		return
@@ -809,6 +813,10 @@ func (h *SheetHandlers) AdvancedSave(w http.ResponseWriter, r *http.Request) {
 		writeDenied(w, http.StatusUnauthorized, "log in to edit sheets")
 		return
 	}
+	if previewReadOnly(v) {
+		writeDenied(w, http.StatusForbidden, "GM preview is read-only — exit preview to edit sheets")
+		return
+	}
 	if !h.csrfOK(r) {
 		writeDenied(w, http.StatusForbidden, "bad or missing CSRF token")
 		return
@@ -878,6 +886,10 @@ func (h *SheetHandlers) Rest(w http.ResponseWriter, r *http.Request) {
 	user, _, _, _ := store.SplitViewer(v)
 	if user == "" {
 		writeDenied(w, http.StatusUnauthorized, "log in to rest")
+		return
+	}
+	if previewReadOnly(v) {
+		writeDenied(w, http.StatusForbidden, "GM preview is read-only — exit preview to rest")
 		return
 	}
 	if !h.csrfOK(r) {
@@ -952,6 +964,10 @@ func (h *SheetHandlers) Level(w http.ResponseWriter, r *http.Request) {
 	user, _, _, _ := store.SplitViewer(v)
 	if user == "" {
 		writeDenied(w, http.StatusUnauthorized, "log in to level up")
+		return
+	}
+	if previewReadOnly(v) {
+		writeDenied(w, http.StatusForbidden, "GM preview is read-only — exit preview to level up")
 		return
 	}
 	if !h.csrfOK(r) {
