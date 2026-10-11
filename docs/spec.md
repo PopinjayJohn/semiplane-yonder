@@ -1,9 +1,9 @@
 # Spec — TTRPG Wiki / Campaign Manager / VTT
 
-Source of truth: `docs/plan/` (overview, p00–p13, roadmap, repo-layout). This file is the build-ready digest. On conflict, `docs/plan/pXX.md` wins over this file.
+Source of truth: `docs/spec.md` for the build contract, `docs/plan/backlog.md` for remaining work, `docs/plan/pitfalls.md` for footguns. Execution plans (`p00–p13`, `roadmap.md`, `lanes/`) were removed after ship — history lives in git.
 
 ## 1. What we build
-Single-binary (Linux/macOS/Windows) self-hosted app: Obsidian-compatible markdown Wiki first, Campaign Manager second, minimal VTT last. Each slice usable standalone with users. Order: M1 Wiki → M2 CM → M3 VTT (`docs/plan/roadmap.md`).
+Single-binary (Linux/macOS/Windows) self-hosted app: Obsidian-compatible markdown Wiki first, Campaign Manager second, minimal VTT last. All three shipped — see `docs/plan/backlog.md` for remaining work.
 
 ## 2. Stack (frozen)
 Go 1.27, templ (SSR) + Datastar (SSE, no WS in v1), SQLite via modernc (pure Go, WAL, `busy_timeout=5s`, single writer). Vanilla CSS + design tokens + `@layer core, plugins, overrides`. CodeMirror 6 only JS. Deps: templ, datastar-go, goldmark(+obsidian), fsnotify, modernc, x/crypto, x/image (draw/resize only). stdlib HMAC sessions. No Node in binary (CI-only for axe). `make dev` = `templ generate --watch` + `go run ./cmd/app --vault fixtures/demo`.

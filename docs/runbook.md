@@ -176,6 +176,6 @@ not re-run.
 fuzz-short, 3-OS snapshot, axe on demo pages, serve-smoke. Budgets:
 rendered pages <100 KB HTML/CSS excl. vendored JS, plugin CSS ≤20 KB,
 upload caps 5 MB image / 10 MB PDF, VTT resync <1 s LAN. Leak matrix
-(`docs/plan/p10.md`: GM / owner / editable-by-non-owner / other-player /
+(`docs/plan/pitfalls.md` secrets section: GM / owner / editable-by-non-owner / other-player /
 guest / revoked-session × secret/non-secret / `+`/`-` / conflicted-file /
 embed-of-secret) stays green on every PR.

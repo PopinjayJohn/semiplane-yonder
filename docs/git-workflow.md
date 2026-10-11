@@ -21,12 +21,11 @@ status green. Direct pushes to `main` are rejected.
    `git push origin --delete <branch>`
    `git fetch --prune origin`
 
-## Phase/lane work
+## Branching
 
-Lane branches follow `docs/plan/roadmap.md` (`lane/<X>` off the phase base,
-push early, rebase onto the phase base before the gate — never merge `main`
-into a lane). Gate verdicts merge to `main` as a single phase PR. The steps
-above (PR → check → merge → delete) still apply to that final PR.
+One branch per change off `main` (`<type>/<slug>`), push early, never merge
+`main` into the branch. Every change merges to `main` as a single PR. The steps
+above (PR → check → merge → delete) apply to every PR.
 
 ## Stale branches
 
