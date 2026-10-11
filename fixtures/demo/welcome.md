@@ -23,3 +23,5 @@ Newcomers read [[lore|the gazetteer]] before crossing the plains.
 | --- | --- |
 | River gate | All travellers |
 | Cinder gate | Bearers only |
+
+Bearers of the pact walk openly here: [[characters/mira/index|Mira]] keeps the vanguard, [[characters/bram/index|Bram]] keeps the gate log.

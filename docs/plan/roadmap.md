@@ -3,7 +3,7 @@
 ## Status (single source — phase agents read this, humans update it)
 - Current phase: **SHIPPED** (G3 GO + G4 GO 2026-10-09 — M2 evidence: `cmd/app/cm_gate_test.go` 5/5 + live checks (PR #13); M3 evidence: 6-client no-desync, fog fail-closed incl. post-rebuild, axe clean in CI, zip round-trip identical + owner-blind; M1 evidence retained in `lanes/G2-amend.md`)
 - Gates: G0 **GO** · G1 **GO** · G2 **GO (2026-10-07)** · G3 **GO (2026-10-09)** · G4 **GO (2026-10-09)**
-- Lanes: all complete (Phase 0–4 + amends). Backlog: zip-download UI (F2-filed), Upload-501 staging (F3), `?as=` retirement → P11 (F4), web/campaign vs internal/campaign unification (H1 amend), graph edge-key mismatch (F2-filed), startup rescan follow-up.
+- Lanes: all complete (Phase 0–4 + amends). Backlog: `backlog.md` (UI gaps B1–B6 filed 2026-10-10 from Variant-B verification, then carried items: `?as=` retirement → P11 (F4), web/campaign vs internal/campaign unification (H1 amend), graph edge-key mismatch (F2-filed), startup rescan follow-up, zip-download UI verify/close).
 - Rule: the phase agent runs the phase named here and dispatches exactly its lanes
   (briefs in `docs/plan/lanes/`). Advance `Current phase` only on its gate's GO.
 

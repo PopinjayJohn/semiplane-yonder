@@ -13,3 +13,5 @@ Old songs name [[cinder-pact|The Pact]] that bound the first bearers.
 
 - [ ] Walk the plains road
 - [x] Read the gazetteer
+
+The bearers [[characters/mira/index|Mira]] and [[characters/bram/index|Bram]] crossed the plains road together.

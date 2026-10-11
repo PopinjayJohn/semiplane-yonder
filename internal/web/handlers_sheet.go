@@ -26,6 +26,53 @@ import (
 	"github.com/semiplane/yonder/internal/vault"
 )
 
+// sheetCSS inlines web/static/core/sheet.css (the real stylesheet) so sheet
+// pages render fully offline with no new static routes. The <link> in
+// writeSheetHTML points at the same file for when the static mount lands;
+// identical content, so no cascade conflict either way. Edit the .css file
+// first, then copy it here verbatim: TestSheetCSSMatchesFile pins the two
+// identical (go:embed cannot reach outside the package dir, hence the copy).
+const sheetCSS = `/* Sheet core styles (backlog B4): Simple ledger + big-tap chip grid +
+   one-handed phone layout. Single source of truth: handlers_sheet.go embeds
+   this file inline (offline fallback, no new routes) and links it as
+   /static/core/sheet.css for when the static mount lands. Styling layer is
+   core per the UI contract. All state carries text labels, never color only.
+   Tap targets are 44px minimum, 52px in the phone thumb zone. */
+@layer core {
+.sheet { max-width: 60rem; }
+.sheet button,
+.sheet a.btn { min-height: 44px; min-width: 44px; padding: 0.5rem 0.9rem; margin: 0.15rem; }
+.sheet .pips { letter-spacing: 0.2rem; font-size: 1.2rem; }
+.sheet .badge { display: inline-block; border: 2px solid currentColor; border-radius: 0.4rem; padding: 0.1rem 0.5rem; font-weight: 600; }
+.sheet :focus-visible { outline: 3px solid currentColor; outline-offset: 2px; }
+.skip { position: absolute; left: -9999px; top: 0; background: #fff; padding: 0.5rem; }
+.skip:focus { left: 0; }
+.view-switch { margin: 0.5rem 0; }
+table.ledger { width: 100%; border-collapse: collapse; margin: 0.5rem 0; }
+table.ledger caption { text-align: left; font-weight: 600; }
+table.ledger th,
+table.ledger td { text-align: left; padding: 0.45rem 0.5rem; border-bottom: 1px solid currentColor; }
+.chip-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; padding: 0.5rem 0; }
+.chip-grid .chip { min-height: 44px; font-size: 1rem; }
+.thumb-zone { margin: 0.5rem 0; }
+details.drawer { margin-top: 1rem; border-top: 1px solid currentColor; }
+details.drawer summary { cursor: pointer; padding: 0.6rem 0.2rem; font-weight: 600; }
+@media (max-width: 480px) {
+  table.ledger th,
+  table.ledger td { padding: 0.7rem 0.4rem; }
+  .chip-grid .chip { min-height: 52px; }
+  .thumb-zone button,
+  .thumb-zone .btn { display: block; width: 100%; min-height: 52px; margin: 0.25rem 0; }
+  details.drawer summary { min-height: 52px; display: flex; align-items: center; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sheet *,
+  .sheet *::before,
+  .sheet *::after { animation: none; transition: none; }
+}
+}
+`
+
 // Lane-owned route paths (routes.go frozen: registered via the registry).
 const (
 	RouteMeSheet    = "/me"
@@ -273,8 +320,18 @@ func (h *SheetHandlers) myCharacters(ctx context.Context, v *auth.Viewer) []stri
 	return out
 }
 
-// MeSheet renders the player home: my sheet (Simple default) + handout/
-// recap slots. Sheets the viewer cannot read never appear (server-side).
+// sheetViewOf resolves the Simple/Chips style preference: explicit views
+// only (simple default); unknown cookie values fall back fail-closed.
+func sheetViewOf(r *http.Request) string {
+	if c, err := r.Cookie("sheet-view"); err == nil && (c.Value == "chips" || c.Value == "advanced") {
+		return c.Value
+	}
+	return "simple"
+}
+
+// MeSheet renders the player home: my sheet (Simple default, Chips
+// opt-in) + handout/recap slots. Sheets the viewer cannot read never
+// appear (server-side).
 func (h *SheetHandlers) MeSheet(w http.ResponseWriter, r *http.Request) {
 	v := viewerOf(r)
 	user, isGM, _, _ := store.SplitViewer(v)
@@ -282,15 +339,12 @@ func (h *SheetHandlers) MeSheet(w http.ResponseWriter, r *http.Request) {
 		writeDenied(w, http.StatusUnauthorized, "log in to view your sheet")
 		return
 	}
-	if q := strings.TrimSpace(r.URL.Query().Get("view")); q == "simple" || q == "advanced" {
+	if q := strings.TrimSpace(r.URL.Query().Get("view")); q == "simple" || q == "chips" || q == "advanced" {
 		http.SetCookie(w, &http.Cookie{Name: "sheet-view", Path: "/", Value: q, MaxAge: 365 * 24 * 3600, SameSite: http.SameSiteLaxMode})
 		http.Redirect(w, r, "/me", http.StatusSeeOther)
 		return
 	}
-	view := "simple"
-	if c, err := r.Cookie("sheet-view"); err == nil && c.Value == "advanced" {
-		view = "advanced"
-	}
+	view := sheetViewOf(r)
 	mine := h.myCharacters(r.Context(), v)
 	if len(mine) == 0 {
 		var b strings.Builder
@@ -320,22 +374,120 @@ func (h *SheetHandlers) MeSheet(w http.ResponseWriter, r *http.Request) {
 		h.AdvancedForm(w, r2)
 		return
 	}
-	h.renderSimple(w, r2, rel)
+	h.renderSheet(w, r2, rel, view)
 }
 
 // ---------------------------------------------------------------------------
-// Simple view (derived widgets only — never raw frontmatter)
+// Simple + Chips views (derived widgets only — never raw frontmatter)
 // ---------------------------------------------------------------------------
 
 func sheetStyle() string {
-	return `<style>
-.sheet button, .sheet a.btn { min-height: 44px; min-width: 44px; padding: 0.5rem 0.9rem; margin: 0.15rem; }
-.sheet .pips { letter-spacing: 0.2rem; font-size: 1.2rem; }
-.sheet .badge { display: inline-block; border: 2px solid currentColor; border-radius: 0.4rem; padding: 0.1rem 0.5rem; font-weight: 600; }
-</style>` + "\n"
+	return "<style>\n" + sheetCSS + "\n</style>\n"
 }
 
-func (h *SheetHandlers) renderSimple(w http.ResponseWriter, r *http.Request, rel string) {
+// writeSheetHTML mirrors writeHTML for sheet pages (same per-viewer
+// no-store rule) with a phone-ready head: viewport meta, the core sheet
+// stylesheet link, and the embedded offline fallback style.
+func writeSheetHTML(w http.ResponseWriter, status int, title, body string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// Per-viewer sheet output: never shared-cache, never stored (Lane L).
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.WriteHeader(status)
+	_, _ = fmt.Fprintf(w, "<!DOCTYPE html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>%s</title>\n<link rel=\"stylesheet\" href=\"/static/core/sheet.css\">\n%s</head>\n<body>\n<a class=\"skip\" href=\"#main\">Skip to sheet content</a>\n%s\n</body>\n</html>\n",
+		html.EscapeString(title), sheetStyle(), body)
+}
+
+// abilityMod derives the ability modifier for a score (floored, per SRD).
+func abilityMod(score int64) int64 { return floorDiv(score-10, 2) }
+
+// signedMod formats a modifier with an explicit sign (text label, never
+// color-only).
+func signedMod(m int64) string {
+	if m >= 0 {
+		return fmt.Sprintf("+%d", m)
+	}
+	return fmt.Sprintf("%d", m)
+}
+
+// fullAbilityName expands an ability key for screen-reader labels.
+func fullAbilityName(k string) string {
+	switch k {
+	case "str":
+		return "Strength"
+	case "dex":
+		return "Dexterity"
+	case "con":
+		return "Constitution"
+	case "int":
+		return "Intellect"
+	case "wis":
+		return "Wisdom"
+	case "cha":
+		return "Charisma"
+	}
+	return strings.ToUpper(k)
+}
+
+// viewSwitch renders the Simple/Chips/Advanced style switcher: native links
+// (keyboard-reachable), current style marked with aria-current.
+func viewSwitch(style, base string) string {
+	mk := func(name, label string) string {
+		if name == style {
+			return "<span aria-current=\"page\">" + label + "</span>"
+		}
+		return "<a href=\"/me?view=" + name + "\">" + label + "</a>"
+	}
+	return "<nav class=\"view-switch\" aria-label=\"Sheet style\"><span>Style:</span> " +
+		mk("simple", "Simple") + " · " + mk("chips", "Chips") + " · " +
+		"<a href=\"" + base + "/advanced\">Advanced editor</a></nav>\n"
+}
+
+// writeLedgerTable renders the condensed vitals table for the Chips style:
+// the same derived numbers as Simple, as ledger rows for narrow phones.
+func writeLedgerTable(b *strings.Builder, sh *Sheet, slotNs []int64) {
+	b.WriteString("<table class=\"ledger\">\n<caption>Vitals</caption>\n<tbody>\n")
+	fmt.Fprintf(b, "<tr><th scope=\"row\">HP</th><td><b>%d / %d</b></td></tr>\n", sh.HP, sh.HPMax)
+	fmt.Fprintf(b, "<tr><th scope=\"row\">Hit dice</th><td>%d of %d (d%d) <span class=\"pips\" aria-label=\"%d of %d hit dice remaining\">%s</span></td></tr>\n",
+		sh.HitDice, sh.HitDiceMax, sh.HitDie, sh.HitDice, sh.HitDiceMax, pips(sh.HitDice, sh.HitDiceMax))
+	fmt.Fprintf(b, "<tr><th scope=\"row\">XP</th><td>%d</td></tr>\n", sh.XP)
+	for _, n := range slotNs {
+		fmt.Fprintf(b, "<tr><th scope=\"row\">Level-%d slots</th><td><span class=\"pips\" aria-label=\"%d of %d level %d slots remaining\">%s</span></td></tr>\n",
+			n, sh.Slots[n], sh.SlotsMax[n], n, pips(sh.Slots[n], sh.SlotsMax[n]))
+	}
+	b.WriteString("</tbody>\n</table>\n")
+}
+
+// writeChipGrid renders the big-tap ability chip grid (Chips style, mockup
+// B-05 style 2): six native buttons with text labels + derived modifiers,
+// keyboard-focusable by construction.
+func writeChipGrid(b *strings.Builder, sh *Sheet) {
+	b.WriteString("<div class=\"chip-grid\" role=\"group\" aria-label=\"Ability scores\">\n")
+	for _, k := range SheetStatKeys {
+		score := sh.Stats[k]
+		mod := signedMod(abilityMod(score))
+		fmt.Fprintf(b, "<button class=\"chip\" type=\"button\" aria-label=\"%s %d, modifier %s\">%s <strong>%d</strong> <span>%s</span></button>\n",
+			fullAbilityName(k), score, mod, strings.ToUpper(k), score, mod)
+	}
+	b.WriteString("</div>\n")
+}
+
+// writeSheetDrawer renders the collapsed details drawer below the sheet
+// (mockup B-08 order: sheet, then actions, then drawer): native details/
+// summary, keyboard-reachable, never covering the sheet.
+func writeSheetDrawer(b *strings.Builder, sh *Sheet, base string) {
+	b.WriteString("<details class=\"drawer\">\n<summary>Details: inspiration and death saves</summary>\n<div>\n")
+	insp := "No"
+	if sh.Inspiration > 0 {
+		insp = "Yes"
+	}
+	fmt.Fprintf(b, "<p>Inspiration: %s</p>\n", insp)
+	fmt.Fprintf(b, "<p>Death saves: <span class=\"pips\" aria-label=\"%d successes\">%s</span> successes · <span class=\"pips\" aria-label=\"%d failures\">%s</span> failures</p>\n",
+		sh.DeathSucc, pips(sh.DeathSucc, 3), sh.DeathFail, pips(sh.DeathFail, 3))
+	fmt.Fprintf(b, "<p><a href=\"%s/advanced\">Advanced editor</a></p>\n", base)
+	b.WriteString("</div>\n</details>\n")
+}
+
+func (h *SheetHandlers) renderSheet(w http.ResponseWriter, r *http.Request, rel, style string) {
 	v := viewerOf(r)
 	ls, _, status, msg := h.loadSheetRel(r, v, rel)
 	if status != 0 {
@@ -347,67 +499,86 @@ func (h *SheetHandlers) renderSimple(w http.ResponseWriter, r *http.Request, rel
 	base := RouteCharPrefix + id
 	csrf := html.EscapeString(h.csrfField(r))
 	var b strings.Builder
-	b.WriteString(sheetStyle())
-	b.WriteString("<main class=\"sheet\" aria-label=\"Character sheet\">\n")
+	fmt.Fprintf(&b, "<main id=\"main\" class=\"sheet sheet-%s\" aria-label=\"Character sheet\">\n", style)
 	fmt.Fprintf(&b, "<h1>%s</h1>\n", html.EscapeString(filtered.Title))
 	fmt.Fprintf(&b, "<p><span class=\"badge\">Level %d %s</span> <span class=\"badge\">%s</span> <span class=\"badge\">%s</span></p>\n",
 		sh.Level, html.EscapeString(sh.Class), html.EscapeString(sh.Ancestry), html.EscapeString(sh.Background))
 	fmt.Fprintf(&b, "<p aria-live=\"polite\" role=\"status\">HP %d of %d · Hit dice %d of %d (d%d) · XP %d</p>\n",
 		sh.HP, sh.HPMax, sh.HitDice, sh.HitDiceMax, sh.HitDie, sh.XP)
+	b.WriteString(viewSwitch(style, base))
 	// HP tap targets (surgical adjust, clamped server-side).
-	b.WriteString("<form method=\"post\" action=\"" + base + "/fields\">\n")
+	b.WriteString("<div class=\"thumb-zone\">\n<form method=\"post\" action=\"" + base + "/fields\">\n")
 	fmt.Fprintf(&b, "<input type=\"hidden\" name=\"%s\" value=\"%s\">\n", auth.CSRFFieldName, csrf)
 	b.WriteString("<input type=\"hidden\" name=\"field\" value=\"hp\">\n")
-	b.WriteString("<button type=\"submit\" name=\"adjust\" value=\"-1\" aria-label=\"Take 1 damage\">−1 HP</button>\n")
-	b.WriteString("<button type=\"submit\" name=\"adjust\" value=\"1\" aria-label=\"Heal 1 hit point\">+1 HP</button>\n")
-	b.WriteString("</form>\n")
-	// Hit dice pips (text, never color-only).
-	fmt.Fprintf(&b, "<p>Hit dice: <span class=\"pips\" aria-label=\"%d of %d hit dice remaining\">%s</span></p>\n",
-		sh.HitDice, sh.HitDiceMax, pips(sh.HitDice, sh.HitDiceMax))
-	// Spell slots pips.
+	b.WriteString("<button class=\"btn\" type=\"submit\" name=\"adjust\" value=\"-1\" aria-label=\"Take 1 damage\">−1 HP</button>\n")
+	b.WriteString("<button class=\"btn\" type=\"submit\" name=\"adjust\" value=\"1\" aria-label=\"Heal 1 hit point\">+1 HP</button>\n")
+	b.WriteString("</form>\n</div>\n")
+	// Spell-slot levels present on this sheet (absent pairs: no such slots).
 	var slotNs []int64
 	for n := int64(1); n <= 9; n++ {
 		if _, ok := sh.SlotsMax[n]; ok {
 			slotNs = append(slotNs, n)
 		}
 	}
-	if len(slotNs) > 0 {
-		b.WriteString("<ul>\n")
-		for _, n := range slotNs {
-			fmt.Fprintf(&b, "<li>Level-%d slots: <span class=\"pips\" aria-label=\"%d of %d level %d slots remaining\">%s</span> ",
-				n, sh.Slots[n], sh.SlotsMax[n], n, pips(sh.Slots[n], sh.SlotsMax[n]))
-			fmt.Fprintf(&b, "<form method=\"post\" action=\"%s/fields\" style=\"display:inline\">\n", base)
-			fmt.Fprintf(&b, "<input type=\"hidden\" name=\"%s\" value=\"%s\">\n", auth.CSRFFieldName, csrf)
-			fmt.Fprintf(&b, "<input type=\"hidden\" name=\"field\" value=\"slots-%d\">\n", n)
-			fmt.Fprintf(&b, "<button type=\"submit\" name=\"adjust\" value=\"-1\" aria-label=\"Spend one level %d slot\">Spend</button></form></li>\n", n)
+	if style == "chips" {
+		writeLedgerTable(&b, sh, slotNs)
+		writeChipGrid(&b, sh)
+	} else {
+		// Hit dice pips (text, never color-only).
+		fmt.Fprintf(&b, "<p>Hit dice: <span class=\"pips\" aria-label=\"%d of %d hit dice remaining\">%s</span></p>\n",
+			sh.HitDice, sh.HitDiceMax, pips(sh.HitDice, sh.HitDiceMax))
+		// Spell slots pips.
+		if len(slotNs) > 0 {
+			b.WriteString("<ul class=\"ledger\">\n")
+			for _, n := range slotNs {
+				fmt.Fprintf(&b, "<li>Level-%d slots: <span class=\"pips\" aria-label=\"%d of %d level %d slots remaining\">%s</span> ",
+					n, sh.Slots[n], sh.SlotsMax[n], n, pips(sh.Slots[n], sh.SlotsMax[n]))
+				fmt.Fprintf(&b, "<form method=\"post\" action=\"%s/fields\" style=\"display:inline\">\n", base)
+				fmt.Fprintf(&b, "<input type=\"hidden\" name=\"%s\" value=\"%s\">\n", auth.CSRFFieldName, csrf)
+				fmt.Fprintf(&b, "<input type=\"hidden\" name=\"field\" value=\"slots-%d\">\n", n)
+				fmt.Fprintf(&b, "<button class=\"btn\" type=\"submit\" name=\"adjust\" value=\"-1\" aria-label=\"Spend one level %d slot\">Spend</button></form></li>\n", n)
+			}
+			b.WriteString("</ul>\n")
+		}
+		// Abilities (derived numbers, not source).
+		b.WriteString("<ul class=\"ledger\">\n")
+		for _, k := range SheetStatKeys {
+			fmt.Fprintf(&b, "<li>%s %d</li>\n", strings.ToUpper(k), sh.Stats[k])
 		}
 		b.WriteString("</ul>\n")
 	}
-	// Abilities (derived numbers, not source).
-	b.WriteString("<ul>\n")
-	for _, k := range SheetStatKeys {
-		fmt.Fprintf(&b, "<li>%s %d</li>\n", strings.ToUpper(k), sh.Stats[k])
+	if style == "chips" && len(slotNs) > 0 {
+		// Slot spend actions ride the same surgical PATCH flow; stacked
+		// full-width in the phone thumb zone.
+		b.WriteString("<div class=\"thumb-zone\">\n")
+		for _, n := range slotNs {
+			fmt.Fprintf(&b, "<form method=\"post\" action=\"%s/fields\">\n", base)
+			fmt.Fprintf(&b, "<input type=\"hidden\" name=\"%s\" value=\"%s\">\n", auth.CSRFFieldName, csrf)
+			fmt.Fprintf(&b, "<input type=\"hidden\" name=\"field\" value=\"slots-%d\">\n", n)
+			fmt.Fprintf(&b, "<p><button class=\"btn\" type=\"submit\" name=\"adjust\" value=\"-1\" aria-label=\"Spend one level %d slot\">Spend level-%d slot (%d left)</button></p></form>\n", n, n, sh.Slots[n])
+		}
+		b.WriteString("</div>\n")
 	}
-	b.WriteString("</ul>\n")
 	// Rest + level flows.
 	b.WriteString("<h2>Rest</h2>\n")
-	b.WriteString("<form method=\"post\" action=\"" + base + "/rest\">\n")
+	b.WriteString("<div class=\"thumb-zone\">\n<form method=\"post\" action=\"" + base + "/rest\">\n")
 	fmt.Fprintf(&b, "<input type=\"hidden\" name=\"%s\" value=\"%s\">\n", auth.CSRFFieldName, csrf)
 	b.WriteString("<input type=\"hidden\" name=\"mode\" value=\"short\">\n")
 	fmt.Fprintf(&b, "<p><label for=\"spend\">Hit dice to spend</label> <input id=\"spend\" name=\"spend\" type=\"number\" min=\"1\" max=\"%d\" value=\"1\"></p>\n", sh.HitDice)
-	b.WriteString("<p><button type=\"submit\">Short rest</button></p>\n</form>\n")
+	b.WriteString("<p><button class=\"btn\" type=\"submit\">Short rest</button></p>\n</form>\n")
 	b.WriteString("<form method=\"post\" action=\"" + base + "/rest\">\n")
 	fmt.Fprintf(&b, "<input type=\"hidden\" name=\"%s\" value=\"%s\">\n", auth.CSRFFieldName, csrf)
 	b.WriteString("<input type=\"hidden\" name=\"mode\" value=\"long\">\n")
-	b.WriteString("<p><button type=\"submit\">Long rest (full HP, half hit dice, slots back)</button></p>\n</form>\n")
+	b.WriteString("<p><button class=\"btn\" type=\"submit\">Long rest (full HP, half hit dice, slots back)</button></p>\n</form>\n</div>\n")
 	b.WriteString("<h2>Level</h2>\n")
-	b.WriteString("<form method=\"post\" action=\"" + base + "/level\">\n")
+	b.WriteString("<div class=\"thumb-zone\">\n<form method=\"post\" action=\"" + base + "/level\">\n")
 	fmt.Fprintf(&b, "<input type=\"hidden\" name=\"%s\" value=\"%s\">\n", auth.CSRFFieldName, csrf)
 	b.WriteString("<input type=\"hidden\" name=\"direction\" value=\"up\">\n")
-	fmt.Fprintf(&b, "<p><button type=\"submit\">Level up to %d</button></p>\n</form>\n", sh.Level+1)
-	fmt.Fprintf(&b, "<p><a href=\"%s/advanced\">Advanced editor</a> · <a href=\"/me?view=advanced\">Always use Advanced</a></p>\n", base)
+	fmt.Fprintf(&b, "<p><button class=\"btn\" type=\"submit\">Level up to %d</button></p>\n</form>\n</div>\n", sh.Level+1)
+	writeSheetDrawer(&b, sh, base)
+	b.WriteString("<p><a href=\"/me?view=simple\">Always use Simple</a> · <a href=\"/me?view=chips\">Always use Chips</a> · <a href=\"/me?view=advanced\">Always use Advanced</a></p>\n")
 	b.WriteString("</main>\n")
-	writeHTML(w, http.StatusOK, filtered.Title, b.String())
+	writeSheetHTML(w, http.StatusOK, filtered.Title, b.String())
 }
 
 // pips renders ●/○ text pips (never color-only).
@@ -617,15 +788,16 @@ func (h *SheetHandlers) AdvancedForm(w http.ResponseWriter, r *http.Request) {
 	}
 	id, _, _ := charPathOf(r)
 	var b strings.Builder
-	b.WriteString(sheetStyle())
+	fmt.Fprintf(&b, "<main id=\"main\" class=\"sheet sheet-advanced\" aria-label=\"Advanced sheet editor\">\n")
 	fmt.Fprintf(&b, "<h1>Advanced: %s</h1>\n", html.EscapeString(ls.page.Title))
 	b.WriteString("<p>Full source with schema validation. Unknown sheet keys fail; owner is immutable.</p>\n")
 	b.WriteString("<form method=\"post\" action=\"" + RouteCharPrefix + id + "/advanced\">\n")
 	fmt.Fprintf(&b, "<input type=\"hidden\" name=\"%s\" value=\"%s\">\n", auth.CSRFFieldName, html.EscapeString(h.csrfField(r)))
 	b.WriteString("<p><label for=\"adv-content\">Sheet source</label><br>\n")
 	fmt.Fprintf(&b, "<textarea id=\"adv-content\" name=\"content\" rows=\"30\" cols=\"80\">%s</textarea></p>\n", html.EscapeString(string(raw)))
-	b.WriteString("<p><button type=\"submit\">Save with validation</button> <a href=\"/me?view=simple\">Back to Simple</a></p>\n</form>\n")
-	writeHTML(w, http.StatusOK, "Advanced: "+ls.page.Title, b.String())
+	b.WriteString("<p><button class=\"btn\" type=\"submit\">Save with validation</button> <a href=\"/me?view=simple\">Back to Simple</a> · <a href=\"/me?view=chips\">Back to Chips</a></p>\n</form>\n")
+	b.WriteString("</main>\n")
+	writeSheetHTML(w, http.StatusOK, "Advanced: "+ls.page.Title, b.String())
 }
 
 // AdvancedSave validates the full text (schema + owner/secret invariants)
