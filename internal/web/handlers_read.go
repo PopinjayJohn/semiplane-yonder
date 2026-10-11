@@ -1026,11 +1026,10 @@ func (h *ReadHandlers) graphPayload(ctx context.Context, viewer *auth.Viewer) ([
 			continue
 		}
 		for _, t := range targets {
-			// The indexer stores RAW wikilink targets (`cinder-pact`)
-			// while page IDs carry extensions (`cinder-pact.md`): a
-			// direct map hit misses every live edge (F2-filed). Fix on
-			// the handler side with the same extension candidates
-			// resolveTarget uses — the index shape stays untouched.
+			// Link targets are stored NORMALIZED (`cinder-pact.md`, W1):
+			// resolveGraphTarget probes that form first and keeps the
+			// raw extension candidates as fallback for pre-backfill
+			// DBs. The index shape is fixed; only the resolver changed.
 			if to, ok := resolveGraphTarget(fold, t); ok {
 				if _, ok := visible[to]; ok {
 					edges = append(edges, graphEdge{From: id, To: to})
@@ -1041,12 +1040,22 @@ func (h *ReadHandlers) graphPayload(ctx context.Context, viewer *auth.Viewer) ([
 	return nodes, edges, nil
 }
 
-// resolveGraphTarget maps a raw stored wikilink target to a visible page
-// path, mirroring resolveTarget's extension candidates (`[[cinder-pact]]`
-// → `cinder-pact.md`) plus the case-insensitive page-ID rule. Unresolvable
-// targets (missing pages, secret pages the viewer cannot see) return false
-// and stay out of the edge list — never redacted, just absent.
+// resolveGraphTarget maps a stored wikilink target to a visible page path.
+// The index stores NORMALIZED targets (store.NormalizeLinkTarget:
+// `[[cinder-pact]]` → `cinder-pact.md`), so the first probe is a direct
+// case-insensitive hit on the normalized form. The extension-candidate
+// fallback stays for mixed-shape DBs that predate the W1 backfill (raw
+// `cinder-pact`, dotted `my.page`) and for in-memory fakes: outcomes are
+// identical where both apply (extensionless bases can only hit via the
+// `.md`/`.markdown` candidates). Unresolvable targets (missing pages,
+// secret pages the viewer cannot see) return false and stay out of the
+// edge list — never redacted, just absent.
 func resolveGraphTarget(fold map[string]string, target string) (string, bool) {
+	if norm := store.NormalizeLinkTarget(target); norm != "" {
+		if p, ok := fold[strings.ToLower(norm)]; ok {
+			return p, true
+		}
+	}
 	base := normalizeLinkBase(target)
 	if base == "" {
 		return "", false

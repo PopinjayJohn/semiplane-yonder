@@ -556,11 +556,12 @@ func TestEmbedOfSecretFixture(t *testing.T) {
 		t.Fatalf("embed-of-secret fixture went blind: links=%v chunks=%d", parsed.Links, len(parsed.Chunks))
 	}
 
-	// The edge is indexed, so graph/autocomplete inputs exist for F1 to
-	// filter: ForwardLinks(host.md) names the secret target raw. F1's read
-	// path must apply PageVisible per node before emitting graph, tree,
-	// autocomplete, backlinks, or SSE payloads (Backlinks/ForwardLinks take
-	// no viewer — filtering is the caller's job, server-side).
+	// The edge is indexed normalized, so graph/autocomplete inputs exist
+	// for F1 to filter: ForwardLinks(host.md) names the secret target
+	// page-path. F1's read path must apply PageVisible per node before
+	// emitting graph, tree, autocomplete, backlinks, or SSE payloads
+	// (Backlinks/ForwardLinks take no viewer — filtering is the caller's
+	// job, server-side).
 	st := indexedStore(t, ctx)
 	fw, err := st.ForwardLinks(ctx, "host.md")
 	if err != nil {
@@ -568,12 +569,12 @@ func TestEmbedOfSecretFixture(t *testing.T) {
 	}
 	seen := false
 	for _, tgt := range fw {
-		if tgt == "secret" {
+		if tgt == "secret.md" {
 			seen = true
 		}
 	}
 	if !seen {
-		t.Fatalf("ForwardLinks(host.md) = %v, want secret edge present (raw, for F1 to filter)", fw)
+		t.Fatalf("ForwardLinks(host.md) = %v, want secret edge present (normalized, for F1 to filter)", fw)
 	}
 }
 

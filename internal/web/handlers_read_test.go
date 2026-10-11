@@ -88,9 +88,10 @@ func newFakeStore() *fakeStore {
 			"welcome.md":     {"cinder-pact.md"},
 		},
 		forward: map[string][]string{
-			// Raw indexer shape: extensionless wikilink targets, exactly
-			// as the links table stores them (B5: the graph handler
-			// normalizes these; extensioned fakes masked the live bug).
+			// Legacy raw indexer shape: extensionless wikilink targets.
+			// The W1 index stores these normalized (`cinder-pact.md`);
+			// raw fakes pin the resolveGraphTarget fallback for
+			// pre-backfill DBs (extensioned fakes masked the live bug).
 			"welcome.md":     {"cinder-pact"},
 			"cinder-pact.md": {"welcome"},
 		},
@@ -462,11 +463,12 @@ func TestGraphAndAutocompleteFiltered(t *testing.T) {
 	}
 }
 
-// TestGraphEdgesResolveRawTargets pins the B5 fix: the links table stores
-// extensionless targets (`cinder-pact`) while page IDs carry `.md`. Edges
-// must resolve through the handler, for GM (both directions, secret node
-// included) and for guests (open side only — secret endpoints stay absent,
-// never redacted).
+// TestGraphEdgesResolveRawTargets pins the W1 edge resolution through the
+// handler for both stored shapes: normalized targets (`cinder-pact.md`)
+// hit directly while legacy raw rows (`cinder-pact`, pre-backfill) resolve
+// via the extension-candidate fallback — for GM (both directions, secret
+// node included) and for guests (open side only — secret endpoints stay
+// absent, never redacted).
 func TestGraphEdgesResolveRawTargets(t *testing.T) {
 	h := testHandlers()
 	decode := func(body string) (nodes []map[string]any, edges []map[string]string) {
@@ -1072,9 +1074,10 @@ func TestDemoAuthTrueKeepsShippedBehavior(t *testing.T) {
 	}
 }
 
-// TestResolveGraphTargetShapes pins the handler-side edge-key workaround:
-// raw stored targets resolve through extension candidates + the
-// case-insensitive page-ID rule, while dangling/empty targets stay absent
+// TestResolveGraphTargetShapes pins the handler-side edge-key resolution:
+// normalized stored targets (`cinder-pact.md`) hit directly while legacy
+// raw rows resolve through extension candidates, both under the
+// case-insensitive page-ID rule; dangling/empty targets stay absent
 // (never redacted, never leaked).
 func TestResolveGraphTargetShapes(t *testing.T) {
 	fold := map[string]string{
@@ -1089,6 +1092,7 @@ func TestResolveGraphTargetShapes(t *testing.T) {
 	}{
 		{"cinder-pact", "cinder-pact.md", true},
 		{"cinder-pact.md", "cinder-pact.md", true},
+		{"Cinder-Pact.MD", "cinder-pact.md", true},
 		{"CINDER-PACT", "cinder-pact.md", true},
 		{"cinder-pact#sigil", "cinder-pact.md", true},
 		{"./cinder-pact", "cinder-pact.md", true},
@@ -1106,10 +1110,11 @@ func TestResolveGraphTargetShapes(t *testing.T) {
 	}
 }
 
-// TestGraphEdgesResolveRawTargetsExtended hardens the F2-filed edge-key
-// coverage: fragment/case/relative variants of a live target still resolve
-// for authorized viewers, dangling targets add no edges, and unauthorized
-// viewers (guest AND other-player) see neither edges nor secret titles.
+// TestGraphEdgesResolveRawTargetsExtended hardens the edge-key coverage:
+// fragment/case/relative variants of a live target (both stored shapes)
+// still resolve for authorized viewers, dangling targets add no edges,
+// and unauthorized viewers (guest AND other-player) see neither edges
+// nor secret titles.
 func TestGraphEdgesResolveRawTargetsExtended(t *testing.T) {
 	fs := newFakeStore()
 	fs.forward["welcome.md"] = []string{"cinder-pact", "Cinder-Pact#Sigil", "./cinder-pact", "ghost-page"}
