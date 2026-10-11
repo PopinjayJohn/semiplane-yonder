@@ -224,6 +224,13 @@ templ Shell(data PageData, viewer *auth.Viewer, content templ.Component) {
 			<a class="skip" href="#main">Skip to page content</a>
 			<div class="shell">
 				<header class="topnav">
+					<div class="slot" data-slot="header-left">
+						for _, s := range data.Slots {
+							if s.SlotName == "header-left" {
+								<div data-plugin-slot="header-left" data-component={ s.Component } data-plugin={ s.PluginID }></div>
+							}
+						}
+					</div>
 					<span class="brand">{ data.CampaignName }</span>
 					<nav class="primary" aria-label="Primary">
 						<a href={ "/p/" + data.LandingPage + data.AsParam }>Read</a>
@@ -235,6 +242,13 @@ templ Shell(data PageData, viewer *auth.Viewer, content templ.Component) {
 							<a href={ "/dashboard" + data.AsParam }>Dashboard</a>
 						}
 					</nav>
+					<div class="slot" data-slot="header-center">
+						for _, s := range data.Slots {
+							if s.SlotName == "header-center" {
+								<div data-plugin-slot="header-center" data-component={ s.Component } data-plugin={ s.PluginID }></div>
+							}
+						}
+					</div>
 					<div class="slot" data-slot="header-right">
 						if viewer != nil && viewer.UserID != "" {
 							<div class="user-menu">
@@ -405,6 +419,11 @@ templ PageBody(data PageData) {
 			}
 			<span class="sse-state" data-sse-state aria-live="polite">Live updates: connecting…</span>
 		</div>
+		for _, s := range data.Slots {
+			if s.SlotName == "page-actions" {
+				<div data-plugin-slot="page-actions" data-component={ s.Component } data-plugin={ s.PluginID }></div>
+			}
+		}
 	</div>
 	if len(data.TOC) > 0 {
 		<nav class="toc" aria-label="Table of contents">
@@ -430,6 +449,11 @@ templ PageBody(data PageData) {
 						}
 					</tbody>
 				</table>
+				for _, s := range data.Slots {
+					if s.SlotName == "sheet-header" {
+						<div data-plugin-slot="sheet-header" data-component={ s.Component } data-plugin={ s.PluginID }></div>
+					}
+				}
 			</div>
 		</div>
 	}

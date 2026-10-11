@@ -644,7 +644,7 @@ func (h *ReadHandlers) renderShell(w http.ResponseWriter, r *http.Request, statu
 	// G3): disabled plugins contribute no mount points. The provider also
 	// applies viewer/path gating (GM-only, grants, prefixes) server-side.
 	if h != nil {
-		for _, slot := range []string{SlotHeaderRight, SlotSidebarLeft, SlotSidebarRight, SlotFooter} {
+		for _, slot := range []string{SlotHeaderLeft, SlotHeaderCenter, SlotHeaderRight, SlotSidebarLeft, SlotSidebarRight, SlotFooter, SlotPageActions, SlotSheetHeader} {
 			for _, c := range shellSlots(h.Slots, h.SlotRegistry, slot, viewer, data.Path) {
 				data.Slots = append(data.Slots, templates.SlotMark{
 					SlotName: slot, ID: c.ID, Component: c.Component, PluginID: c.PluginID,
