@@ -1,4 +1,4 @@
-// Package vtt implements the Phase 4 VTT MVP (docs/plan/p08.md, Lane K).
+// Package vtt implements the VTT (spec §9).
 //
 // Scope fence (spec §9): image + fog + tokens + dice tray + initiative ONLY.
 // No WebSockets (Datastar SSE via the frozen /events stream), no lighting
