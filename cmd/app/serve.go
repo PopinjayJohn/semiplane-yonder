@@ -68,6 +68,28 @@ func enablePlugins(vaultDir string, plugReg *plugins.Registry) {
 	}
 }
 
+// registerSlotPlugins compiles the v1 slot plugins into the registry.
+// Enablement stays data-driven via campaign.yaml enabled-plugins; unknown
+// ids stay disabled with a warning (never a crash). All six contribute
+// secret-filtered slot mounts only (no routes): vault-tree (sidebar-left),
+// slot-header (header-left/center/right), page-companions (sidebar-right),
+// vault-colophon (footer), quick-actions (page-actions), sheet-tools
+// (sheet-header, characters/ subtree only).
+func registerSlotPlugins(plugReg *plugins.Registry) {
+	for _, p := range []plugins.Plugin{
+		plugins.NewVaultTreePlugin(),
+		&plugins.HeaderPlugin{},
+		&plugins.CompanionsPlugin{},
+		plugins.NewColophonPlugin(),
+		plugins.QuickActionsPlugin{},
+		&plugins.SheetToolsPlugin{},
+	} {
+		if err := plugReg.Register(p); err != nil {
+			slog.Warn("plugins: cannot register, stays unavailable", "plugin", p.ID(), "err", err)
+		}
+	}
+}
+
 // healthzHandler answers 200 with the version only. No vault info, no
 // counts, no request reflection.
 func healthzHandler(info buildInfo) http.HandlerFunc {
@@ -190,12 +212,12 @@ func wireHandlers(info buildInfo, vaultDir, dataDir string, sessionStore auth.Se
 	// web owns the append-only slot/route registries; plugins.Registry adds
 	// enablement gating on top. Shell read paths render slots through
 	// plugReg.SlotsFor (via the web.SlotProvider seam), so a disabled plugin
-	// leaves no UI trace. No plugins are compiled in yet (random-tables
-	// ships data + slot shape, no Plugin impl), so the registry starts
-	// empty; campaign.yaml enabled-plugins resolve against it below.
+	// leaves no UI trace. Slot plugins below are compiled in and resolved
+	// against campaign.yaml enabled-plugins below (unknown ids stay disabled).
 	slotReg := web.NewSlotRegistry()
 	reg := web.NewRouteRegistry()
 	plugReg := plugins.NewRegistry(slotReg, reg)
+	registerSlotPlugins(plugReg)
 	enablePlugins(vaultDir, plugReg)
 
 	// Load session keys for HMAC verification (key rotation support)
