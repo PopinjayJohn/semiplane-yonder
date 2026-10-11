@@ -698,18 +698,140 @@ func TestStampPreservesCommentsAndOrder(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// B2 staging: POST /upload stays 501 until the binary-write contract,
-// destination/ACL policy, and a UI consumer land together.
+// B5 editor: stacked source + still preview + cheatsheet + staged upload
 // ---------------------------------------------------------------------------
 
-func TestUploadStaysStaged(t *testing.T) {
-	h, _, _ := testSetup(t)
-	for _, target := range []string{"/upload", "/upload?as=gm"} {
-		req := httptest.NewRequest(http.MethodPost, target, strings.NewReader("x"))
-		rec := httptest.NewRecorder()
-		h.Upload(rec, req)
-		if rec.Code != http.StatusNotImplemented {
-			t.Errorf("POST %s = %d, want 501 (staged, see Upload comment)", target, rec.Code)
+func TestPageEditShowsStackedPreviewCheatsheetUpload(t *testing.T) {
+	h, v, s := testSetup(t)
+	seedPage(t, s, "characters/alice/index.md", "Alice", false, "alice", nil)
+	body := "---\nowner: alice\n---\n\nThe pact binds the bearer.\n\n" +
+		"> [!secret]-\n> The ember is under the flagstone.\n\n" +
+		"> [!secret]+\n> Bearers dream of crows.\n\n" +
+		"```dataview\nTABLE x\n```\n"
+	if err := v.WriteFile(context.Background(), "characters/alice/pact.md", body); err != nil {
+		t.Fatal(err)
+	}
+	seedPage(t, s, "characters/alice/pact.md", "Pact", false, "alice", nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/p/characters/alice/pact.md/edit", nil)
+	rec := httptest.NewRecorder()
+	h.PageEdit(rec, withViewer(req, alice()))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("editor = %d: %s", rec.Code, rec.Body.String())
+	}
+	html := rec.Body.String()
+	// Stacked source pane keeps the single functional textarea (conflict
+	// banner/merge flow untouched: same form, same save/preview buttons).
+	for _, want := range []string{
+		`class="editor-stack"`, `id="edit-content"`, `name="preview" value="1"`,
+		// Still preview reuses renderPreviewBlocks: text badges + placeholder.
+		`class="preview"`, "prev-secret-hidden", "hidden from party",
+		"prev-secret-shown", "shown to party", "prev-unsupported", "placeholder",
+		// Source survived the gate: full content shows after authorizeWrite.
+		"The ember is under the flagstone",
+		// Collapsed cheatsheet drawer with the -/+ shapes.
+		"<details", "Cheatsheet", "[!secret]-", "[!secret]+",
+		// Vendored CodeMirror hook, offline-safe (same-origin vendor ref).
+		"/static/vendor/codemirror.js", `data-codemirror="markdown"`,
+		// Staged upload surface: multipart form to /upload with CSRF + dest.
+		`enctype="multipart/form-data"`, `action="/upload"`,
+		auth.CSRFFieldName, `name="dest" value="characters/alice"`,
+		`name="from" value="characters/alice/pact.md"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("editor missing %q", want)
+		}
+	}
+	// Offline-safe: no CDN or bare-module fetch may sneak into the editor.
+	for _, banned := range []string{"cdn.jsdelivr", "unpkg.com", "esm.sh", "http://", "https://"} {
+		if strings.Contains(html, banned) {
+			t.Errorf("editor references off-origin %q (offline rule)", banned)
 		}
 	}
 }
+
+func TestPageEditGateBeforeContent(t *testing.T) {
+	h, v, s := testSetup(t)
+	seedPage(t, s, "characters/alice/index.md", "Alice", true, "alice", nil)
+	secret := "---\nsecret: true\nowner: alice\n---\nThe ember is under the flagstone.\n"
+	if err := v.WriteFile(context.Background(), "characters/alice/hide.md", secret); err != nil {
+		t.Fatal(err)
+	}
+	seedPage(t, s, "characters/alice/hide.md", "Hide", true, "alice", nil)
+
+	// Bob cannot read the secret page: uniform 404 with no content leak.
+	req := httptest.NewRequest(http.MethodGet, "/p/characters/alice/hide.md/edit", nil)
+	rec := httptest.NewRecorder()
+	h.PageEdit(rec, withViewer(req, bob()))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("bob editor on secret page = %d, want 404", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, leak := range []string{"ember is under", "hide.md", "prev-secret", "edit-content"} {
+		if strings.Contains(body, leak) {
+			t.Errorf("denial leaks %q", leak)
+		}
+	}
+	// Guest: 401, also content-free.
+	req = httptest.NewRequest(http.MethodGet, "/p/characters/alice/hide.md/edit", nil)
+	rec = httptest.NewRecorder()
+	h.PageEdit(rec, withViewer(req, nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("guest editor = %d, want 401", rec.Code)
+	}
+}
+
+func TestPageEditPreviewStillSavesNothing(t *testing.T) {
+	h, v, s := testSetup(t)
+	seedPage(t, s, "characters/alice/index.md", "Alice", false, "alice", nil)
+	if err := v.WriteFile(context.Background(), "characters/alice/still.md", "---\nowner: alice\n---\nseed\n"); err != nil {
+		t.Fatal(err)
+	}
+	seedPage(t, s, "characters/alice/still.md", "Still", false, "alice", nil)
+
+	// The stacked still preview on GET writes nothing.
+	req := httptest.NewRequest(http.MethodGet, "/p/characters/alice/still.md/edit", nil)
+	rec := httptest.NewRecorder()
+	h.PageEdit(rec, withViewer(req, alice()))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("editor = %d", rec.Code)
+	}
+	if got := readVault(t, v, "characters/alice/still.md"); got != "---\nowner: alice\n---\nseed\n" {
+		t.Fatalf("editor GET wrote to the vault:\n%s", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// B6 upload staging: destination policy helper (pure, no writes)
+// ---------------------------------------------------------------------------
+
+func TestCleanUploadDestUnit(t *testing.T) {
+	got, err := cleanUploadDest("characters/alice/notes.md", "map.png")
+	if err != nil || got != "characters/alice/map.png" {
+		t.Fatalf("cleanUploadDest = %q, %v; want characters/alice/map.png", got, err)
+	}
+	// Root-level pages claim vault-root assets.
+	got, err = cleanUploadDest("welcome.md", "sigil.pdf")
+	if err != nil || got != "sigil.pdf" {
+		t.Fatalf("cleanUploadDest root = %q, %v; want sigil.pdf", got, err)
+	}
+	for _, tc := range []struct{ name, page, file string }{
+		{"empty", "characters/alice/notes.md", ""},
+		{"traversal", "characters/alice/notes.md", "../esc.png"},
+		{"separator", "characters/alice/notes.md", "sub/map.png"},
+		{"markdown", "characters/alice/notes.md", "notes.md"},
+		{"reserved", "characters/alice/notes.md", "con.png"},
+		{"dotfile", "characters/alice/notes.md", ".hidden.png"},
+		{"trailing-dot", "characters/alice/notes.md", "map."},
+	} {
+		if got, err := cleanUploadDest(tc.page, tc.file); err == nil {
+			t.Errorf("%s: cleanUploadDest(%q) = %q, want rejection", tc.name, tc.file, got)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// B6 upload wiring: POST /upload is live (see Upload). Round-trip,
+// collision, rejection, and ACL coverage lives in upload_live_test.go;
+// dest-policy units stay here with cleanUploadDest.
+// ---------------------------------------------------------------------------

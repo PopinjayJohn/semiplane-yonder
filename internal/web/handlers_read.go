@@ -13,6 +13,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -297,7 +298,7 @@ func ViewerForRequest(r *http.Request) *auth.Viewer {
 }
 func viewerFromRequest(r *http.Request) *auth.Viewer {
 	if v, ok := auth.ViewerFromContext(r.Context()); ok && v != nil {
-		return v
+		return applySessionPreview(v, r)
 	}
 	if !DemoAuth {
 		return nil // demo tier retired: ?as= ignored, sessions only
@@ -318,6 +319,28 @@ func viewerFromRequest(r *http.Request) *auth.Viewer {
 		slog.Info("gm preview", "gm", v.UserID, "as", preview, "path", r.URL.Path)
 	}
 	return v
+}
+
+// applySessionPreview attaches GM-only `?preview_as=` impersonation to a
+// session-authenticated viewer when the demo tier is retired
+// (DemoAuth=false — the Phase-0c bannered+logged contract in production).
+// Filtering falls out of store.SplitViewer (a preview maps to the previewed
+// user everywhere), the persistent banner out of data.PreviewAs, and every
+// previewed request is logged here. GM-only: guests and non-GM players pass
+// through untouched (their `preview_as` is ignored, never bannered).
+// DemoAuth=true session behavior is unchanged (the demo `?as=` tier rules).
+func applySessionPreview(v *auth.Viewer, r *http.Request) *auth.Viewer {
+	if DemoAuth || v == nil || !v.IsGM || v.PreviewAs != "" {
+		return v
+	}
+	preview := strings.TrimSpace(r.URL.Query().Get("preview_as"))
+	if preview == "" {
+		return v
+	}
+	cp := *v
+	cp.PreviewAs = preview
+	slog.Info("gm preview", "gm", v.UserID, "as", preview, "path", r.URL.Path)
+	return &cp
 }
 
 // asParam preserves the demo identity across links. Empty for guests, for
@@ -378,44 +401,73 @@ func loadFilteredPage(ctx context.Context, st store.Store, viewer *auth.Viewer, 
 	return filtered, nil
 }
 
-// postProcessLinks rewrites wikilink hrefs to read-path routes, redacts links
-// pointing at secret pages the viewer cannot see (alias ALWAYS dropped), and
-// expands page embeds one level (nested embeds stay links: no cycles).
-// Image embeds get ACL-checked /assets srcs. Operates on already-filtered HTML.
+// wikilinkAnchorRe matches renderer wikilink anchors (body links and links
+// transported inside expanded embeds alike). Inner text never contains `<`
+// (aliases are HTML-escaped), so `[^<]*` cannot span anchors. Shape pinned by
+// internal/markdown/obsidian.go (`<a class="wikilink" data-target href>`).
+var wikilinkAnchorRe = regexp.MustCompile(`<a class="wikilink" data-target="([^"]*)" href="[^"]*">([^<]*)</a>`)
+
+// postProcessLinks expands page embeds one level (nested embeds stay links:
+// no cycles), then secret-checks + route-rewrites EVERY wikilink anchor in
+// the final HTML — body links and links transported inside transclusions
+// alike. Image embeds get ACL-checked /assets srcs. Operates on
+// already-filtered HTML.
 func postProcessLinks(ctx context.Context, st store.Store, viewer *auth.Viewer, page *markdown.Page) {
+	// Sessions-only deployments (DemoAuth=false) emit clean URLs: the
+	// retired ?as= tier must not propagate anywhere, not even on
+	// session-authenticated renders (asParam already gates the same way).
 	asQ := ""
-	if viewer != nil && viewer.UserID != "" {
+	if DemoAuth && viewer != nil && viewer.UserID != "" {
 		asQ = "?as=" + urlQueryEscape(viewer.UserID)
 		if viewer.PreviewAs != "" {
 			asQ += "&preview_as=" + urlQueryEscape(viewer.PreviewAs)
 		}
 	}
 	htmlOut := page.HTML
-	for _, l := range page.Links {
-		target := strings.TrimSpace(l.Target)
+	// Embeds expand FIRST: a links-first order left embed-injected anchors
+	// raw — unredacted secret links with relative hrefs, visible to
+	// unauthorized viewers (B0 leak 2026-10-10: lore's [[cinder-pact]]).
+	for _, e := range page.Embeds {
+		target := strings.TrimSpace(e.Target)
 		if target == "" {
 			continue
+		}
+		spanPrefix := `<span class="embed embed-page" data-target="` + html.EscapeString(target) + `"`
+		for {
+			i := strings.Index(htmlOut, spanPrefix)
+			if i < 0 {
+				break
+			}
+			end := strings.Index(htmlOut[i:], "</span>")
+			if end < 0 {
+				break
+			}
+			end += i + len("</span>")
+			htmlOut = htmlOut[:i] + expandEmbed(ctx, st, viewer, target) + htmlOut[end:]
+		}
+	}
+	// Single-pass replace over every anchor: each match is consumed exactly
+	// once, so repeated same-target links keep their own aliases. Secret
+	// targets redact with the alias ALWAYS dropped; the rest rebuild to the
+	// read-path route (extensionless target → index lookup → clean URL).
+	htmlOut = wikilinkAnchorRe.ReplaceAllStringFunc(htmlOut, func(m string) string {
+		sub := wikilinkAnchorRe.FindStringSubmatch(m)
+		if len(sub) != 3 {
+			return m
+		}
+		target := html.UnescapeString(sub[1])
+		if strings.TrimSpace(target) == "" {
+			return m
 		}
 		base := target
 		if i := strings.LastIndex(base, "#"); i >= 0 {
 			base = base[:i]
 		}
-		anchorPrefix := `<a class="wikilink" data-target="` + html.EscapeString(target) + `"`
-		i := strings.Index(htmlOut, anchorPrefix)
-		if i < 0 {
-			continue
-		}
-		end := strings.Index(htmlOut[i:], "</a>")
-		if end < 0 {
-			continue
-		}
-		end += i + len("</a>")
 		if secretTarget(ctx, st, viewer, base) {
-			htmlOut = htmlOut[:i] + `<span class="redacted" role="note" aria-label="Redacted secret link">` +
-				secrets.RedactedPage + `</span>` + htmlOut[end:]
-			continue
+			return `<span class="redacted" role="note" aria-label="Redacted secret link">` +
+				secrets.RedactedPage + `</span>`
 		}
-		alias := l.Alias
+		alias := html.UnescapeString(sub[2])
 		if alias == "" {
 			alias = target
 		}
@@ -426,25 +478,9 @@ func postProcessLinks(ctx context.Context, st store.Store, viewer *auth.Viewer, 
 		// Strip .md extension for clean URLs
 		hrefPath = strings.TrimSuffix(hrefPath, ".md")
 		hrefPath = strings.TrimSuffix(hrefPath, ".markdown")
-		rebuilt := `<a class="wikilink" data-target="` + html.EscapeString(target) +
+		return `<a class="wikilink" data-target="` + html.EscapeString(target) +
 			`" href="/p/` + html.EscapeString(hrefPath) + asQ + `">` + html.EscapeString(alias) + `</a>`
-		htmlOut = htmlOut[:i] + rebuilt + htmlOut[end:]
-	}
-	for _, e := range page.Embeds {
-		target := strings.TrimSpace(e.Target)
-		if target == "" {
-			continue
-		}
-		spanPrefix := `<span class="embed embed-page" data-target="` + html.EscapeString(target) + `"`
-		if i := strings.Index(htmlOut, spanPrefix); i >= 0 {
-			end := strings.Index(htmlOut[i:], "</span>")
-			if end < 0 {
-				continue
-			}
-			end += i + len("</span>")
-			htmlOut = htmlOut[:i] + expandEmbed(ctx, st, viewer, target) + htmlOut[end:]
-		}
-	}
+	})
 	htmlOut = rewriteAssetSrcs(htmlOut)
 	page.HTML = htmlOut
 }
@@ -459,14 +495,28 @@ func secretTarget(ctx context.Context, st store.Store, viewer *auth.Viewer, targ
 	return sp.Secret && !secrets.CanViewPage(viewer, sp.Secret, sp.Path, sp.Owner, sp.EditableBy)
 }
 
+// normalizeLinkBase trims a raw wikilink target to its lookup base:
+// surrounding whitespace, repeated "./" prefixes, and any #fragment are
+// stripped. Shared by resolveTarget (rendered links) and resolveGraphTarget
+// (graph edges) so the two never diverge on odd-but-legal inputs
+// (`[[ ./x ]]`, `[[x#frag]]`). For plain targets the output is identical
+// to the historical inline logic.
+func normalizeLinkBase(target string) string {
+	base := strings.TrimSpace(target)
+	for strings.HasPrefix(base, "./") {
+		base = strings.TrimSpace(strings.TrimPrefix(base, "./"))
+	}
+	if i := strings.LastIndex(base, "#"); i >= 0 {
+		base = base[:i]
+	}
+	return strings.TrimSpace(base)
+}
+
 // resolveTarget maps a wikilink target to an index row. Targets are usually
 // extensionless (`[[cinder-pact]]` → `cinder-pact.md`); lookup is
 // case-insensitive (store.PageGet folds).
 func resolveTarget(ctx context.Context, st store.Store, target string) *store.Page {
-	base := strings.TrimSpace(strings.TrimPrefix(target, "./"))
-	if i := strings.LastIndex(base, "#"); i >= 0 {
-		base = base[:i]
-	}
+	base := normalizeLinkBase(target)
 	if base == "" {
 		return nil
 	}
@@ -587,6 +637,9 @@ func (h *ReadHandlers) renderShell(w http.ResponseWriter, r *http.Request, statu
 	slog.Info("read", "path", r.URL.Path, "user", viewerLabel(viewer))
 	// Include CSRF token for forms in shell (logout, etc.)
 	data.CSRFToken = h.csrfTokenForForm(r)
+	// Sessions-only deployments must not even echo the retired demo tier:
+	// the shell SSE bootstrap renders its bare (no-`as`) script variant.
+	data.NoDemoEcho = !DemoAuth
 	// Shell slot mounts resolve through the enabled-aware provider (gate
 	// G3): disabled plugins contribute no mount points. The provider also
 	// applies viewer/path gating (GM-only, grants, prefixes) server-side.
@@ -718,7 +771,121 @@ func (h *ReadHandlers) PageView(w http.ResponseWriter, r *http.Request) {
 	if viewer != nil {
 		data.PreviewAs = viewer.PreviewAs
 	}
+	if pc, ok := characterPC(cleanPath); ok {
+		h.characterExtras(r, viewer, page, pc, &data)
+	}
 	h.renderShell(w, r, http.StatusOK, data, viewer, templates.PageBody(data))
+}
+
+// characterPC maps an extensionless clean page path to its character-tree
+// id: characters/<pc>[/...] -> <pc>. Anything outside characters/ (or the
+// bare characters/ dir) reports false — the New-subpage button, sheet card,
+// and subpage list render only inside a PC subtree (mockup b/04).
+func characterPC(cleanPath string) (string, bool) {
+	parts := strings.Split(cleanPath, "/")
+	if len(parts) < 2 || parts[0] != "characters" || parts[1] == "" {
+		return "", false
+	}
+	return parts[1], true
+}
+
+// characterExtras fills the character-page sections: the conditional
+// New-subpage button, the embedded sheet-header card, and the subpages
+// list. All three derive from already-authorized reads; failures (no vault,
+// no sheet, unreadable sheet) omit the section silently — the page itself
+// already passed the uniform-404 gate above, and no titles/paths leak here
+// that the viewer may not see.
+func (h *ReadHandlers) characterExtras(r *http.Request, viewer *auth.Viewer, page *markdown.Page, pc string, data *templates.PageData) {
+	// Button: the exact write-path gate (owner / editable-by / scope grant
+	// / GM; SplitViewer already maps GM previews to the previewed user),
+	// probed against the subtree root. Guests and pure readers get a
+	// nonzero status and no button.
+	if _, status := (&WriteHandlers{Store: h.Store}).authorizeWrite(r.Context(), viewer, "characters/"+pc+"/index.md"); status == 0 {
+		data.ShowNewSubpage = true
+		data.NewSubpageParent = "characters/" + pc
+	}
+	data.Sheet = h.characterSheetCard(r, viewer, pc)
+	data.Subpages = h.characterSubpages(r.Context(), viewer, pc, page.Path)
+}
+
+// characterSheetCard re-reads the sheet from vault truth (filesystem first,
+// never the index copy) and secret-filters it for this viewer — the same
+// vault-truth + secrets.Filter funnel as the sheet handlers. Returns nil
+// when there is no vault, no sheet, an invalid sheet, or the viewer may not
+// read it: the card simply does not render, with no oracle between those
+// cases. Only derived display values cross into the template, never raw
+// frontmatter.
+func (h *ReadHandlers) characterSheetCard(r *http.Request, viewer *auth.Viewer, pc string) *templates.SheetCard {
+	if h.Vault == nil {
+		return nil
+	}
+	rel, err := cleanWritePath("characters/" + pc + "/index.md")
+	if err != nil {
+		return nil
+	}
+	content, err := h.Vault.ReadFile(r.Context(), rel)
+	if err != nil {
+		return nil
+	}
+	parsed, err := markdown.Parse(r.Context(), string(content), rel)
+	if err != nil {
+		return nil
+	}
+	filtered, err := secrets.Filter(viewer, parsed)
+	if err != nil {
+		return nil
+	}
+	raw, ok := filtered.Frontmatter["sheet"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	sh, err := ParseSheet(raw)
+	if err != nil {
+		return nil
+	}
+	card := &templates.SheetCard{
+		Title: filtered.Title, Class: sh.Class, Ancestry: sh.Ancestry,
+		Background: sh.Background, Level: sh.Level, XP: sh.XP,
+		HP: sh.HP, HPMax: sh.HPMax, HitDice: sh.HitDice,
+		HitDiceMax: sh.HitDiceMax, HitDie: sh.HitDie,
+	}
+	for _, k := range SheetStatKeys {
+		card.Stats = append(card.Stats, templates.SheetStat{Name: strings.ToUpper(k), Value: sh.Stats[k]})
+	}
+	return card
+}
+
+// characterSubpages lists the visible children of characters/<pc>/: secret
+// titles/paths are dropped for unauthorized viewers (a redacted row would
+// still signal existence in a listing). The tree root itself (self + the
+// <pc>/index.md sheet root) is excluded — only real subpages list.
+func (h *ReadHandlers) characterSubpages(ctx context.Context, viewer *auth.Viewer, pc, selfPath string) []templates.SubpageEntry {
+	rows, err := h.Store.PageList(ctx, store.PageListOptions{Prefix: "characters/" + pc + "/", IncludeSecret: true, Limit: 200})
+	if err != nil {
+		return nil
+	}
+	root := "characters/" + pc + "/index.md"
+	var out []templates.SubpageEntry
+	for _, p := range rows {
+		if strings.EqualFold(p.Path, selfPath) || strings.EqualFold(p.Path, root) {
+			continue
+		}
+		if p.Secret && !secrets.CanViewPage(viewer, p.Secret, p.Path, p.Owner, p.EditableBy) {
+			continue
+		}
+		out = append(out, templates.SubpageEntry{
+			Path:   strings.TrimSuffix(strings.TrimSuffix(p.Path, ".md"), ".markdown"),
+			Title:  p.Title,
+			Secret: p.Secret,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Path == out[j].Path {
+			return out[i].Title < out[j].Title
+		}
+		return strings.ToLower(out[i].Path) < strings.ToLower(out[j].Path)
+	})
+	return out
 }
 
 func (h *ReadHandlers) notFound(w http.ResponseWriter, r *http.Request, viewer *auth.Viewer) {
@@ -796,13 +963,50 @@ type graphEdge struct {
 	To   string `json:"to"`
 }
 
-// Graph returns the page graph, secret-filtered server-side.
+// Graph serves the page graph: JSON for `Accept: application/json`, an HTML
+// page otherwise (same filtered nodes/edges payload, content negotiation
+// like /search). Secret-filtered server-side in both shapes.
 func (h *ReadHandlers) Graph(w http.ResponseWriter, r *http.Request) {
 	viewer := viewerFromRequest(r)
-	pages, err := h.Store.PageList(r.Context(), store.PageListOptions{IncludeSecret: true, Limit: 1000})
+	nodes, edges, err := h.graphPayload(r.Context(), viewer)
 	if err != nil {
 		http.Error(w, "graph unavailable", http.StatusInternalServerError)
 		return
+	}
+	if strings.Contains(r.Header.Get("Accept"), "application/json") {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "private, no-store")
+		_ = json.NewEncoder(w).Encode(map[string]any{"nodes": nodes, "edges": edges})
+		return
+	}
+	tn := make([]templates.GraphNode, 0, len(nodes))
+	for _, n := range nodes {
+		tn = append(tn, templates.GraphNode{ID: n.ID, Title: n.Title, Secret: n.Secret})
+	}
+	te := make([]templates.GraphEdge, 0, len(edges))
+	for _, e := range edges {
+		te = append(te, templates.GraphEdge{From: e.From, To: e.To})
+	}
+	data := templates.PageData{
+		Title:        "Graph",
+		Nav:          navEntries(r.Context(), h.Store, viewer, ""),
+		ViewerLabel:  viewerLabel(viewer),
+		AsParam:      asParam(r, viewer),
+		CampaignName: h.campaignName(),
+		LandingPage:  h.landingPage(),
+	}
+	if viewer != nil {
+		data.PreviewAs = viewer.PreviewAs
+	}
+	h.renderShell(w, r, http.StatusOK, data, viewer, templates.GraphBody(tn, te, data.AsParam))
+}
+
+// graphPayload builds the secret-filtered nodes/edges: invisible pages and
+// their edges are dropped, never redacted.
+func (h *ReadHandlers) graphPayload(ctx context.Context, viewer *auth.Viewer) ([]graphNode, []graphEdge, error) {
+	pages, err := h.Store.PageList(ctx, store.PageListOptions{IncludeSecret: true, Limit: 1000})
+	if err != nil {
+		return nil, nil, err
 	}
 	visible := map[string]string{}
 	fold := map[string]string{} // lower(path) -> path: page IDs are case-insensitive (Phase 0c)
@@ -817,7 +1021,7 @@ func (h *ReadHandlers) Graph(w http.ResponseWriter, r *http.Request) {
 	}
 	var edges []graphEdge
 	for id := range visible {
-		targets, err := h.Store.ForwardLinks(r.Context(), id)
+		targets, err := h.Store.ForwardLinks(ctx, id)
 		if err != nil {
 			continue
 		}
@@ -834,9 +1038,7 @@ func (h *ReadHandlers) Graph(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "private, no-store")
-	_ = json.NewEncoder(w).Encode(map[string]any{"nodes": nodes, "edges": edges})
+	return nodes, edges, nil
 }
 
 // resolveGraphTarget maps a raw stored wikilink target to a visible page
@@ -845,10 +1047,7 @@ func (h *ReadHandlers) Graph(w http.ResponseWriter, r *http.Request) {
 // targets (missing pages, secret pages the viewer cannot see) return false
 // and stay out of the edge list — never redacted, just absent.
 func resolveGraphTarget(fold map[string]string, target string) (string, bool) {
-	base := strings.TrimSpace(strings.TrimPrefix(target, "./"))
-	if i := strings.LastIndex(base, "#"); i >= 0 {
-		base = base[:i]
-	}
+	base := normalizeLinkBase(target)
 	if base == "" {
 		return "", false
 	}
@@ -892,9 +1091,10 @@ func (h *ReadHandlers) Autocomplete(w http.ResponseWriter, r *http.Request) {
 
 // Assets serves vault assets through the ACL-checked handler (never a raw
 // static mount — pitfalls). Bundle rule: an asset sitting beside pages is
-// served when at least one same-directory page is visible to the viewer (or
-// the directory holds no pages: public attachments). Markdown sources are
-// never served here. Traversal outside the vault is rejected.
+// served when at least one same-directory page is visible to the viewer.
+// Directories holding no pages serve nothing (fail closed, never
+// world-readable by default). Markdown sources are never served here.
+// Traversal outside the vault is rejected.
 func (h *ReadHandlers) Assets(w http.ResponseWriter, r *http.Request) {
 	viewer := viewerFromRequest(r)
 	raw := strings.TrimPrefix(r.URL.Path, "/assets/")
@@ -957,18 +1157,24 @@ func assetVisible(ctx context.Context, st store.Store, viewer *auth.Viewer, asse
 	if err != nil {
 		return false
 	}
-	// PageList prefix-matches recursively; keep same-directory pages only.
-	sameDir := 0
+	// PageList prefix-matches recursively; keep same-directory pages only
+	// (path.Dir reports "." at the vault root, normalized to "" like dir).
+	// Fail closed (RULING over fail-open): a directory holding zero pages
+	// serves nothing to anyone — not even the GM — instead of defaulting
+	// to world-readable.
 	for _, p := range pages {
-		if path.Dir(p.Path) != dir {
+		pdir := path.Dir(p.Path)
+		if pdir == "." {
+			pdir = ""
+		}
+		if pdir != dir {
 			continue
 		}
-		sameDir++
 		if !p.Secret || secrets.CanViewPage(viewer, p.Secret, p.Path, p.Owner, p.EditableBy) {
 			return true
 		}
 	}
-	return sameDir == 0
+	return false
 }
 
 // SSE handles Server-Sent Events for live updates (P01 hello: GM `-`/`+`

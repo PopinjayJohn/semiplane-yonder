@@ -1,12 +1,14 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -19,6 +21,7 @@ import (
 	"github.com/semiplane/yonder/internal/dice"
 	"github.com/semiplane/yonder/internal/markdown"
 	"github.com/semiplane/yonder/internal/store"
+	"github.com/semiplane/yonder/internal/uploads"
 	"github.com/semiplane/yonder/internal/vault"
 )
 
@@ -33,8 +36,12 @@ import (
 //     A nil SessionStore skips only the CSRF comparison (unwired dev/test
 //     mode); login is still required.
 //   - All vault writes go through VaultWriter.WriteFile (atomic temp+rename,
-//     clash-checked). Nothing here writes the filesystem any other way,
-//     except ResolveConflict which is the explicit human-merge override.
+//     clash-checked) or VaultWriter.WriteFileBytes for binary assets (atomic
+//     temp+rename, no clash memory — binary conflicts are unresolvable
+//     in-app, so the upload handler compares bytes itself: identical =
+//     idempotent success, differing = 409). Nothing here writes the
+//     filesystem any other way, except ResolveConflict which is the
+//     explicit human-merge override.
 //   - Non-GM writers are confined to their own PC subtree
 //     (characters/<pc>/...): prefix check + owner stamp on create, owner /
 //     secret / editable-by validation on every save (never-widen wins).
@@ -94,9 +101,13 @@ func (h *WriteHandlers) rateLimiter() *auth.RateLimiter {
 // Implemented by Lane B (vault package: *vault.Vault satisfies it).
 // ReadFile doubles as the read-before-write that arms the vault's
 // optimistic clash check; ResolveConflict is the explicit manual-merge
-// override (human-supplied text, never auto-merge).
+// override (human-supplied text, never auto-merge). WriteFileBytes is the
+// B6 binary variant (atomic temp+rename, no clash memory): binary conflicts
+// are unresolvable in-app, so callers compare bytes themselves
+// (identical = idempotent success, differing = 409, never auto-rename).
 type VaultWriter interface {
 	WriteFile(ctx context.Context, path, content string) error
+	WriteFileBytes(ctx context.Context, path string, data []byte) error
 	DeleteFile(ctx context.Context, path string) error
 	RenameFile(ctx context.Context, oldPath, newPath string) error
 	ReadFile(ctx context.Context, path string) ([]byte, error)
@@ -106,6 +117,9 @@ type VaultWriter interface {
 // maxWriteBody caps editor POST bodies (content + merged text). Vault files
 // are small prose; 5MB stops giant-POST abuse without touching real pages.
 const maxWriteBody = 5 << 20
+
+// maxUploadBody caps upload POST bodies: 10MB PDF + multipart overhead.
+const maxUploadBody = 12 << 20
 
 // RegisterRoutes registers write-path routes with the registry.
 func (h *WriteHandlers) RegisterRoutes(reg *RouteRegistry) {
@@ -439,10 +453,12 @@ func (h *WriteHandlers) authorizeWrite(ctx context.Context, v *auth.Viewer, rel 
 	return acl, 0
 }
 
-// viewerOf returns the request viewer (nil = guest).
+// viewerOf returns the request viewer (nil = guest). Under DemoAuth=false a
+// session GM's ?preview_as= applies (same bannered+logged contract as the
+// read path), so previewing GMs write as the previewed user.
 func viewerOf(r *http.Request) *auth.Viewer {
 	if v, ok := auth.ViewerFromContext(r.Context()); ok {
-		return v
+		return applySessionPreview(v, r)
 	}
 	return nil
 }
@@ -1068,7 +1084,12 @@ func revertPathOf(r *http.Request) string {
 // Handlers: editor + save + preview
 // ---------------------------------------------------------------------------
 
-// PageEdit renders the page editor (textarea + conflict banner + merge view).
+// PageEdit renders the page editor: stacked Markdown source + still preview
+// (B5), conflict banner + merge view, cheatsheet drawer, and the staged
+// upload surface (B6 form posting to the still-501 /upload).
+//
+// The write gate runs before any content renders, so unauthorized viewers
+// get a uniform denial with no titles, snippets, or bodies.
 func (h *WriteHandlers) PageEdit(w http.ResponseWriter, r *http.Request) {
 	v := viewerOf(r)
 	user, isGM, _, _ := store.SplitViewer(v)
@@ -1111,20 +1132,93 @@ func (h *WriteHandlers) PageEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	conflicts := h.visibleConflicts(r.Context(), v, rel)
 	var b strings.Builder
+	// Session-GM preview keeps its persistent banner on the editor too
+	// (Phase-0c contract: bannered everywhere the previewed view renders).
+	if v.PreviewAs != "" {
+		fmt.Fprintf(&b, "<p class=\"banner preview-banner\" role=\"status\">GM preview as %s — you see exactly what they see. This view is logged.</p>\n",
+			html.EscapeString(v.PreviewAs))
+	}
 	fmt.Fprintf(&b, "<h1>Editing %s</h1>\n", html.EscapeString(rel))
 	b.WriteString(conflictListHTML(rel, conflicts))
 	b.WriteString(conflictBannerFor(rel, conflicts))
+	// Stacked source + still preview (mockup b/07-editor.html: one column,
+	// no live update — the Preview button POSTs for a fresh server render).
+	b.WriteString("<div class=\"editor-stack\">\n")
+	b.WriteString("<section aria-label=\"Markdown source\">\n<h2>Markdown</h2>\n")
 	editURL := "/edit/p/" + strings.TrimSuffix(strings.TrimSuffix(rel, ".md"), ".markdown")
 	b.WriteString("<form method=\"post\" action=\"" + html.EscapeString(editURL) + "\">\n")
 	fmt.Fprintf(&b, "<input type=\"hidden\" name=\"%s\" value=\"%s\">\n",
 		auth.CSRFFieldName, html.EscapeString(h.csrfTokenForForm(r)))
 	fmt.Fprintf(&b, "<p><label for=\"edit-content\">Content for %s</label></p>\n", html.EscapeString(rel))
-	fmt.Fprintf(&b, "<textarea id=\"edit-content\" name=\"content\" rows=\"24\" cols=\"80\">%s</textarea>\n",
+	fmt.Fprintf(&b, "<textarea id=\"edit-content\" name=\"content\" rows=\"24\" cols=\"80\" data-codemirror=\"markdown\">%s</textarea>\n",
 		html.EscapeString(string(content)))
 	b.WriteString("<p><button type=\"submit\">Save</button> " +
 		"<button type=\"submit\" name=\"preview\" value=\"1\" formaction=\"?preview=1\">Preview</button></p>\n")
-	b.WriteString("</form>\n")
+	b.WriteString("</form>\n</section>\n")
+	b.WriteString("<section class=\"preview\" aria-label=\"Preview\" aria-live=\"polite\">\n<h2>Preview</h2>\n")
+	b.WriteString("<p>Still preview of the current source — nothing is saved until you press Save.</p>\n")
+	b.WriteString(editorPreviewHTML(r.Context(), rel, string(content)))
+	b.WriteString("</section>\n</div>\n")
+	b.WriteString(editorCheatsheetHTML())
+	b.WriteString(uploadFormHTML(rel, h.csrfTokenForForm(r)))
+	b.WriteString(editorCodeMirrorHTML())
 	writeHTML(w, http.StatusOK, "Editing "+rel, b.String())
+}
+
+// editorPreviewHTML renders the stacked still preview: the current source
+// parsed + rendered through the same renderPreviewBlocks the Preview POST
+// uses (secret −/+ badges are text, never color-only; unsupported blocks
+// show placeholders). Parse-only: nothing is written. Callers pass the
+// write gate first, so full content may show here.
+func editorPreviewHTML(ctx context.Context, rel, content string) string {
+	page, err := markdown.Parse(ctx, content, rel)
+	if err != nil {
+		return "<div role=\"alert\"><p>Preview unavailable: could not parse the page.</p></div>\n"
+	}
+	var b strings.Builder
+	if page.Quarantined {
+		fmt.Fprintf(&b, "<div role=\"alert\"><p>Warning: frontmatter problem (%s). "+
+			"The page is treated as secret until fixed.</p></div>\n", html.EscapeString(page.QuarantineReason))
+	}
+	b.WriteString(renderPreviewBlocks(page.Blocks))
+	return b.String()
+}
+
+// editorCheatsheetHTML renders the collapsed cheatsheet drawer (mockup
+// b/07-editor.html): the [!secret]-/+ shapes plus the unsupported-callout
+// placeholder rule.
+func editorCheatsheetHTML() string {
+	var b strings.Builder
+	b.WriteString("<details class=\"drawer\">\n<summary>Cheatsheet</summary>\n<div>\n")
+	b.WriteString("<p><code>&gt; [!secret]-</code> hidden from the party " +
+		"(the default when no sign is given).</p>\n")
+	b.WriteString("<p><code>&gt; [!secret]+</code> shown to the party.</p>\n")
+	b.WriteString("<p><code>&gt; [!anything-else]</code> unknown callouts render as a " +
+		"labeled placeholder; the source is preserved.</p>\n")
+	b.WriteString("<p><code>[[page]]</code> links to a page; " +
+		"<code>![[page]]</code> embeds it.</p>\n")
+	b.WriteString("</div>\n</details>\n")
+	return b.String()
+}
+
+// editorCodeMirrorHTML wires the already-vendored CodeMirror 6 file
+// (web/static/vendor/codemirror.js, pinned in VERSIONS) as a progressive
+// enhancement over the plain textarea: same-origin import only, no CDN, no
+// new dependencies, offline-safe. The textarea stays the fully functional
+// editor — when the vendored module cannot boot (it is the upstream ESM
+// re-export whose @codemirror/* closure lands with the editor bundle per
+// VERSIONS), the import fails into the catch and editing keeps working
+// unenhanced. Serves purely as the hook the runnable bundle upgrades.
+func editorCodeMirrorHTML() string {
+	return `<script type="module">
+try {
+  await import("/static/vendor/codemirror.js");
+  document.documentElement.classList.add("codemirror-on");
+} catch (e) {
+  /* Plain textarea stays: preview + save need no JS. */
+}
+</script>
+`
 }
 
 // conflictBannerFor reuses stored rows to banner the newest visible conflict
@@ -1527,34 +1621,202 @@ func (h *WriteHandlers) PageRevert(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// uploadFormHTML renders the upload surface (B6): a multipart form posting
+// to RouteUpload with the session CSRF token (same double-submit pattern
+// as every other write form), a destination defaulting to the edited
+// page's own directory — the page-bundle rule the ACL-checked /assets
+// handler already serves — and a `from` field carrying the editor page rel
+// so the handler 303s back to the source editor. Accepted: png/jpg/webp up to 5MB, pdf up to
+// 10MB; SVG blocked, images resized + EXIF-stripped, served only through
+// ACL-checked <code>/assets/</code>. Re-uploading identical bytes is an
+// idempotent success; a name clash with different bytes is a 409 (rename
+// and retry — never auto-renamed, never silently clobbered).
+func uploadFormHTML(pageRel, csrf string) string {
+	dest := posixDir(pageRel)
+	if dest == "." {
+		dest = ""
+	}
+	var b strings.Builder
+	b.WriteString("<section aria-label=\"Uploads\">\n<h2>Uploads</h2>\n")
+	b.WriteString("<p>Upload an image or PDF to this page's folder " +
+		"(png/jpg/webp up to 5MB, pdf up to 10MB; SVG blocked; images resized + EXIF-stripped; " +
+		"served only through ACL-checked <code>/assets/</code>).</p>\n")
+	b.WriteString("<form method=\"post\" action=\"" + html.EscapeString(RouteUpload) + "\" enctype=\"multipart/form-data\">\n")
+	fmt.Fprintf(&b, "<input type=\"hidden\" name=\"%s\" value=\"%s\">\n",
+		auth.CSRFFieldName, html.EscapeString(csrf))
+	fmt.Fprintf(&b, "<input type=\"hidden\" name=\"dest\" value=\"%s\">\n", html.EscapeString(dest))
+	// `from` carries the source editor page rel so the handler can 303 back
+	// to the editor (RULING over the /assets/<rel> target). Validated in
+	// Upload like any page path; absent/invalid falls back to the asset URL.
+	fmt.Fprintf(&b, "<input type=\"hidden\" name=\"from\" value=\"%s\">\n", html.EscapeString(pageRel))
+	b.WriteString("<p><label for=\"upload-file\">File</label> " +
+		"<input id=\"upload-file\" name=\"file\" type=\"file\"></p>\n")
+	b.WriteString("<p><button type=\"submit\">Upload</button></p>\n</form>\n</section>\n")
+	return b.String()
+}
+
+// cleanUploadDest maps an editor page + client filename to the asset path a
+// future upload would claim: the page's own directory (the page-bundle rule
+// /assets serves), Windows-safe via vault.CleanRel, filenames via
+// uploads.ValidateName (separators, traversal, reserved names rejected
+// fail-closed), never .md (the assets handler never serves markdown).
+// Pure policy — no writes — so it is safe to land ahead of the Lane B
+// binary-write amend. MIME sniffing, size caps, SVG blocklist, and EXIF
+// stripping stay in internal/uploads (Validate/Process); the live Upload
+// handler will reuse authorizeWrite over the destination for the
+// GM-only-vs-characters/<pc>/ decision (existing write-gate shapes).
+func cleanUploadDest(pageRel, filename string) (string, error) {
+	name := strings.TrimSpace(filename)
+	if name == "" {
+		return "", fmt.Errorf("filename is required")
+	}
+	if err := uploads.ValidateName(name); err != nil {
+		return "", err
+	}
+	if strings.HasSuffix(strings.ToLower(name), ".md") {
+		return "", fmt.Errorf("uploads never claim .md paths: %q", filename)
+	}
+	rel := name
+	if dir := posixDir(pageRel); dir != "." && dir != "" {
+		rel = dir + "/" + name
+	}
+	for _, seg := range strings.Split(rel, "/") {
+		if strings.HasPrefix(seg, ".") {
+			return "", fmt.Errorf("hidden path segment %q in %q", seg, filename)
+		}
+	}
+	return vault.CleanRel(rel)
+}
+
 // ---------------------------------------------------------------------------
 // Stubs owned by other lanes (routes stay registered; logic lands later)
 // ---------------------------------------------------------------------------
 
-// Upload handles file uploads (STAGED, not abandoned — B2 backlog verdict).
+// Upload handles file uploads (B6 live): multipart form POST
+// (file + dest + from) → 303 back to the source editor page (`from`,
+// RULING over the /assets/<rel> target) with ?as=/preview_as= preserved,
+// like every write POST. A missing or invalid `from` falls back to the
+// ACL-checked /assets URL.
 //
-// POST /upload stays 501 while the P13 pipeline exists as the pure library
-// internal/uploads (Validate/Process: sniff, caps, SVG blocklist, resize).
-// Wiring the handler now would improvise past three red lines, so the stub
-// is deliberate staging:
+// Pipeline: session auth (401 guests) + double-submit CSRF + authorizeWrite
+// over cleanUploadDest (GM anywhere, players confined to their own
+// characters/<pc>/… subtree; denials via denyForWrite, 404-vs-403 like all
+// write gates) + uploads.Process (MIME-sniff never extension, 5/10MB caps,
+// SVG blocklist, resize + EXIF-strip via Normalize) + VaultWriter.
+// WriteFileBytes (atomic temp+rename, no clash memory — binary conflicts
+// are unresolvable in-app).
 //
-//  1. No binary-safe vault write: every handler write must ride
-//     VaultWriter.WriteFile (atomic temp+rename + clash check), whose
-//     content is a string and whose conflict path parks losers in
-//     *.conflict-<ts>.md text files. Binary asset bytes have no
-//     clash-safe write API — that is a Lane B contract amend, not a
-//     handler-local improvisation.
-//  2. No destination/ACL policy: P13 names `assets/` conventions per
-//     subtree but never who may write where; F2 write rules confine
-//     non-GM writers to characters/<pc>/... . GM-only vs player-subtree
-//     uploads is a product/ACL decision (amend), not a default to guess.
-//  3. No UI consumer: no form or fetch client posts to /upload, so any
-//     response shape wired today is an unconsumed invented contract.
-//
-// Lift the 501 when (1)+(2) land with a UI surface; TestUploadStaysStaged
-// pins the 501 until then so a half-wiring cannot slip in silently.
+// Collision policy (B6 ruling, option B): dest exists with identical bytes
+// → idempotent 303 success; exists with different bytes → 409 (the user
+// renames and retries — never auto-rename, never silent clobber). .md
+// refusal already lives in cleanUploadDest. New asset files are picked up
+// by the watcher/indexer as assets (store.Rescan tracks non-markdown files
+// by extension); no page indexing applies.
+// uploadRedirectTarget resolves the post-upload 303 target: the source
+// editor page named by the form's `from` field (the editor page rel, e.g.
+// characters/alice/notes.md → /edit/p/characters/alice/notes), validated
+// like any page path via cleanWritePath. Absent or invalid `from` falls
+// back to the ACL-checked /assets URL. `from` is redirect routing only —
+// the write gate stays on the asset path itself.
+func uploadRedirectTarget(from, assetRel string) string {
+	fr := strings.TrimSpace(from)
+	if fr != "" {
+		if !strings.HasSuffix(strings.ToLower(fr), ".md") {
+			fr += ".md"
+		}
+		if rel, err := cleanWritePath(fr); err == nil {
+			base := strings.TrimSuffix(strings.TrimSuffix(rel, ".md"), ".markdown")
+			return "/edit/p/" + base
+		}
+	}
+	return "/assets/" + assetRel
+}
+
 func (h *WriteHandlers) Upload(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "uploads are staged: pipeline library exists, handler/ACL/UI land together (see comment)", http.StatusNotImplemented)
+	v := viewerOf(r)
+	user, isGM, _, _ := store.SplitViewer(v)
+	if user == "" && !isGM {
+		writeDenied(w, http.StatusUnauthorized, "log in to upload files")
+		return
+	}
+	if h.Vault == nil {
+		writeDenied(w, http.StatusInternalServerError, "vault is not configured")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBody)
+	if !h.checkCSRF(r) {
+		writeDenied(w, http.StatusForbidden, "bad or missing CSRF token")
+		return
+	}
+	if err := r.ParseMultipartForm(maxUploadBody); err != nil {
+		writeDenied(w, http.StatusBadRequest, "could not parse upload (multipart file + destination required)")
+		return
+	}
+	file, hdr, err := r.FormFile("file")
+	if err != nil {
+		writeDenied(w, http.StatusBadRequest, "file is required")
+		return
+	}
+	defer func() { _ = file.Close() }()
+	// Stream to memory under the same cap: MaxBytesReader already bounds
+	// the body, so overflow here becomes a 413 instead of a dead conn.
+	raw, err := io.ReadAll(io.LimitReader(file, maxUploadBody+1))
+	if err != nil {
+		writeDenied(w, http.StatusInternalServerError, "could not read upload")
+		return
+	}
+	if int64(len(raw)) > maxUploadBody {
+		writeDenied(w, http.StatusRequestEntityTooLarge, "upload exceeds the 12MB request cap")
+		return
+	}
+	// dest is the owning page's directory (the editor form posts the edited
+	// page's own dir, "" at vault root). Rebuild a synthetic page path so
+	// the pinned cleanUploadDest mapping applies unchanged; the final path
+	// is traversal-checked there and ACL-gated below, so a tampered dest
+	// cannot escape the writer's subtree.
+	dest := strings.TrimSpace(r.FormValue("dest"))
+	pageRel := "index.md"
+	if dest != "" {
+		pageRel = strings.TrimSuffix(dest, "/") + "/index.md"
+	}
+	rel, err := cleanUploadDest(pageRel, hdr.Filename)
+	if err != nil {
+		writeDenied(w, http.StatusBadRequest, "bad upload destination: "+err.Error())
+		return
+	}
+	_, status := h.authorizeWrite(r.Context(), v, rel)
+	if status != 0 {
+		writeDenied(w, status, "you cannot upload here")
+		return
+	}
+	out, _, err := uploads.Process(raw, hdr.Filename, uploads.DisplayMaxDim)
+	if err != nil {
+		if errors.Is(err, uploads.ErrTooLarge) {
+			writeDenied(w, http.StatusRequestEntityTooLarge, "upload exceeds its type cap (images 5MB, PDFs 10MB)")
+		} else {
+			writeDenied(w, http.StatusBadRequest, "rejected upload: "+err.Error())
+		}
+		return
+	}
+	if existing, rerr := h.Vault.ReadFile(r.Context(), rel); rerr == nil {
+		if bytes.Equal(existing, out) {
+			redirectWithIdentity(w, r, uploadRedirectTarget(r.FormValue("from"), rel))
+			return
+		}
+		writeDenied(w, http.StatusConflict, "an upload with that name already exists with different content — rename your file and retry")
+		return
+	} else if !os.IsNotExist(rerr) {
+		writeDenied(w, http.StatusInternalServerError, "could not check upload destination")
+		return
+	}
+	if err := h.Vault.WriteFileBytes(r.Context(), rel, out); err != nil {
+		writeDenied(w, http.StatusInternalServerError, "could not store upload")
+		return
+	}
+	redirectWithIdentity(w, r, uploadRedirectTarget(r.FormValue("from"), rel))
+	if h.OnAfterWrite != nil {
+		_ = h.OnAfterWrite()
+	}
 }
 
 // DiceRoll handles dice roll requests: the implementation lives in dice.go
@@ -1583,7 +1845,8 @@ func (h *WriteHandlers) EncounterAction(w http.ResponseWriter, r *http.Request) 
 	h.encounterAction(w, r)
 }
 
-// VTTStateUpdate handles VTT state updates (Lane K/P08 owns the table).
+// VTTStateUpdate handles VTT state updates (Lane K owns the live path;
+// this stays 501 — see the B6-style stub discipline, never half-wire).
 func (h *WriteHandlers) VTTStateUpdate(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "VTT state is not implemented in this milestone", http.StatusNotImplemented)
 }

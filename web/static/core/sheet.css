@@ -1,0 +1,39 @@
+/* Sheet core styles (backlog B4): Simple ledger + big-tap chip grid +
+   one-handed phone layout. Single source of truth: handlers_sheet.go embeds
+   this file inline (offline fallback, no new routes) and links it as
+   /static/core/sheet.css for when the static mount lands. Styling layer is
+   core per the UI contract. All state carries text labels, never color only.
+   Tap targets are 44px minimum, 52px in the phone thumb zone. */
+@layer core {
+.sheet { max-width: 60rem; }
+.sheet button,
+.sheet a.btn { min-height: 44px; min-width: 44px; padding: 0.5rem 0.9rem; margin: 0.15rem; }
+.sheet .pips { letter-spacing: 0.2rem; font-size: 1.2rem; }
+.sheet .badge { display: inline-block; border: 2px solid currentColor; border-radius: 0.4rem; padding: 0.1rem 0.5rem; font-weight: 600; }
+.sheet :focus-visible { outline: 3px solid currentColor; outline-offset: 2px; }
+.skip { position: absolute; left: -9999px; top: 0; background: #fff; padding: 0.5rem; }
+.skip:focus { left: 0; }
+.view-switch { margin: 0.5rem 0; }
+table.ledger { width: 100%; border-collapse: collapse; margin: 0.5rem 0; }
+table.ledger caption { text-align: left; font-weight: 600; }
+table.ledger th,
+table.ledger td { text-align: left; padding: 0.45rem 0.5rem; border-bottom: 1px solid currentColor; }
+.chip-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; padding: 0.5rem 0; }
+.chip-grid .chip { min-height: 44px; font-size: 1rem; }
+.thumb-zone { margin: 0.5rem 0; }
+details.drawer { margin-top: 1rem; border-top: 1px solid currentColor; }
+details.drawer summary { cursor: pointer; padding: 0.6rem 0.2rem; font-weight: 600; }
+@media (max-width: 480px) {
+  table.ledger th,
+  table.ledger td { padding: 0.7rem 0.4rem; }
+  .chip-grid .chip { min-height: 52px; }
+  .thumb-zone button,
+  .thumb-zone .btn { display: block; width: 100%; min-height: 52px; margin: 0.25rem 0; }
+  details.drawer summary { min-height: 52px; display: flex; align-items: center; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sheet *,
+  .sheet *::before,
+  .sheet *::after { animation: none; transition: none; }
+}
+}

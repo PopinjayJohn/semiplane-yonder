@@ -270,6 +270,45 @@ func (v *Vault) write(ctx context.Context, rel, content string) error {
 // atomicWritedurably writes content via temp file in the same directory +
 // rename (crash-safe; same-volume atomic on all three OSes).
 func (v *Vault) atomicWrite(rel, content string) error {
+	return v.atomicWriteBytes(rel, []byte(content))
+}
+
+// WriteFileBytes atomically writes binary asset bytes to the vault (B6
+// amend, ruling option B): temp file in the same directory + rename,
+// parents created, mode 0644 — the same crash-safe publish as WriteFile,
+// but with NO mtime/hash baseline comparison and NO conflict-file parking.
+// Binary conflicts are unresolvable in-app (no human-mergeable text), so
+// the caller owns the collision policy: compare-then-write (identical
+// bytes = idempotent success, differing bytes = 409) instead of the
+// text-only ErrConflict path. Callers must still validate paths via
+// CleanRel semantics (applied here), MIME-sniff (never extension), and
+// enforce size caps before calling.
+func (v *Vault) WriteFileBytes(ctx context.Context, path string, data []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	rel, err := CleanRel(path)
+	if err != nil {
+		return err
+	}
+	if info, serr := os.Stat(v.abs(rel)); serr == nil && info.IsDir() {
+		return fmt.Errorf("vault path is a directory: %q", rel)
+	}
+	if err := v.atomicWriteBytes(rel, data); err != nil {
+		return err
+	}
+	if st, serr := os.Stat(v.abs(rel)); serr == nil {
+		v.mu.Lock()
+		v.known[fold(rel)] = fileState{mtime: st.ModTime().UnixNano(), hash: hashBytes(data)}
+		v.self[fold(rel)] = time.Now().Add(selfWriteWindow)
+		v.mu.Unlock()
+	}
+	return nil
+}
+
+// atomicWriteBytes durably writes raw bytes via temp file in the same
+// directory + rename (crash-safe; same-volume atomic on all three OSes).
+func (v *Vault) atomicWriteBytes(rel string, data []byte) error {
 	full := v.abs(rel)
 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 		return err
@@ -280,7 +319,7 @@ func (v *Vault) atomicWrite(rel, content string) error {
 	}
 	tmpName := tmp.Name()
 	defer func() { _ = os.Remove(tmpName) }() // no-op after successful rename
-	if _, err := tmp.WriteString(content); err != nil {
+	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
 		return err
 	}

@@ -27,10 +27,76 @@ type PageData struct {
 	ViewerLabel   string
 	PreviewAs     string
 	AsParam       string
+	// NoDemoEcho suppresses the client-side ?as= echo in the shell SSE
+	// bootstrap script. Sessions-only deployments (DemoAuth=false) set it
+	// so the retired tier is not echoed even inertly; the reconnect and
+	// secret-flip behavior is unchanged. The zero value (false) preserves
+	// the shipped echo, so renders that predate the threading stay
+	// byte-identical under DemoAuth=true.
+	NoDemoEcho    bool
 	Slots         []SlotMark
 	CSRFToken     string // double-submit CSRF token for state-changing forms
 	CampaignName  string // campaign name from campaign.yaml
 	LandingPage   string // landing page from campaign.yaml (default "welcome")
+	// ShowNewSubpage gates the "+ New subpage" button: set only for pages
+	// under characters/<pc>/ when the viewer may write in that subtree
+	// (same authorizeWrite gate as the write path). Never rendered for
+	// guests or readers without a write grant.
+	ShowNewSubpage bool
+	// NewSubpageParent is the vault folder the new-page form opens under
+	// (characters/<pc>), meaningful only when ShowNewSubpage is true.
+	NewSubpageParent string
+	// Sheet is the embedded sheet-header card for character pages
+	// (derived values only, re-read from vault truth + secrets.Filtered;
+	// nil when the page has no sheet or the viewer may not see it).
+	Sheet *SheetCard
+	// Subpages lists the visible children of characters/<pc>/ (secret
+	// titles dropped server-side for unauthorized viewers, never redacted).
+	Subpages []SubpageEntry
+}
+
+// SheetStat is one derived ability row on the embedded sheet card.
+type SheetStat struct {
+	Name  string
+	Value int64
+}
+
+// SheetCard is the embedded sheet-header card on a character page. Every
+// field is a derived display value — never raw frontmatter.
+type SheetCard struct {
+	Title       string
+	Class       string
+	Ancestry    string
+	Background  string
+	Level       int64
+	XP          int64
+	HP          int64
+	HPMax       int64
+	HitDice     int64
+	HitDiceMax  int64
+	HitDie      int64
+	Stats       []SheetStat
+}
+
+// SubpageEntry is one visible child page of a character tree.
+type SubpageEntry struct {
+	Path   string
+	Title  string
+	Secret bool
+}
+
+// GraphNode / GraphEdge are the HTML graph view model: already
+// secret-filtered server-side (invisible pages and their edges are absent,
+// never redacted).
+type GraphNode struct {
+	ID     string
+	Title  string
+	Secret bool
+}
+
+type GraphEdge struct {
+	From string
+	To   string
 }
 
 type Backlink struct {
@@ -75,6 +141,31 @@ func viewerName(v *auth.Viewer) string {
 		return v.UserID + " (GM)"
 	}
 	return v.UserID
+}
+
+// navLoggedIn reports whether the primary nav shows the player links
+// (Table/Characters). Guests see Read only.
+func navLoggedIn(v *auth.Viewer) bool {
+	return v != nil && v.UserID != ""
+}
+
+// navIsGM reports whether the primary nav shows the Dashboard link. A GM
+// previewing as a player sees exactly what they see: no Dashboard link.
+func navIsGM(v *auth.Viewer) bool {
+	return v != nil && v.UserID != "" && v.IsGM && v.PreviewAs == ""
+}
+
+// withAsParam threads the demo identity (?as=) onto a URL that already
+// carries a query string.
+func withAsParam(base, asParam string) string {
+	if asParam == "" {
+		return base
+	}
+	sep := "?"
+	if strings.Contains(base, "?") {
+		sep = "&"
+	}
+	return base + sep + strings.TrimPrefix(asParam, "?")
 }
 
 templ Shell(data PageData, viewer *auth.Viewer, content templ.Component) {
@@ -135,8 +226,13 @@ templ Shell(data PageData, viewer *auth.Viewer, content templ.Component) {
 					<span class="brand">{ data.CampaignName }</span>
 					<nav class="primary" aria-label="Primary">
 						<a href={ "/p/" + data.LandingPage + data.AsParam }>Read</a>
-						<a href={ "/search" + data.AsParam }>Search</a>
-						<a href={ "/graph" + data.AsParam }>Graph</a>
+						if navLoggedIn(viewer) {
+							<a href={ "/vtt/" + data.AsParam }>Table</a>
+							<a href={ "/me" + data.AsParam }>Characters</a>
+						}
+						if navIsGM(viewer) {
+							<a href={ "/dashboard" + data.AsParam }>Dashboard</a>
+						}
 					</nav>
 					<div class="slot" data-slot="header-right">
 						if viewer != nil && viewer.UserID != "" {
@@ -222,6 +318,7 @@ templ Shell(data PageData, viewer *auth.Viewer, content templ.Component) {
 					}
 				</footer>
 			</div>
+			if !data.NoDemoEcho {
 			<script>
 				// Read-path SSE hello (Lane F1, Phase 2): per-viewer filtered
 				// secret-flip events. No secret content ever rides the stream
@@ -250,6 +347,35 @@ templ Shell(data PageData, viewer *auth.Viewer, content templ.Component) {
 					}
 				})();
 			</script>
+			} else {
+			<script>
+				// Read-path SSE hello (Lane F1, Phase 2): per-viewer filtered
+				// secret-flip events. No secret content ever rides the stream
+				// unfiltered — the server re-filters per subscriber.
+				(function () {
+					var article = document.querySelector("article.page-body");
+					var state = document.querySelector("[data-sse-state]");
+					if (!article) return;
+					var path = article.getAttribute("data-page-path") || "";
+					var url = "/events?path=" + encodeURIComponent(path);
+					try {
+						var src = new EventSource(url);
+						src.addEventListener("hello", function () {
+							if (state) state.textContent = "Live updates: connected.";
+						});
+						src.addEventListener("secret-flip", function () {
+							if (state) state.textContent = "Live updates: change received, reloading.";
+							location.reload();
+						});
+						src.onerror = function () {
+							if (state) state.textContent = "Live updates: disconnected.";
+						};
+					} catch (e) {
+						if (state) state.textContent = "Live updates: unavailable.";
+					}
+				})();
+			</script>
+			}
 		</body>
 	</html>
 }
@@ -273,6 +399,9 @@ templ PageBody(data PageData) {
 			if data.ViewerLabel != "guest" && data.Path != "" {
 				<a class="btn" href={ "/edit/p/" + data.Path + data.AsParam }>Edit</a>
 			}
+			if data.ShowNewSubpage {
+				<a class="btn" href={ withAsParam("/p/new?parent="+url.QueryEscape(data.NewSubpageParent), data.AsParam) }>+ New subpage</a>
+			}
 			<span class="sse-state" data-sse-state aria-live="polite">Live updates: connecting…</span>
 		</div>
 	</div>
@@ -288,6 +417,36 @@ templ PageBody(data PageData) {
 	<article class="page-body" data-page-path={ data.Path }>
 		@templ.Raw(data.BodyHTML)
 	</article>
+	if data.Sheet != nil {
+		<div class="sheet-card">
+			<div class="slot" data-slot="sheet-header">
+				<div class="sheet-head"><h2>{ data.Sheet.Title } — { data.Sheet.Class }, level { strconv.FormatInt(data.Sheet.Level, 10) }</h2></div>
+				<p>{ data.Sheet.Ancestry } · { data.Sheet.Background } · HP { strconv.FormatInt(data.Sheet.HP, 10) }/{ strconv.FormatInt(data.Sheet.HPMax, 10) } · Hit dice { strconv.FormatInt(data.Sheet.HitDice, 10) }/{ strconv.FormatInt(data.Sheet.HitDiceMax, 10) } (d{ strconv.FormatInt(data.Sheet.HitDie, 10) }) · XP { strconv.FormatInt(data.Sheet.XP, 10) }</p>
+				<table>
+					<tbody>
+						for _, st := range data.Sheet.Stats {
+							<tr><th scope="row">{ st.Name }</th><td>{ strconv.FormatInt(st.Value, 10) }</td></tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		</div>
+	}
+	if len(data.Subpages) > 0 {
+		<section aria-labelledby="subpages">
+			<h2 id="subpages">Subpages</h2>
+			<ul>
+				for _, s := range data.Subpages {
+					<li>
+						<a href={ "/p/" + s.Path + data.AsParam }>{ s.Title }</a>
+						if s.Secret {
+							<span class="badge secret">Secret</span>
+						}
+					</li>
+				}
+			</ul>
+		</section>
+	}
 }
 
 templ SearchBody(query string, hits []SearchHit, asParam string) {
@@ -313,6 +472,36 @@ templ SearchBody(query string, hits []SearchHit, asParam string) {
 				}
 			</ul>
 		}
+	}
+}
+
+templ GraphBody(nodes []GraphNode, edges []GraphEdge, asParam string) {
+	<h1>Graph</h1>
+	<p role="status">{ strconv.Itoa(len(nodes)) } pages, { strconv.Itoa(len(edges)) } links visible to you.</p>
+	<h2>Pages</h2>
+	if len(nodes) == 0 {
+		<p>No visible pages.</p>
+	} else {
+		<ul class="graph-nodes">
+			for _, n := range nodes {
+				<li>
+					<a href={ "/p/" + strings.TrimSuffix(strings.TrimSuffix(n.ID, ".md"), ".markdown") + asParam }>{ n.Title }</a>
+					if n.Secret {
+						<span class="badge secret">Secret</span>
+					}
+				</li>
+			}
+		</ul>
+	}
+	<h2>Links</h2>
+	if len(edges) == 0 {
+		<p>No visible links.</p>
+	} else {
+		<ul class="graph-edges">
+			for _, e := range edges {
+				<li><span>{ e.From }</span> → <span>{ e.To }</span></li>
+			}
+		</ul>
 	}
 }
 
