@@ -371,6 +371,7 @@ func TestGateM2OverlaySwitchLive(t *testing.T) {
 		t.Fatal(err)
 	}
 	swapped := strings.Replace(string(raw), "5e-2024", "5e-2014", 1)
+	swapped = strings.Replace(swapped, "overlay-version: \"2024\"", "overlay-version: \"2014\"", 1)
 	if err := os.WriteFile(filepath.Join(g.vault, "campaign.yaml"), []byte(swapped), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -180,3 +180,26 @@ func TestUpsertCRLFStable(t *testing.T) {
 		t.Fatalf("crlf round-trip wrong: %v %+v\n%q", err, c, got)
 	}
 }
+
+func TestUpsertHashesRoundTrip(t *testing.T) {
+	h := strings.Repeat("b", 64)
+	existing := "name: X\nbase: dnd\n"
+	got := Upsert(existing, &Campaign{Name: "X", Base: "dnd", BaseVersion: "5.2", BaseHash: h, Overlay: "5e-2024", OverlayHash: h})
+	for _, want := range []string{"base-version: 5.2", "base-hash: " + h, "overlay: 5e-2024", "overlay-hash: " + h} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q:\n%s", want, got)
+		}
+	}
+	c, err := Parse([]byte(got))
+	if err != nil {
+		t.Fatalf("re-parse: %v\n%s", err, got)
+	}
+	if c.BaseHash != h || c.OverlayHash != h || c.BaseVersion != "5.2" {
+		t.Fatalf("round-trip wrong: %+v", c)
+	}
+	// Clearing pins drops the lines so scaffolds stay minimal.
+	cleared := Upsert(got, &Campaign{Name: "X", Base: "dnd"})
+	if strings.Contains(cleared, "base-hash") || strings.Contains(cleared, "base-version") {
+		t.Fatalf("cleared pins kept:\n%s", cleared)
+	}
+}
