@@ -47,7 +47,7 @@ func TestStartupRescanImportsLateVaultEdit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wiring := wireHandlers(buildInfo{Version: "b6"}, vault, dataDir, sessionStore)
+	wiring := wireHandlers(buildInfo{Version: "b6"}, vault, dataDir, sessionStore, "", "")
 	srv := httptest.NewServer(wiring.Handler)
 	t.Cleanup(srv.Close)
 

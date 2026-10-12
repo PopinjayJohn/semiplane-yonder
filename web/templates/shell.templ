@@ -53,6 +53,18 @@ type PageData struct {
 	// Subpages lists the visible children of characters/<pc>/ (secret
 	// titles dropped server-side for unauthorized viewers, never redacted).
 	Subpages []SubpageEntry
+	// T1 theme selection: rendered as <html data-theme data-scheme> plus the
+	// theme stylesheet <link>. Empty Theme = unthemed (core tokens only) and
+	// renders no attribute and no link, byte-identical to a pre-T1 page.
+	Theme  string
+	Scheme string
+	// PluginCSS / PluginJS are the concatenated stylesheets and scripts of
+	// the enabled plugins (web.PluginAssets seam; the plugin registry
+	// injected by serve). Empty renders nothing. CSS lands inside <style> in
+	// the head — unescaped, since these are first-party plugin bytes, never
+	// vault content.
+	PluginCSS string
+	PluginJS  string
 }
 
 // SheetStat is one derived ability row on the embedded sheet card.
@@ -128,6 +140,64 @@ type SlotMark struct {
 	ID        string // component id within the slot
 	Component string // plugin component name (mount key)
 	PluginID  string // owning plugin (CSS namespace)
+	// HTML is the plugin's rendered fragment for this mount: server-rendered
+	// from already-secret-filtered input (T1-D), escaped by the plugin, and
+	// emitted raw here. Empty = the plugin rendered nothing (disabled,
+	// unrecognized, or failed) and the mount stays empty, as before T1-D.
+	HTML string
+}
+
+// htmlOpenTag / htmlCloseTag render the document element pair. Built in Go
+// on purpose: templ.Attributes renders in Go map order, which is random per
+// request — non-deterministic HTML breaks byte-stable output (and any
+// golden/diff test) — so the T1 theme attributes are joined here instead.
+// Unthemed returns the plain pre-T1 tags, byte-identical. The pair is
+// emitted raw so templ stays balanced (a templ-level <html> element cannot
+// take conditionally-present attributes).
+func (d PageData) htmlOpenTag() string {
+	if d.Theme == "" {
+		return `<html lang="en">`
+	}
+	scheme := d.Scheme
+	if scheme == "" {
+		scheme = "light"
+	}
+	return `<html lang="en" data-theme="` + d.Theme + `" data-scheme="` + scheme + `">`
+}
+
+func (d PageData) htmlCloseTag() string { return "</html>" }
+
+// pluginStyleBlock / pluginScriptBlock wrap the delivered plugin assets.
+// Built in Go because templ passes <style>/<script> element content through
+// literally — an @templ.Raw placed inside those elements renders as text —
+// so the wrapping happens outside and only the bytes are emitted raw.
+// Empty input returns "" (nothing rendered, nothing paid).
+func (d PageData) pluginStyleBlock() string {
+	if d.PluginCSS == "" {
+		return ""
+	}
+	return "<style>\n" + d.PluginCSS + "\n</style>"
+}
+
+func (d PageData) pluginScriptBlock() string {
+	if d.PluginJS == "" {
+		return ""
+	}
+	return "<script>\n" + d.PluginJS + "\n</script>"
+}
+
+// slotFilled reports whether an enabled plugin mounts in this slot. Core
+// renders its own fallback content (nav list, backlinks, action buttons) only
+// when no plugin takes the slot, so an enabled plugin replaces the fallback
+// instead of duplicating it (the demo vault rendered Search/Edit twice, and
+// the vault tree twice, before this).
+func slotFilled(marks []SlotMark, slot string) bool {
+	for _, m := range marks {
+		if m.SlotName == slot {
+			return true
+		}
+	}
+	return false
 }
 
 func viewerName(v *auth.Viewer) string {
@@ -170,55 +240,19 @@ func withAsParam(base, asParam string) string {
 
 templ Shell(data PageData, viewer *auth.Viewer, content templ.Component) {
 	<!DOCTYPE html>
-	<html lang="en">
+	@templ.Raw(data.htmlOpenTag())
 		<head>
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1"/>
 			<title>{ data.Title } — { data.CampaignName }</title>
+			<link rel="stylesheet" href="/static/core/app.css"/>
 			<link rel="stylesheet" href="/static/core/statblock.css"/>
-			<style>
-				:root { color-scheme: light dark; --ink: #1a1a1a; --paper: #fff; --accent: #1d4ed8; --line: #888; }
-				* { box-sizing: border-box; }
-				body { font-family: system-ui, sans-serif; color: var(--ink); background: var(--paper); margin: 0; line-height: 1.5; }
-				.skip { position: absolute; left: -999px; }
-				.skip:focus { left: 0.5rem; top: 0.5rem; background: #fff; padding: 0.5rem; z-index: 10; }
-				.topnav { display: flex; gap: 1rem; align-items: center; padding: 0.5rem 1rem; border-bottom: 2px solid var(--line); }
-				.topnav .primary { display: flex; gap: 0.25rem; }
-				.topnav a { padding: 0.6rem 0.8rem; min-height: 44px; display: inline-flex; align-items: center; }
-				.slot[data-slot="header-right"] { margin-left: auto; }
-				.layout { display: block; max-width: 60rem; margin: 0 auto; padding: 0 1rem; }
-				.drawer { border: 1px solid var(--line); margin: 1rem 0; }
-				.drawer summary { cursor: pointer; padding: 0.6rem; min-height: 44px; }
-				.banner { border: 2px solid var(--line); padding: 0.6rem 1rem; margin: 0.5rem 1rem; }
-				.banner.preview-banner, .badge.preview { border-color: #b45309; }
-				.banner.quarantine { border-style: dashed; }
-				.badge { display: inline-block; border: 2px solid currentColor; border-radius: 0.4rem; padding: 0.1rem 0.5rem; font-size: 0.85rem; font-weight: 600; }
-				.badge.open::before { content: "○ "; }
-				.badge.secret::before { content: "▪ "; }
-				.redacted { border: 1px dashed currentColor; padding: 0 0.3rem; }
-				.notice { border-left: 4px solid var(--line); padding: 0.5rem 0.8rem; margin: 0.8rem 0; }
-				.block-tag { font-weight: 700; }
-				.btn, button.btn { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; padding: 0.5rem 1rem; border: 2px solid var(--accent); background: #fff; color: var(--accent); border-radius: 0.4rem; text-decoration: none; cursor: pointer; }
-				.btn.primary { background: var(--accent); color: #fff; }
-				.btn.secondary { border-color: var(--line); color: var(--ink); }
-				a:focus-visible, button:focus-visible, summary:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
-				.sse-state { font-size: 0.85rem; }
-				.colophon { border-top: 2px solid var(--line); margin-top: 2rem; padding: 0.8rem 1rem; }
-				.user-menu { display: flex; align-items: center; gap: 0.5rem; }
-				.user-menu .btn { padding: 0.4rem 0.8rem; }
-				.login-form { max-width: 24rem; margin: 0 auto; padding: 1.5rem; border: 1px solid var(--line); border-radius: 0.5rem; }
-				.login-form h1 { margin-top: 0; }
-				.login-form .form-group { margin-bottom: 1rem; }
-				.login-form label { display: block; margin-bottom: 0.3rem; font-weight: 500; }
-				.login-form input[type="text"], .login-form input[type="password"] { width: 100%; padding: 0.5rem; border: 1px solid var(--line); border-radius: 0.3rem; min-height: 44px; font-size: 1rem; }
-				.login-form .btn { width: 100%; justify-content: center; margin-top: 0.5rem; }
-				.login-form .error { color: #b91c1c; border: 1px solid #b91c1c; background: #fef2f2; padding: 0.75rem; border-radius: 0.3rem; margin-bottom: 1rem; font-size: 0.9rem; }
-				.login-form .hint { font-size: 0.85rem; color: var(--line); margin-top: 1rem; }
-				.login-form .hint a { color: var(--accent); }
-				@media (prefers-reduced-motion: reduce) {
-					* { transition: none !important; animation: none !important; }
-				}
-			</style>
+			<link rel="stylesheet" href="/static/print.css" media="print"/>
+			if data.Theme != "" {
+				<link rel="stylesheet" href={ "/static/themes/" + data.Theme + ".css" }/>
+			}
+			@templ.Raw(data.pluginStyleBlock())
+			@templ.Raw(data.pluginScriptBlock())
 		</head>
 		<body>
 			<a class="skip" href="#main">Skip to page content</a>
@@ -227,7 +261,7 @@ templ Shell(data PageData, viewer *auth.Viewer, content templ.Component) {
 					<div class="slot" data-slot="header-left">
 						for _, s := range data.Slots {
 							if s.SlotName == "header-left" {
-								<div data-plugin-slot="header-left" data-component={ s.Component } data-plugin={ s.PluginID }></div>
+								<div data-plugin-slot="header-left" data-component={ s.Component } data-plugin={ s.PluginID }>@templ.Raw(s.HTML)</div>
 							}
 						}
 					</div>
@@ -245,7 +279,7 @@ templ Shell(data PageData, viewer *auth.Viewer, content templ.Component) {
 					<div class="slot" data-slot="header-center">
 						for _, s := range data.Slots {
 							if s.SlotName == "header-center" {
-								<div data-plugin-slot="header-center" data-component={ s.Component } data-plugin={ s.PluginID }></div>
+								<div data-plugin-slot="header-center" data-component={ s.Component } data-plugin={ s.PluginID }>@templ.Raw(s.HTML)</div>
 							}
 						}
 					</div>
@@ -253,7 +287,7 @@ templ Shell(data PageData, viewer *auth.Viewer, content templ.Component) {
 						if viewer != nil && viewer.UserID != "" {
 							<div class="user-menu">
 								if viewer.IsGM {
-									<span class="badge" style="border-color: #b45309; color: #b45309;">GM</span>
+									<span class="badge gm">GM</span>
 								}
 								<span>{ viewer.UserID }</span>
 								<form method="post" action="/logout" style="display: inline;">
@@ -272,7 +306,7 @@ templ Shell(data PageData, viewer *auth.Viewer, content templ.Component) {
 						}
 						for _, s := range data.Slots {
 							if s.SlotName == "header-right" {
-								<div data-plugin-slot="header-right" data-component={ s.Component } data-plugin={ s.PluginID }></div>
+								<div data-plugin-slot="header-right" data-component={ s.Component } data-plugin={ s.PluginID }>@templ.Raw(s.HTML)</div>
 							}
 						}
 					</div>
@@ -284,51 +318,60 @@ templ Shell(data PageData, viewer *auth.Viewer, content templ.Component) {
 					<main class="sheet-col" id="main" tabindex="-1">
 						@content
 					</main>
-					<details class="drawer">
-						<summary>On this page & links</summary>
-						<div class="slot" data-slot="sidebar-left">
-							<b>Vault navigation</b>
-							<ul class="nav">
-								for _, n := range data.Nav {
-									<li>
-										if n.Active {
-											<span aria-current="page">{ n.Title }</span>
-										} else {
-											<a href={ "/p/" + n.Path + data.AsParam }>{ n.Title }</a>
+					<section class="rail rail-left" aria-label="Vault navigation">
+						<details class="drawer" open>
+							<summary>Vault navigation</summary>
+							<div class="slot" data-slot="sidebar-left">
+								if !slotFilled(data.Slots, "sidebar-left") {
+									<ul class="nav">
+										for _, n := range data.Nav {
+											<li>
+												if n.Active {
+													<span aria-current="page">{ n.Title }</span>
+												} else {
+													<a href={ "/p/" + n.Path + data.AsParam }>{ n.Title }</a>
+												}
+											</li>
 										}
-									</li>
+									</ul>
 								}
-							</ul>
-							for _, s := range data.Slots {
-								if s.SlotName == "sidebar-left" {
-									<div data-plugin-slot="sidebar-left" data-component={ s.Component } data-plugin={ s.PluginID }></div>
-								}
-							}
-						</div>
-						<div class="slot" data-slot="sidebar-right">
-							<b>Backlinks</b>
-							if len(data.Backlinks) == 0 {
-								<p>No backlinks.</p>
-							} else {
-								<ul class="backlinks">
-									for _, b := range data.Backlinks {
-										<li><a href={ "/p/" + b.Path + data.AsParam }>{ b.Title }</a></li>
+								for _, s := range data.Slots {
+									if s.SlotName == "sidebar-left" {
+										<div data-plugin-slot="sidebar-left" data-component={ s.Component } data-plugin={ s.PluginID }>@templ.Raw(s.HTML)</div>
 									}
-								</ul>
-							}
-							for _, s := range data.Slots {
-								if s.SlotName == "sidebar-right" {
-									<div data-plugin-slot="sidebar-right" data-component={ s.Component } data-plugin={ s.PluginID }></div>
 								}
-							}
-						</div>
-					</details>
+							</div>
+						</details>
+					</section>
+					<section class="rail rail-right" aria-label="On this page &amp; links">
+						<details class="drawer" open>
+							<summary>On this page &amp; links</summary>
+							<div class="slot" data-slot="sidebar-right">
+								if !slotFilled(data.Slots, "sidebar-right") {
+									if len(data.Backlinks) == 0 {
+										<p>No backlinks.</p>
+									} else {
+										<ul class="backlinks">
+											for _, b := range data.Backlinks {
+												<li><a href={ "/p/" + b.Path + data.AsParam }>{ b.Title }</a></li>
+											}
+										</ul>
+									}
+								}
+								for _, s := range data.Slots {
+									if s.SlotName == "sidebar-right" {
+										<div data-plugin-slot="sidebar-right" data-component={ s.Component } data-plugin={ s.PluginID }>@templ.Raw(s.HTML)</div>
+									}
+								}
+							</div>
+						</details>
+					</section>
 				</div>
 				<footer class="colophon">
 					<div class="slot" data-slot="footer">{ data.CampaignName } · read path (Lane F1) · secrets filtered server-side</div>
 					for _, s := range data.Slots {
 						if s.SlotName == "footer" {
-							<div data-plugin-slot="footer" data-component={ s.Component } data-plugin={ s.PluginID }></div>
+							<div data-plugin-slot="footer" data-component={ s.Component } data-plugin={ s.PluginID }>@templ.Raw(s.HTML)</div>
 						}
 					}
 				</footer>
@@ -392,7 +435,7 @@ templ Shell(data PageData, viewer *auth.Viewer, content templ.Component) {
 			</script>
 			}
 		</body>
-	</html>
+		@templ.Raw(data.htmlCloseTag())
 }
 
 templ PageBody(data PageData) {
@@ -409,19 +452,21 @@ templ PageBody(data PageData) {
 		<div class="banner quarantine" role="alert">Frontmatter quarantined (GM only): { data.Quarantine }. Page fails closed as secret.</div>
 	}
 	<div class="slot" data-slot="page-actions">
-		<div class="actions">
-			<a class="btn" href={ "/search" + data.AsParam }>Search</a>
-			if data.ViewerLabel != "guest" && data.Path != "" {
-				<a class="btn" href={ "/edit/p/" + data.Path + data.AsParam }>Edit</a>
-			}
-			if data.ShowNewSubpage {
-				<a class="btn" href={ withAsParam("/p/new?parent="+url.QueryEscape(data.NewSubpageParent), data.AsParam) }>+ New subpage</a>
-			}
-			<span class="sse-state" data-sse-state aria-live="polite">Live updates: connecting…</span>
-		</div>
+		if !slotFilled(data.Slots, "page-actions") {
+			<div class="actions">
+				<a class="btn" href={ "/search" + data.AsParam }>Search</a>
+				if data.ViewerLabel != "guest" && data.Path != "" {
+					<a class="btn" href={ "/edit/p/" + data.Path + data.AsParam }>Edit</a>
+				}
+				if data.ShowNewSubpage {
+					<a class="btn" href={ withAsParam("/p/new?parent="+url.QueryEscape(data.NewSubpageParent), data.AsParam) }>+ New subpage</a>
+				}
+			</div>
+		}
+		<span class="sse-state" data-sse-state aria-live="polite">Live updates: connecting…</span>
 		for _, s := range data.Slots {
 			if s.SlotName == "page-actions" {
-				<div data-plugin-slot="page-actions" data-component={ s.Component } data-plugin={ s.PluginID }></div>
+				<div data-plugin-slot="page-actions" data-component={ s.Component } data-plugin={ s.PluginID }>@templ.Raw(s.HTML)</div>
 			}
 		}
 	</div>
@@ -451,7 +496,7 @@ templ PageBody(data PageData) {
 				</table>
 				for _, s := range data.Slots {
 					if s.SlotName == "sheet-header" {
-						<div data-plugin-slot="sheet-header" data-component={ s.Component } data-plugin={ s.PluginID }></div>
+						<div data-plugin-slot="sheet-header" data-component={ s.Component } data-plugin={ s.PluginID }>@templ.Raw(s.HTML)</div>
 					}
 				}
 			</div>
@@ -698,7 +743,7 @@ templ DashboardBody(data CampaignDashboardData) {
 						<td>{ u.Username }</td>
 						<td>
 							if u.IsGM {
-								<span class="badge" style="border-color: #b45309; color: #b45309;">GM</span>
+								<span class="badge gm">GM</span>
 							} else {
 								<span class="badge open">Player</span>
 							}
@@ -707,9 +752,9 @@ templ DashboardBody(data CampaignDashboardData) {
 						<td>{ formatLastLogin(u.LastLogin) }</td>
 						<td>
 							if u.LockedUntil > time.Now().Unix() {
-								<span class="badge" style="border-color: #b91c1c; color: #b91c1c;">Locked</span>
+								<span class="badge locked">Locked</span>
 							} else if u.FailedLogins > 0 {
-								<span class="badge" style="border-color: #b45309; color: #b45309;">{ u.FailedLogins } failed</span>
+								<span class="badge failed">{ u.FailedLogins } failed</span>
 							} else {
 								<span class="badge open">Active</span>
 							}

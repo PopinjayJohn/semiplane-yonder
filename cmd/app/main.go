@@ -55,6 +55,10 @@ func run(args []string) error {
 		legacyRotateKey bool
 		legacyResetPass string
 		legacyTransfer  string
+		// T1 theme selection (bind on root and on `serve`; root defaults to
+		// serve, so the primary invocation must accept them).
+		theme       string
+		themeScheme string
 	)
 	fs := flag.NewFlagSet("yonder", flag.ContinueOnError)
 	fs.StringVar(&vaultPath, "vault", "", "Path to vault directory")
@@ -67,6 +71,11 @@ func run(args []string) error {
 	fs.BoolVar(&legacyRotateKey, "rotate-session-key", false, "Legacy: rotate key (use `rotate-session-key`)")
 	fs.StringVar(&legacyResetPass, "reset-password", "", "Legacy: user to reset (use `reset-password --user`)")
 	fs.StringVar(&legacyTransfer, "transfer-ownership", "", "Legacy: old:new (use `transfer-ownership old:new`)")
+	// Theme selection binds on the root FlagSet too: `yonder --vault DIR`
+	// defaults to serve, so the documented primary invocation must accept the
+	// theme flags exactly as `serve` does (same defaults, same validation).
+	fs.StringVar(&theme, "theme", "", "Theme id (grimoire, cartographer); unknown = unthemed")
+	fs.StringVar(&themeScheme, "theme-scheme", "", "Theme scheme (light, dark, auto); ignored without --theme")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -98,7 +107,7 @@ func run(args []string) error {
 			usage()
 			return fmt.Errorf("vault path required")
 		}
-		return serveDefault(vaultPath, dataDir, addr, true)
+		return serveDefault(vaultPath, dataDir, addr, true, theme, themeScheme)
 	}
 
 	switch rest[0] {
@@ -141,22 +150,25 @@ func vaultFlag(fs *flag.FlagSet, vaultPath *string) {
 	fs.StringVar(vaultPath, "vault", *vaultPath, "Path to vault directory")
 }
 
-func serveDefault(vaultPath, dataDir, addr string, demoAuth bool) error {
+func serveDefault(vaultPath, dataDir, addr string, demoAuth bool, theme, themeScheme string) error {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
-	return runServe(serveOptions{vault: vaultPath, dataDir: dataDir, addr: addr, demoAuth: demoAuth, info: build()}, sig)
+	return runServe(serveOptions{vault: vaultPath, dataDir: dataDir, addr: addr, demoAuth: demoAuth, theme: theme, themeScheme: themeScheme, info: build()}, sig)
 }
 
 func runServeCommand(vaultPath, dataDir, addr string, args []string) error {
 	var demoAuth = true
+	var theme, themeScheme string
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	vaultDataFlags(fs, &vaultPath, &dataDir)
 	fs.StringVar(&addr, "addr", addr, "Listen address")
 	fs.BoolVar(&demoAuth, "demo-auth", true, "Honor the ?as= demo identity tier (dev/smoke/axe); false = sessions only")
+	fs.StringVar(&theme, "theme", "", "Theme id (grimoire, cartographer); unknown = unthemed")
+	fs.StringVar(&themeScheme, "theme-scheme", "", "Theme scheme (light, dark, auto); ignored without --theme")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	return serveDefault(vaultPath, dataDir, addr, demoAuth)
+	return serveDefault(vaultPath, dataDir, addr, demoAuth, theme, themeScheme)
 }
 
 func runInitCommand(vaultPath, dataDir string, args []string) error {

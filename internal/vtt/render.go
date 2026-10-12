@@ -7,6 +7,7 @@ import (
 
 	"github.com/semiplane/yonder/internal/auth"
 	"github.com/semiplane/yonder/internal/plugins"
+	"github.com/semiplane/yonder/internal/web"
 )
 
 // FragmentInput is the already-filtered render input (Assemble-style: the
@@ -221,22 +222,36 @@ type PageInput struct {
 	ViewerLabel string
 	StateURL    string
 	StreamURL   string
+	// T1: resolved theme selection ("" = unthemed). The VTT page is a
+	// standalone document, so it carries the theme attributes and links
+	// itself — same values the shell and sheet page render.
+	Theme  string
+	Scheme string
 }
 
 // RenderPage returns the full standalone map document. It is deliberately
 // self-contained (no web/templates dependency — Lane F1 owns the shell):
 // landmarks, skip link, inline CSS (44px targets, visible focus, reduced
 // motion), the fragment, and the vanilla client (EventSource + debounced
-// fetch; morphs never steal focus).
+// fetch; morphs never steal focus). T1 adds the theme attributes plus the
+// core/theme/print stylesheet links so a themed campaign covers the table
+// too; unthemed output is byte-identical to pre-T1.
 func RenderPage(in PageInput) string {
 	var b strings.Builder
 	g := in.Cal.Grid
-	b.WriteString("<!DOCTYPE html>\n" + `<html lang="en">` + "\n<head>\n" + `<meta charset="utf-8">` + "\n")
+	b.WriteString("<!DOCTYPE html>\n" + web.HTMLOpenTag(in.Theme, in.Scheme) + "\n<head>\n" + `<meta charset="utf-8">` + "\n")
 	b.WriteString(`<meta name="viewport" content="width=device-width, initial-scale=1">` + "\n")
 	fmt.Fprintf(&b, "<title>Table: %s</title>\n", html.EscapeString(displayTitle(in.Title, in.MapID)))
 	if in.CSRF != "" {
 		fmt.Fprintf(&b, `<meta name="csrf-token" content="%s">`+"\n", html.EscapeString(in.CSRF))
 	}
+	// T1: core tokens (so theme tokens resolve) + theme + print stylesheets.
+	// app.css is shell structure this page does not use, but its :root tokens
+	// are what themes re-point — without it a themed table would render
+	// board chrome in default colors.
+	b.WriteString(`<link rel="stylesheet" href="/static/core/app.css">` + "\n")
+	b.WriteString(web.ThemeStylesheetLink(in.Theme))
+	b.WriteString(`<link rel="stylesheet" href="/static/print.css" media="print">` + "\n")
 	b.WriteString(`<style>` + pageCSS() + `</style>` + "\n</head>\n<body>\n")
 	b.WriteString(`<a href="#vtt-map">Skip to map</a>` + "\n")
 	b.WriteString("<header><nav aria-label=\"Table\"><p>")

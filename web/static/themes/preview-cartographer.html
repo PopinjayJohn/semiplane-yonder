@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="cartographer" data-scheme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grimoire — theme preview (Yonder)</title>
+<link rel="stylesheet" href="/static/core/app.css">
+<link rel="stylesheet" href="/static/themes/cartographer.css">
+</head>
+<body data-debug-slots>
+<a class="skip" href="#main">Skip to page content</a>
+<div class="shell">
+  <header class="topnav">
+    <div class="slot" data-slot="header-left">
+      <div data-plugin-slot="header-left" data-component="slot-header" data-plugin="slot-header">◈ header-left</div>
+    </div>
+    <span class="brand">The Ashfall Compact</span>
+    <nav class="primary" aria-label="Primary">
+      <a href="#main">Read</a>
+      <a href="#main">Table</a>
+      <a href="#main">Characters</a>
+    </nav>
+    <div class="slot" data-slot="header-center">
+      <div data-plugin-slot="header-center" data-component="slot-header" data-plugin="slot-header">header-center</div>
+    </div>
+    <div class="slot" data-slot="header-right">
+      <div class="user-menu">
+        <span class="badge gm">GM</span>
+        <span>gm</span>
+        <button class="btn secondary" type="button">Log out</button>
+      </div>
+      <span class="badge preview">GM preview as mira</span>
+      <div data-plugin-slot="header-right" data-component="slot-header" data-plugin="slot-header">header-right</div>
+    </div>
+  </header>
+  <div class="layout">
+    <main class="sheet-col" id="main" tabindex="-1">
+      <p class="crumbs">Vault / <b>Welcome</b></p>
+      <h1>Welcome to the Compact <span class="badge open">Open · guest-readable</span></h1>
+      <div class="slot" data-slot="page-actions">
+        <div class="actions">
+          <a class="btn" href="#main">Search</a>
+          <a class="btn" href="#main">Edit</a>
+          <a class="btn primary" href="#main">+ New subpage</a>
+          <span class="sse-state" data-sse-state aria-live="polite">Live updates: connected.</span>
+        </div>
+        <div data-plugin-slot="page-actions" data-component="quick-actions" data-plugin="quick-actions">page-actions</div>
+      </div>
+      <article class="page-body" data-page-path="welcome.md">
+        <p>The party stands at the gate of Cinderhold. A <a href="#main">wax-sealed letter</a> names one of you; the rest of it is <span class="redacted">████ redacted ████</span>.</p>
+        <h2>Session log</h2>
+        <table>
+          <thead><tr><th scope="col">Session</th><th scope="col">Date</th><th scope="col">Highlight</th></tr></thead>
+          <tbody>
+            <tr><td>14</td><td>Marigold 3rd</td><td>The bridge held; Bram did not.</td></tr>
+            <tr><td>15</td><td>Marigold 4th</td><td>Terms agreed with the Ashfall Compact.</td></tr>
+          </tbody>
+        </table>
+        <blockquote><p>“No page at this address” is the only answer a secret page ever gives.</p></blockquote>
+        <section class="statblock" aria-label="Statblock: Goblin">
+          <h2 class="statblock-name">Goblin</h2>
+          <p class="statblock-meta">Small humanoid (goblinoid), neutral evil</p>
+          <p><strong>Armor Class</strong> 15 (leather armor, shield)</p>
+          <p><strong>Hit Points</strong> 7 (2d6)</p>
+          <table class="statblock-abilities">
+            <caption>Ability scores</caption>
+            <thead><tr><th scope="col">STR</th><th scope="col">DEX</th><th scope="col">CON</th><th scope="col">INT</th><th scope="col">WIS</th><th scope="col">CHA</th></tr></thead>
+            <tbody><tr><td>8 (-1)</td><td>14 (+2)</td><td>10 (+0)</td><td>10 (+0)</td><td>8 (-1)</td><td>8 (-1)</td></tr></tbody>
+          </table>
+          <h3 class="statblock-group">Actions</h3>
+          <p class="statblock-entry"><strong>Scimitar.</strong> Melee Weapon Attack. Hit: 5 (1d6 + 2) slashing damage.</p>
+        </section>
+        <div class="callout callout-secret" data-callout="secret" data-fold="collapse">
+          <div class="callout-title"><svg class="callout-icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.2" y="7" width="9.6" height="6.2" rx="1"/><path d="M5.5 7V5.4a2.5 2.5 0 0 1 5 0V7"/></svg><span class="callout-title-text">GM only</span></div>
+          <div class="callout-body"><p>Hidden from the party, visible to the page owner.</p></div>
+        </div>
+      </article>
+      <div class="sheet-card">
+        <div class="slot" data-slot="sheet-header">
+          <div class="sheet-head"><h2>Mira Ashgate — Fighter, level 3</h2></div>
+          <p>Human · Soldier · HP 28/28 · Hit dice 3/3 (d10) · XP 900</p>
+          <table>
+            <tbody>
+              <tr><th scope="row">STR</th><td>16 (+3)</td></tr>
+              <tr><th scope="row">DEX</th><td>12 (+1)</td></tr>
+              <tr><th scope="row">CON</th><td>14 (+2)</td></tr>
+              <tr><th scope="row">INT</th><td>10 (+0)</td></tr>
+              <tr><th scope="row">WIS</th><td>13 (+1)</td></tr>
+              <tr><th scope="row">CHA</th><td>8 (-1)</td></tr>
+            </tbody>
+          </table>
+          <div data-plugin-slot="sheet-header" data-component="sheet-tools" data-plugin="sheet-tools">sheet-header</div>
+        </div>
+      </div>
+      <section aria-labelledby="subpages">
+        <h2 id="subpages">Subpages</h2>
+        <ul>
+          <li><a href="#main">Spellbook</a></li>
+          <li><a href="#main">The Cinder Pact</a> <span class="badge secret">Secret</span></li>
+        </ul>
+      </section>
+    </main>
+    <section class="rail rail-left" aria-label="Vault navigation">
+      <details class="drawer" open>
+        <summary>Vault navigation</summary>
+        <div class="slot" data-slot="sidebar-left">
+        <ul class="nav">
+          <li><a href="#main">Welcome</a></li>
+          <li><a href="#main">Cinderhold</a></li>
+          <li><a href="#main">characters/mira/index</a></li>
+        </ul>
+          <div data-plugin-slot="sidebar-left" data-component="vault-tree" data-plugin="vault-tree">sidebar-left</div>
+        </div>
+      </details>
+    </section>
+    <section class="rail rail-right" aria-label="On this page &amp; links">
+      <details class="drawer" open>
+        <summary>On this page &amp; links</summary>
+        <div class="slot" data-slot="sidebar-right">
+        <ul class="backlinks">
+          <li><a href="#main">Cinderhold</a></li>
+          <li><a href="#main">sessions/14</a></li>
+        </ul>
+          <div data-plugin-slot="sidebar-right" data-component="page-companions" data-plugin="page-companions">sidebar-right</div>
+        </div>
+      </details>
+    </section>
+  </div>
+  <footer class="colophon">
+    <div class="slot" data-slot="footer">The Ashfall Compact · read path · secrets filtered server-side</div>
+  </footer>
+</div>
+<p class="hint" style="padding:0 1rem 1.5rem;">Static design preview — no backend, no vault. All eight slots are present and labelled
+(<code>data-debug-slots</code> in core app.css). Flip <code>data-scheme</code> on the
+&lt;html&gt; tag to <code>"dark"</code> or <code>"auto"</code> to see the dark scheme. Palette + WCAG notes:
+docs/plan/themes.md.</p>
+</body>
+</html>

@@ -58,7 +58,10 @@ yonder --vault ./my-campaign
 Open `http://localhost:8080/healthz` (version JSON, nothing else), then
 `http://localhost:8080/?as=gm`. Flags beat env beat defaults:
 `--vault`, `--data-dir`, `--addr`, `serve --demo-auth` (default true;
-`false` retires the `?as=` demo tier — sessions only).
+`false` retires the `?as=` demo tier — sessions only), `--theme` +
+`--theme-scheme` (theme ids `grimoire` / `cartographer`, schemes
+`light` / `dark` / `auto`; an unknown theme fails closed to unthemed —
+palettes and WCAG notes in `docs/plan/themes.md`).
 
 - **LAN play:** serve binds `:8080` by default; hand out
   `http://<your-lan-ip>:8080/?as=<name>`. Cookies stay non-`Secure` on
@@ -132,13 +135,21 @@ zip (.zip)" (`GET /dashboard/vault.zip`, GM-only + logged, same
   max-age=3600`, `X-Content-Type-Options: nosniff`, sandboxed CSP; SVG
   serves as `text/plain` (never sniffed as image).
 - Print stylesheet (`/static/print.css`): `public, max-age=86400`.
+- Core shell stylesheet (`/static/core/app.css`): `public,
+  max-age=86400`, `X-Content-Type-Options: nosniff`. Tokens + shell
+  structure in `@layer core` — themes override it from `@layer overrides`.
 - Sheet core stylesheet (`/static/core/sheet.css`): `public,
   max-age=86400`, `X-Content-Type-Options: nosniff`. Same file the sheet
   pages inline as fallback — identical bytes either way.
+- Theme stylesheets (`/static/themes/grimoire.css`,
+  `/static/themes/cartographer.css`, plus static `preview-*.html`): `public,
+  max-age=86400`, `X-Content-Type-Options: nosniff`. Selected per campaign
+  once the `theme`/`theme-scheme` `campaign.yaml` keys ship (design + gaps:
+  `docs/plan/themes.md`).
 - Vendored JS (`/static/vendor/…`, pinned by `web/static/vendor/VERSIONS`,
   `yonder vendor verify`): `public, max-age=31536000, immutable`,
   `X-Content-Type-Options: nosniff`.
-- All three mounts serve embedded public files only — vault bytes never
+- All four mounts serve embedded public files only — vault bytes never
   appear here (vault assets stay on the ACL-checked `/assets` handler);
   directory roots and traversal escapes 404.
 - SSE, `/healthz`, `/version`: `no-store`.

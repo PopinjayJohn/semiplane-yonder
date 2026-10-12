@@ -3,6 +3,7 @@ package plugins
 import (
 	"context"
 	"fmt"
+	"github.com/semiplane/yonder/internal/auth"
 	"html"
 	"sort"
 	"strings"
@@ -220,6 +221,24 @@ func renderTreePages(b *strings.Builder, pages []*VaultTreePage) {
 		}
 		b.WriteString("</li>\n")
 	}
+}
+
+// RenderSlot (T1-D) maps the filtered shell data onto the tree input and
+// renders the sidebar-left fragment. Entries arrive already filtered
+// (BuildTree rejects unmarked input); the active page highlights itself.
+func (VaultTreePlugin) RenderSlot(slot string, in web.SlotShellData, _ *auth.Viewer) (string, error) {
+	if slot != web.SlotSidebarLeft {
+		return "", nil
+	}
+	entries := make([]VaultTreeEntry, 0, len(in.Pages))
+	for _, p := range in.Pages {
+		entries = append(entries, VaultTreeEntry{Path: p.Path, Title: p.Title, Secret: p.Secret})
+	}
+	root, err := BuildTree(NewVaultTreeInput(entries), in.Path)
+	if err != nil {
+		return "", err
+	}
+	return RenderTree(root).HTML, nil
 }
 
 // vaultTreeCSS is the plugin stylesheet: @layer plugins, every selector

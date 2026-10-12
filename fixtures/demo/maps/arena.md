@@ -1,6 +1,7 @@
 ---
 title: Ashen Ford
 vtt-map:
+  background: assets/maps/ford.png
   grid: {cols: 20, rows: 14}
   fog-default: hidden
   tokens:

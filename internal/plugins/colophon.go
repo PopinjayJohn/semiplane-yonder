@@ -3,6 +3,7 @@ package plugins
 import (
 	"context"
 	"fmt"
+	"github.com/semiplane/yonder/internal/auth"
 	"html"
 	"strings"
 
@@ -34,6 +35,20 @@ func NewColophonSource(campaignName string, pageCount int) ColophonSource {
 		pageCount = 0
 	}
 	return ColophonSource{Filtered: true, PageCount: pageCount, CampaignName: campaignName}
+}
+
+// RenderSlot (T1-D) renders the footer fragment from the campaign name and
+// the count of pages visible to THIS viewer (the count is an aggregate over
+// already-filtered rows — no title or path is ever passed in).
+func (ColophonPlugin) RenderSlot(slot string, in web.SlotShellData, _ *auth.Viewer) (string, error) {
+	if slot != web.SlotFooter {
+		return "", nil
+	}
+	f, err := RenderColophon(NewColophonSource(in.CampaignName, len(in.Pages)))
+	if err != nil {
+		return "", err
+	}
+	return f.HTML, nil
 }
 
 // RenderColophon renders the footer fragment: campaign name (escaped),

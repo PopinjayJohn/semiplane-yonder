@@ -23,7 +23,7 @@ import (
 	"github.com/semiplane/yonder/internal/web"
 )
 
-//go:embed static/print.css static/core static/vendor
+//go:embed static/print.css static/core static/vendor static/themes
 var staticFS embed.FS
 
 // Ops HTTP surface owned by Lane E1 (P09): /healthz + /version expose the
@@ -108,18 +108,18 @@ func versionHandler(info buildInfo) http.HandlerFunc {
 	}
 }
 
-// Cache directives for embedded public assets (runbook §5). Core CSS is
-// unversioned, so it gets the same day-long public cache as print.css.
-// Vendor JS is version-pinned (web/static/vendor/VERSIONS, `yonder vendor
-// verify`), so it is immutable for a year.
+// Cache directives for embedded public assets (runbook §5). Core CSS and
+// theme stylesheets are unversioned, so they get the same day-long public
+// cache as print.css. Vendor JS is version-pinned (web/static/vendor/VERSIONS,
+// `yonder vendor verify`), so it is immutable for a year.
 const (
 	staticCoreCache   = "public, max-age=86400"
 	staticVendorCache = "public, max-age=31536000, immutable"
 )
 
-// staticDirHandler serves one embedded public-asset subtree (static/core or
-// static/vendor) at its /static/... URL prefix with cache + nosniff
-// headers. The embed FS holds only committed public files — vault bytes can
+// staticDirHandler serves one embedded public-asset subtree (static/core,
+// static/vendor, or static/themes) at its /static/... URL prefix with cache +
+// nosniff headers. The embed FS holds only committed public files — vault bytes can
 // never appear here (vault assets stay on the ACL-checked /assets handler).
 // Directory roots and traversal escapes 404 (no listings, no escapes).
 func staticDirHandler(urlPrefix, subdir, cacheControl string) http.Handler {
@@ -176,7 +176,7 @@ type serverWiring struct {
 // dataPaths (sibling <vault>-data dir, sanitized names) like every other
 // command -- never Dir(vault)/Base(vault), which pointed serve at an empty
 // index. (G2 amend: serve read an empty index and 404'd every page.)
-func wireHandlers(info buildInfo, vaultDir, dataDir string, sessionStore auth.SessionStore) *serverWiring {
+func wireHandlers(info buildInfo, vaultDir, dataDir string, sessionStore auth.SessionStore, themeFlag, schemeFlag string) *serverWiring {
 	// Build store, vault, and handlers.
 	indexPath, appPath, _ := dataPaths(dataDir, vaultDir)
 	st, err := store.Open(indexPath, appPath)
@@ -239,6 +239,21 @@ func wireHandlers(info buildInfo, vaultDir, dataDir string, sessionStore auth.Se
 	}
 
 	readH := web.ReadHandlers{Store: st, SlotRegistry: slotReg, Slots: plugReg, SessionStore: sessionStore, UserStore: userStore, Vault: v, VaultRoot: vaultDir, Campaign: campaignData}
+	// T1: resolved theme selection, shared by every render surface (shell,
+	// standalone sheet page, VTT page) so one flag themes the whole app.
+	// Unknown ids fail closed to unthemed (logged), never a broken attribute.
+	theme, scheme := web.ResolveTheme(themeFlag, schemeFlag)
+	if themeFlag != "" && theme == "" {
+		slog.Warn("theme: unknown --theme, staying unthemed", "theme", themeFlag, "known", strings.Join(web.ThemeList(), ","))
+	}
+	if theme != "" && schemeFlag != "" && scheme != schemeFlag {
+		slog.Warn("theme: unknown --theme-scheme, defaulting", "scheme", schemeFlag, "using", scheme)
+	}
+	if theme == "" && schemeFlag != "" {
+		slog.Warn("theme: --theme-scheme ignored without --theme")
+	}
+	readH.Theme, readH.Scheme = theme, scheme
+	readH.PluginAssets = plugReg
 	sessionConfig := auth.DefaultSessionConfig(sessionKeys[0])
 
 	// Reindex function used by both write handlers and vault watcher
@@ -289,7 +304,7 @@ func wireHandlers(info buildInfo, vaultDir, dataDir string, sessionStore auth.Se
 	// stays reachable via ReadHandlers.NewMux only. The same first-wins
 	// rule keeps F2's write-path stubs (/wizard/{step}, /encounter) behind
 	// any same-pattern lane handler; none collide today.
-	sheetH := web.SheetHandlers{Store: st, Vault: v, SessionStore: sessionStore, VaultRoot: vaultDir}
+	sheetH := web.SheetHandlers{Store: st, Vault: v, SessionStore: sessionStore, VaultRoot: vaultDir, Theme: theme, Scheme: scheme}
 	drafts, err := web.NewDraftStore(st.AppDB())
 	if err != nil {
 		panic(err)
@@ -301,7 +316,7 @@ func wireHandlers(info buildInfo, vaultDir, dataDir string, sessionStore auth.Se
 	// BEFORE F1/F2 (first-wins registry rule, same G3 precedent as I1's /me):
 	// GET /vtt/{mapID} retires F1's placeholder and POST /vtt/{mapID}/state
 	// retires F2's stub deliberately. No dashboard code is registered here.
-	vttH := vtt.Handlers{Store: st, Sessions: sessionStore}
+	vttH := vtt.Handlers{Store: st, Sessions: sessionStore, Theme: theme, Scheme: scheme}
 	vttH.RegisterRoutes(reg)
 	readH.RegisterRoutes(reg)
 	writeH.RegisterRoutes(reg)
@@ -316,6 +331,7 @@ func wireHandlers(info buildInfo, vaultDir, dataDir string, sessionStore auth.Se
 	opsMux.HandleFunc("/static/print.css", printCSSHandler)
 	opsMux.Handle("/static/core/", staticDirHandler("/static/core/", "static/core", staticCoreCache))
 	opsMux.Handle("/static/vendor/", staticDirHandler("/static/vendor/", "static/vendor", staticVendorCache))
+	opsMux.Handle("/static/themes/", staticDirHandler("/static/themes/", "static/themes", staticCoreCache))
 
 	// Install ops handlers for paths NOT owned by the registry.
 	regRoutes := reg.Routes()
@@ -370,15 +386,16 @@ func wireHandlers(info buildInfo, vaultDir, dataDir string, sessionStore auth.Se
 }
 
 // isPublicStatic reports the embedded public-asset paths served by the ops
-// mux: the print stylesheet plus the core/vendor subtrees (W3). The registry
-// never registers these, but its "/" catch-all prefix-matches everything in
-// ownedByRegistry — so the outer mux consults this FIRST and unknown paths
-// (e.g. /bogus) keep flowing to the registry's styled 404 untouched.
+// mux: the print stylesheet plus the core/vendor/themes subtrees (W3). The
+// registry never registers these, but its "/" catch-all prefix-matches
+// everything in ownedByRegistry — so the outer mux consults this FIRST and
+// unknown paths (e.g. /bogus) keep flowing to the registry's styled 404
+// untouched.
 func isPublicStatic(path string) bool {
 	if path == "/static/print.css" {
 		return true
 	}
-	for _, prefix := range []string{"/static/core/", "/static/vendor/"} {
+	for _, prefix := range []string{"/static/core/", "/static/vendor/", "/static/themes/"} {
 		if path == strings.TrimSuffix(prefix, "/") || strings.HasPrefix(path, prefix) {
 			return true
 		}
@@ -405,11 +422,13 @@ func withDemoViewer(next http.Handler) http.Handler {
 }
 
 type serveOptions struct {
-	vault    string
-	dataDir  string
-	addr     string
-	demoAuth bool
-	info     buildInfo
+	vault       string
+	dataDir     string
+	addr        string
+	demoAuth    bool
+	theme       string // T1: theme id ("" = unthemed; unknown fails closed)
+	themeScheme string // T1: light|dark|auto ("" = light when a theme is set)
+	info        buildInfo
 }
 
 // runServe opens the app DB (migrating), ensures the session key, and serves
@@ -443,7 +462,7 @@ func runServe(opts serveOptions, shutdown <-chan os.Signal) error {
 		return err
 	}
 
-	mux := wireHandlers(opts.info, opts.vault, dataDir, sessionStore)
+	mux := wireHandlers(opts.info, opts.vault, dataDir, sessionStore, opts.theme, opts.themeScheme)
 	server := &http.Server{
 		Addr:              opts.addr,
 		Handler:           mux.Handler,

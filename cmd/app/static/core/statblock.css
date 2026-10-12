@@ -1,7 +1,11 @@
 /* Statblock box UI (S2): fantasy-statblocks parchment identity as vanilla
    CSS in @layer core. Palette rides tokens defaulting to the plugin's four
-   variables (--sb-paper/--sb-red/--sb-rule/--sb-amber); [data-theme="dark"]
-   re-points them, future themes can do the same. Source of truth:
+   variables (--sb-paper/--sb-red/--sb-rule/--sb-amber). Themes re-point
+   these tokens in every scheme — the same applies to the callout tokens
+   below. (A legacy `[data-theme="dark"]` override was removed in T1: it
+   named a theme id that never shipped, and its values now live in each
+   theme's dark scheme, pinned by
+   cmd/app TestThemeStylesheetsCoverAllSlots.) Source of truth:
    web/static/core/statblock.css; cmd/app/static/core/statblock.css is the
    verbatim served mirror (go:embed cannot reach outside cmd/app). Read-only
    output: no interactive elements, so no motion and no focus management
@@ -14,13 +18,6 @@
   --sb-rule: #922610;
   --sb-amber: #e69a28;
   --sb-ink: #1a1a1a;
-}
-[data-theme="dark"] {
-  --sb-paper: #241c12;
-  --sb-red: #e8a084;
-  --sb-rule: #c07a4a;
-  --sb-amber: #e69a28;
-  --sb-ink: #f3e9d2;
 }
 section.statblock {
   background: var(--sb-paper);
@@ -103,8 +100,9 @@ section.statblock a { text-decoration: underline; }
 /* Callout + admonition component (S3): native `> [!type]` and `ad-<type>`
    fences share this box. Per-type color tokens default to the Obsidian
    callout palette (RGB triads); an ad- `color: R, G, B` header overrides
-   via `--callout-accent` inline. [data-theme="dark"] re-points the tokens.
-   Meaning never rides color alone: every box carries an icon (decorative,
+   via `--callout-accent` inline. Themes re-point these tokens in every
+   scheme (same contract as --sb-* above; the legacy [data-theme="dark"]
+   override was removed in T1). Meaning never rides color alone: every box carries an icon (decorative,
    aria-hidden) plus a text title row. Foldable callouts use native
    details/summary (keyboard-reachable, announced, no JS); motion only on
    the marker, disabled under prefers-reduced-motion. */
@@ -124,23 +122,6 @@ section.statblock a { text-decoration: underline; }
   --callout-default: 136, 136, 136;
   --callout-bg: #ffffff;
   --callout-ink: #1a1a1a;
-}
-[data-theme="dark"] {
-  --callout-note: 120, 170, 255;
-  --callout-abstract: 77, 208, 255;
-  --callout-info: 77, 208, 225;
-  --callout-tip: 77, 225, 200;
-  --callout-success: 105, 240, 174;
-  --callout-question: 255, 171, 64;
-  --callout-warning: 255, 171, 64;
-  --callout-failure: 255, 138, 128;
-  --callout-danger: 255, 110, 130;
-  --callout-bug: 250, 100, 150;
-  --callout-example: 179, 136, 255;
-  --callout-quote: 189, 189, 189;
-  --callout-default: 170, 170, 170;
-  --callout-bg: #1e1e24;
-  --callout-ink: #f3ead8;
 }
 div.callout {
   --callout-accent: var(--callout-default);

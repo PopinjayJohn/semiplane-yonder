@@ -141,8 +141,15 @@ tests, not authentication.
   defaults). Tokens are keyboard-movable with text coordinates; 6-client
   no-desync is proven by `TestSixClientNoDesync`. Guests never receive VTT
   events; GM previews filter as the previewed user.
-- **Print:** `/static/print.css` is the player-safe handout stylesheet —
-  it renders the same secret-filtered HTML, never the source.
+- **Print:** `/static/print.css` is the player-safe handout stylesheet — it
+  renders the same secret-filtered HTML, never the source. It is linked with
+  `media="print"` from the shell, sheet, and VTT pages (it used to be served
+  but never linked, so handouts printed with browser defaults).
+- **Themes:** `--theme grimoire|cartographer [--theme-scheme light|dark|auto]`
+  re-skins the whole app (read path, character sheets, VTT) through token
+  overrides. Palette facts and the measured WCAG stance per theme live in
+  `docs/plan/themes.md`; a `campaign.yaml` `theme:` key is the pending
+  amendment (backlog T1) that turns the flag into a campaign property.
 - **Export:** `yonder archive-vault --vault DIR [--out f.zip]` writes a
   vault zip (data artifacts and symlinks skipped with a count, never
   stored; >10 MB files refuse). The archive carries **no owner filter** —

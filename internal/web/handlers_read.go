@@ -40,6 +40,15 @@ type ReadHandlers struct {
 	Vault        VaultWriter        // for dashboard campaign save
 	VaultRoot    string             // vault dir for the GM-only zip export (serve sets it; empty = export unavailable)
 	Campaign     *campaign.Campaign // campaign.yaml data (name, landing-page, etc.)
+	// T1: resolved theme selection ("" = unthemed). Serve sets it from
+	// --theme/--theme-scheme; campaign.yaml joins as a source when that
+	// amend lands. Same strings reach the shell, the standalone sheet page,
+	// and the VTT page.
+	Theme  string
+	Scheme string
+	// T1: enabled-plugin CSS/JS source (the plugin registry via the
+	// PluginAssets seam; nil = no plugin ships assets).
+	PluginAssets PluginAssets
 }
 
 // csrfTokenForForm returns the session's CSRF token for embedding in forms
@@ -633,13 +642,34 @@ func visibleBacklinks(ctx context.Context, st store.Store, viewer *auth.Viewer, 
 	return out
 }
 
-func (h *ReadHandlers) renderShell(w http.ResponseWriter, r *http.Request, status int, data templates.PageData, viewer *auth.Viewer, body templ.Component) {
+// renderShell is the single shell funnel: every read-path page renders
+// through here, so it stamps the shell-wide fields no call site may forget —
+// CSRF, demo-echo, slot mounts (renderShell), and (T1) theme attributes plus
+// delivered plugin assets. PageData arrives by value; the stamps below apply
+// to this render only.
+//
+// body is a CLOSURE over the stamped data, not a pre-built component: the
+// page-actions and sheet-header mounts live inside PageBody, so a body built
+// before the stamp would render with an empty Slots list (the pre-T1-D bug
+// where those two mounts never appeared even with plugins enabled).
+func (h *ReadHandlers) renderShell(w http.ResponseWriter, r *http.Request, status int, data templates.PageData, viewer *auth.Viewer, body func(templates.PageData) templ.Component) {
 	slog.Info("read", "path", r.URL.Path, "user", viewerLabel(viewer))
 	// Include CSRF token for forms in shell (logout, etc.)
 	data.CSRFToken = h.csrfTokenForForm(r)
 	// Sessions-only deployments must not even echo the retired demo tier:
 	// the shell SSE bootstrap renders its bare (no-`as`) script variant.
 	data.NoDemoEcho = !DemoAuth
+	// T1: theme attributes + the theme stylesheet link in the head. Unthemed
+	// leaves both empty, so an unthemed render is byte-identical to pre-T1.
+	data.Theme = h.Theme
+	data.Scheme = h.Scheme
+	// T1: deliver enabled-plugin CSS/JS through the asset seam (web never
+	// imports plugins — the registry is injected by serve). Empty strings
+	// render nothing, so a deployment with no plugin assets pays nothing.
+	if h.PluginAssets != nil {
+		data.PluginCSS = h.PluginAssets.CSS()
+		data.PluginJS = h.PluginAssets.JS()
+	}
 	// Shell slot mounts resolve through the enabled-aware provider (gate
 	// G3): disabled plugins contribute no mount points. The provider also
 	// applies viewer/path gating (GM-only, grants, prefixes) server-side.
@@ -651,12 +681,47 @@ func (h *ReadHandlers) renderShell(w http.ResponseWriter, r *http.Request, statu
 				})
 			}
 		}
+		// T1-D: fill the mounts with the plugins' rendered fragments. The
+		// render input is the already-filtered PageData (plus the neighbor
+		// lookup below, ACL-checked the same way); fragments arrive matched
+		// by component id and render inside their mount. A provider without
+		// the rendering half (the raw-registry test fallback) leaves mounts
+		// empty, exactly as before T1-D.
+		if len(data.Slots) > 0 {
+			renderer, ok := h.Slots.(SlotRenderer)
+			if ok && renderer != nil {
+				shell := slotShellData(data, viewer, data.CSRFToken)
+				if h.Store != nil {
+					// MayWrite resolves through the write path's own
+					// authorizeWrite gate (status 0 = allowed) so the
+					// quick-actions Edit entry can never appear where the
+					// write path itself would refuse — and never for a GM
+					// preview (preview-writes-403).
+					shell.MayWrite = h.mayWritePage(r.Context(), viewer, data.Path)
+					if h.hasSlot(data.Slots, SlotSidebarRight) {
+						shell.Neighbors = visibleForwardLinks(r.Context(), h.Store, viewer, data.Path)
+					}
+				}
+				frags := map[string]string{}
+				for _, slot := range allSlots {
+					if !h.hasSlot(data.Slots, slot) {
+						continue
+					}
+					for _, f := range renderer.RenderSlots(slot, viewer, data.Path, shell) {
+						frags[slot+"/"+f.ID] = f.HTML
+					}
+				}
+				for i := range data.Slots {
+					data.Slots[i].HTML = frags[data.Slots[i].SlotName+"/"+data.Slots[i].ID]
+				}
+			}
+		}
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	// Read output is per-viewer: never shared-cache, never stored.
 	w.Header().Set("Cache-Control", "private, no-store")
 	w.WriteHeader(status)
-	_ = templates.Shell(data, viewer, body).Render(r.Context(), w)
+	_ = templates.Shell(data, viewer, body(data)).Render(r.Context(), w)
 }
 
 func viewerLabel(v *auth.Viewer) string {
@@ -774,7 +839,7 @@ func (h *ReadHandlers) PageView(w http.ResponseWriter, r *http.Request) {
 	if pc, ok := characterPC(cleanPath); ok {
 		h.characterExtras(r, viewer, page, pc, &data)
 	}
-	h.renderShell(w, r, http.StatusOK, data, viewer, templates.PageBody(data))
+	h.renderShell(w, r, http.StatusOK, data, viewer, templates.PageBody)
 }
 
 // characterPC maps an extensionless clean page path to its character-tree
@@ -900,7 +965,7 @@ func (h *ReadHandlers) notFound(w http.ResponseWriter, r *http.Request, viewer *
 	if viewer != nil {
 		data.PreviewAs = viewer.PreviewAs
 	}
-	h.renderShell(w, r, http.StatusNotFound, data, viewer, templates.NotFound(data))
+	h.renderShell(w, r, http.StatusNotFound, data, viewer, templates.NotFound)
 }
 
 // Search handles search requests. The store filters by viewer ACL and cuts
@@ -947,7 +1012,9 @@ func (h *ReadHandlers) Search(w http.ResponseWriter, r *http.Request) {
 	if viewer != nil {
 		data.PreviewAs = viewer.PreviewAs
 	}
-	h.renderShell(w, r, http.StatusOK, data, viewer, templates.SearchBody(q, hits, data.AsParam))
+	h.renderShell(w, r, http.StatusOK, data, viewer, func(d templates.PageData) templ.Component {
+		return templates.SearchBody(q, hits, d.AsParam)
+	})
 }
 
 // graphNode / graphEdge are the JSON graph (secret-filtered: invisible pages
@@ -998,7 +1065,9 @@ func (h *ReadHandlers) Graph(w http.ResponseWriter, r *http.Request) {
 	if viewer != nil {
 		data.PreviewAs = viewer.PreviewAs
 	}
-	h.renderShell(w, r, http.StatusOK, data, viewer, templates.GraphBody(tn, te, data.AsParam))
+	h.renderShell(w, r, http.StatusOK, data, viewer, func(d templates.PageData) templ.Component {
+		return templates.GraphBody(tn, te, d.AsParam)
+	})
 }
 
 // graphPayload builds the secret-filtered nodes/edges: invisible pages and
@@ -1305,7 +1374,9 @@ func (h *ReadHandlers) Me(w http.ResponseWriter, r *http.Request) {
 		CampaignName: h.campaignName(),
 		LandingPage:  h.landingPage(),
 	}
-	h.renderShell(w, r, http.StatusOK, data, viewer, templates.Placeholder("Me", "Logged in as "+viewerLabel(viewer)+". Character sheets land in Phase 3 (Lane I1)."))
+	h.renderShell(w, r, http.StatusOK, data, viewer, func(templates.PageData) templ.Component {
+		return templates.Placeholder("Me", "Logged in as "+viewerLabel(viewer)+". Character sheets land in Phase 3 (Lane I1).")
+	})
 }
 
 // Dashboard returns the GM dashboard with campaign settings and user management.
@@ -1366,7 +1437,9 @@ func (h *ReadHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 		Encounter: h.dashboardEncounter(r),
 	}
 
-	h.renderShell(w, r, http.StatusOK, data, viewer, templates.DashboardBody(dashboardData))
+	h.renderShell(w, r, http.StatusOK, data, viewer, func(templates.PageData) templ.Component {
+		return templates.DashboardBody(dashboardData)
+	})
 }
 
 // dashboardDice loads the recent dice log for the dashboard, newest last,
@@ -1564,7 +1637,9 @@ func (h *ReadHandlers) DashboardUserResetPassword(w http.ResponseWriter, r *http
 		LandingPage:  h.landingPage(),
 	}
 	body := fmt.Sprintf(`<h1>Password Reset</h1><p>Password for <strong>%s</strong> has been reset.</p><p>New password: <code>%s</code></p><p><a href="/dashboard" class="btn">Back to Dashboard</a></p>`, html.EscapeString(username), html.EscapeString(newPassword))
-	h.renderShell(w, r, http.StatusOK, data, viewer, templates.RawBody(body))
+	h.renderShell(w, r, http.StatusOK, data, viewer, func(templates.PageData) templ.Component {
+		return templates.RawBody(body)
+	})
 }
 
 // DashboardUserRevokeSessions handles revoking all sessions for a user.
@@ -1715,7 +1790,9 @@ func (h *ReadHandlers) VTT(w http.ResponseWriter, r *http.Request) {
 		CampaignName: h.campaignName(),
 		LandingPage:  h.landingPage(),
 	}
-	h.renderShell(w, r, http.StatusOK, data, viewer, templates.Placeholder("Table", "The virtual tabletop lands in Phase 4 (Lane K)."))
+	h.renderShell(w, r, http.StatusOK, data, viewer, func(templates.PageData) templ.Component {
+		return templates.Placeholder("Table", "The virtual tabletop lands in Phase 4 (Lane K).")
+	})
 }
 
 // flipHub fans out secret-flip broadcasts to SSE subscribers. Payloads carry
