@@ -196,10 +196,20 @@ func renderTreeFolder(b *strings.Builder, f *VaultTreeFolder) {
 	if f.Depth <= 0 {
 		open = " open"
 	}
+	// The count rides in the accessible name and is aria-hidden in the
+	// chrome: the visible label (the folder name) must be contained in the
+	// name (WCAG 2.5.3 Label in Name; axe label-content-name-mismatch), so
+	// "Toggle folder maps, 1 item" wraps the visible "maps" while AT users
+	// still get the count.
+	count := len(f.Folders) + len(f.Pages)
+	noun := "items"
+	if count == 1 {
+		noun = "item"
+	}
 	fmt.Fprintf(b, `<li class="vt-folder" data-tree-path="%s">`, html.EscapeString(f.Path))
 	fmt.Fprintf(b, `<details class="vt-details"%s>`, open)
-	fmt.Fprintf(b, `<summary class="vt-summary" aria-label="Toggle folder %s"><span class="vt-caret" aria-hidden="true">▾</span> <span class="vt-name">%s</span> <span class="vt-count">%d</span></summary>`+"\n",
-		html.EscapeString(f.Name), html.EscapeString(f.Name), len(f.Folders)+len(f.Pages))
+	fmt.Fprintf(b, `<summary class="vt-summary" aria-label="Toggle folder %s, %d %s"><span class="vt-caret" aria-hidden="true">▾</span> <span class="vt-name">%s</span> <span class="vt-count" aria-hidden="true">%d</span></summary>`+"\n",
+		html.EscapeString(f.Name), count, noun, html.EscapeString(f.Name), count)
 	b.WriteString(`<ul class="vt-list">` + "\n")
 	renderTreePages(b, f.Pages)
 	for _, sub := range f.Folders {

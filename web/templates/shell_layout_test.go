@@ -79,3 +79,30 @@ func TestShellRailsAndFallbacks(t *testing.T) {
 		}
 	}
 }
+
+// The footer slot hosts plugin fragments INSIDE the shell's
+// footer.colophon — the page's only contentinfo landmark. A fragment that
+// renders its own <footer> nests a second contentinfo and fails axe
+// (landmark-no-duplicate-contentinfo / -is-top-level, hit by the
+// vault-colophon fragment in CI): whatever mounts there, the document
+// keeps exactly one footer element.
+func TestShellFooterSlotKeepsOneContentinfo(t *testing.T) {
+	d := PageData{
+		Title: "T",
+		Slots: []SlotMark{
+			{SlotName: "footer", ID: "vault-colophon", Component: "vault-colophon", PluginID: "vault-colophon",
+				HTML: `<div data-plugin="vault-colophon"><section aria-label="About this vault"><p>Acme</p></section></div>`},
+		},
+	}
+	var b strings.Builder
+	if err := Shell(d, nil, PageBody(d)).Render(t.Context(), &b); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	got := b.String()
+	if n := strings.Count(got, "<footer"); n != 1 {
+		t.Errorf("shell renders %d <footer> elements, want exactly 1 (the shell's own)", n)
+	}
+	if !strings.Contains(got, `<div data-plugin-slot="footer" data-component="vault-colophon" data-plugin="vault-colophon">`) {
+		t.Error("footer slot fragment not mounted inside the shell footer")
+	}
+}

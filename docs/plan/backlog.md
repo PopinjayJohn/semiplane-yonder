@@ -77,6 +77,13 @@ sheet page's own mounts, if any plugin ever mounts there; SSE morph targets
 for these fragments exist (stable ids) but the per-fragment event wiring is
 unchanged (page-level secret-flip only).
 
+CI axe caught two T1-D fragment bugs on this branch (fixed in the same PR,
+pinned in pitfalls): the colophon fragment rendered its own `<footer>`
+inside the shell's `footer.colophon` (nested contentinfo), and the
+vault-tree folder `aria-label` omitted the visible count (Label in Name,
+axe 4.14). `TestShellFooterSlotKeepsOneContentinfo` pins the first shape
+at the shell level for any future fragment.
+
 ### T1-E — Shell layout: rails beside the page — DONE 2026-10-12
 
 The shipped shell nested BOTH sidebars in a single `<details class="drawer">`

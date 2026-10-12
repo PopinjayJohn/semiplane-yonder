@@ -67,12 +67,18 @@ func RenderColophon(src ColophonSource) (UIFragment, error) {
 		pages = "page"
 	}
 	var b strings.Builder
-	b.WriteString(`<footer data-plugin="vault-colophon" class="colophon">` + "\n")
+	// Not a <footer>: the shell's own footer.colophon is the page's
+	// contentinfo landmark and this fragment mounts INSIDE it, so a
+	// <footer> here would nest a second contentinfo (axe:
+	// landmark-no-duplicate-contentinfo / landmark-contentinfo-is-top-level,
+	// the CI axe failure that pinned this). The plugin fills the shell's
+	// landmark; it must not render its own.
+	b.WriteString(`<div data-plugin="vault-colophon" class="colophon">` + "\n")
 	b.WriteString(`<section aria-label="About this vault" class="colophon-about">` + "\n")
 	fmt.Fprintf(&b, "<p class=\"colophon-campaign\">%s</p>\n", html.EscapeString(src.CampaignName))
 	fmt.Fprintf(&b, "<p class=\"colophon-count\">%d %s in this vault.</p>\n", count, pages)
 	b.WriteString(`<p class="colophon-attrib">Contains material from the Systems Reference Document 5.2 (SRD 5.2) by Wizards of the Coast, licensed under CC-BY-4.0.</p>` + "\n")
-	b.WriteString("</section>\n</footer>")
+	b.WriteString("</section>\n</div>")
 	return UIFragment{Target: "vault-colophon", HTML: b.String()}, nil
 }
 
@@ -122,10 +128,13 @@ func (p *ColophonPlugin) OnDisable(_ context.Context) error { return nil }
 func (p *ColophonPlugin) ConfigSchema() string                  { return "{}" }
 func (p *ColophonPlugin) ValidateConfig(_ map[string]any) error { return nil }
 
-// A11y declares the footer landmark + label `plugin check` lints.
+// A11y declares the fragment's landmarks + labels `plugin check` lints.
+// "region" is what the fragment RENDERS (the labelled <section>); the
+// contentinfo landmark itself belongs to the shell's footer the fragment
+// mounts in — declaring it here is what produced the nested <footer>.
 func (p *ColophonPlugin) A11y() A11ySpec {
 	return A11ySpec{
-		Landmarks: []string{"contentinfo"},
+		Landmarks: []string{"region"},
 		Labels:    []string{"About this vault"},
 	}
 }
