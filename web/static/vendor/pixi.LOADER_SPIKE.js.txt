@@ -1,0 +1,27 @@
+// THROWAWAY SPIKE — NOT WIRED INTO ANY TEMPLATE, RENDERER, OR ROUTE.
+// Mirrors docs/plan/vtt-pixi-spike.md §2–§4. Never imported; the .txt suffix
+// keeps every toolchain (templ, go:embed, vendor verify) blind to it.
+// Deletes cleanly at P0 execution (replaced by web/static/vtt/pixi-board.js).
+export async function bootPixiSpike(PIXI, board, opts) {
+  const reduceMotion = !!(opts && opts.reduceMotion);
+  let app = null;
+  try {
+    app = new PIXI.Application();
+    await app.init({ preference: "webgl", resizeTo: board, autoDensity: true,
+      resolution: (typeof devicePixelRatio !== "undefined" && devicePixelRatio) || 1,
+      backgroundAlpha: 0, antialias: true });
+  } catch (e) { return false; }
+  if (!app || !app.renderer) return false;
+  const isWebGL = app.renderer.type === (PIXI.RendererType && PIXI.RendererType.WEBGL);
+  if (!isWebGL) {
+    try {
+      await app.init({ preference: "canvas", resizeTo: board, autoDensity: true,
+        backgroundAlpha: 0 });
+    } catch (e) { try { app.destroy(); } catch (_) {} return false; }
+  }
+  // Parity layers: background / grid / fog / tokens / fx (see spike doc §3).
+  // Real scene build happens at P1; the spike only proves the init chain.
+  // reduceMotion: no Ticker loop — render-on-state-change only.
+  if (reduceMotion && app.ticker) app.ticker.stop();
+  return true; // caller mounts canvas + aria-hides (never removes) the DOM board
+}
