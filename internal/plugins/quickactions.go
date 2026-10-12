@@ -3,6 +3,7 @@ package plugins
 import (
 	"context"
 	"fmt"
+	"github.com/semiplane/yonder/internal/auth"
 	"html"
 	"net/url"
 	"strings"
@@ -31,19 +32,42 @@ const QuickActionsPluginID = "quick-actions"
 // RenderQuickActions refuses unmarked input. PagePath/PageSecret/CSRFToken
 // are the already-filtered page context needed to target the existing
 // write path; CSRFToken is the session's double-submit token.
+// NewSubpageURL is the optional already-authorized "+ New subpage" target
+// (empty = not offered).
 type QuickActionsSource struct {
-	Filtered   bool
-	CanEdit    bool
-	IsGM       bool
-	PreviewAs  string
-	PagePath   string // vault-relative page id, e.g. "notes/cinder-pact.md"
-	PageSecret bool   // current secret state (filtered; GM sees real state)
-	CSRFToken  string // session CSRF token for the toggle form
+	Filtered      bool
+	CanEdit       bool
+	IsGM          bool
+	PreviewAs     string
+	PagePath      string // vault-relative page id, e.g. "notes/cinder-pact.md"
+	PageSecret    bool   // current secret state (filtered; GM sees real state)
+	CSRFToken     string // session CSRF token for the toggle form
+	NewSubpageURL string // optional "+ New subpage" target ("" = not offered)
 }
 
 // NewQuickActionsSource marks caller-filtered page context as safe input.
 func NewQuickActionsSource(pagePath string, pageSecret bool, csrfToken string) QuickActionsSource {
 	return QuickActionsSource{Filtered: true, PagePath: pagePath, PageSecret: pageSecret, CSRFToken: csrfToken}
+}
+
+// RenderSlot (T1-D) maps the filtered page context onto the quick-actions
+// source and renders the page-actions fragment. CanEdit comes from the
+// write path's own authorizeWrite gate, so the Edit entry can never appear
+// where the write path would refuse; previews render read-only.
+func (QuickActionsPlugin) RenderSlot(slot string, in web.SlotShellData, _ *auth.Viewer) (string, error) {
+	if slot != web.SlotPageActions {
+		return "", nil
+	}
+	src := NewQuickActionsSource(in.Path, in.Secret, in.CSRFToken)
+	src.CanEdit = in.MayWrite
+	src.IsGM = in.IsGM
+	src.PreviewAs = in.PreviewAs
+	src.NewSubpageURL = in.NewSubpageURL
+	f, err := RenderQuickActions(src)
+	if err != nil {
+		return "", err
+	}
+	return f.HTML, nil
 }
 
 // RenderQuickActions renders the quick-actions fragment. Unfiltered input is
@@ -67,6 +91,13 @@ func RenderQuickActions(src QuickActionsSource) (UIFragment, error) {
 	// Edit entry: GET navigation, only for editors outside previews.
 	if src.CanEdit && !preview {
 		b.WriteString(`<a class="qa-btn" href="` + html.EscapeString(editPathFor(src.PagePath)) + `" aria-label="Edit this page">Edit this page</a>` + "\n")
+	}
+
+	// "+ New subpage": only where the caller authorized it (the same
+	// authorizeWrite gate the core shell used before quick-actions took over
+	// the slot — the button must not disappear when the plugin is enabled).
+	if src.NewSubpageURL != "" && !preview {
+		b.WriteString(`<a class="qa-btn" href="` + html.EscapeString(src.NewSubpageURL) + `" aria-label="Create a new subpage">+ New subpage</a>` + "\n")
 	}
 
 	// GM-only secret toggle: posts through the existing page-edit write

@@ -121,7 +121,7 @@ func newGateRig(t *testing.T) *gateRig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wiring := wireHandlers(buildInfo{Version: "gate"}, vault, dataDir, sessionStore)
+	wiring := wireHandlers(buildInfo{Version: "gate"}, vault, dataDir, sessionStore, "", "")
 	srv := httptest.NewServer(wiring.Handler)
 	t.Cleanup(srv.Close)
 	jar, _ := cookiejar.New(nil)

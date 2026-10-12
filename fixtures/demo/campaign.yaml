@@ -17,9 +17,17 @@ enabled-features:
   - weapon-mastery-2024
 
 # Feature plugins (P06 namespace — listed so neither lane's keys trip the
-# other's validation). The random-tables slot mounts when enabled.
+# other's validation). The compiled-in slot plugins below render through the
+# shell's slot mounts (T1-D: server-rendered fragments from filtered input).
+# NOTE: `random-tables` is not compiled into the binary — an unknown id stays
+# disabled with a warning, so listing it does nothing.
 enabled-plugins:
-  - random-tables
+  - vault-tree
+  - slot-header
+  - page-companions
+  - vault-colophon
+  - quick-actions
+  - sheet-tools
 
 # Opened by `/` (redirects to /p/<landing-page>).
 landing-page: welcome

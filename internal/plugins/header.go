@@ -3,6 +3,7 @@ package plugins
 import (
 	"context"
 	"fmt"
+	"github.com/semiplane/yonder/internal/auth"
 	"html"
 	"strings"
 
@@ -87,6 +88,48 @@ func HeaderSlots() []web.SlotComponent {
 		{SlotName: web.SlotHeaderRight, ID: "live-badge", Component: "slot-header-live-badge",
 			Priority: 5, SecretFiltered: true, PluginID: SlotHeaderPluginID},
 	}
+}
+
+// RenderSlot (T1-D) renders the three header fragments, one per slot:
+// breadcrumb (header-left), search palette (header-center), live badge
+// (header-right). Breadcrumb ancestors are resolved against the filtered
+// page list — an ancestor the viewer may not see is simply absent, so the
+// crumb trail never names or links a secret page.
+func (HeaderPlugin) RenderSlot(slot string, in web.SlotShellData, _ *auth.Viewer) (string, error) {
+	switch slot {
+	case web.SlotHeaderLeft:
+		f, err := RenderBreadcrumb(NewBreadcrumbInput(crumbsFor(in)))
+		if err != nil {
+			return "", err
+		}
+		return f.HTML, nil
+	case web.SlotHeaderCenter:
+		return RenderSearchPalette().HTML, nil
+	case web.SlotHeaderRight:
+		return RenderLiveBadge().HTML, nil
+	}
+	return "", nil
+}
+
+// crumbsFor builds the filtered ancestor trail for the current page: every
+// ancestor path that exists as a visible page, in root-to-leaf order, with
+// the page itself last.
+func crumbsFor(in web.SlotShellData) []Crumb {
+	byPath := make(map[string]string, len(in.Pages))
+	for _, p := range in.Pages {
+		byPath[p.Path] = p.Title
+	}
+	leaf := strings.TrimSuffix(strings.TrimSuffix(in.Path, ".md"), ".markdown")
+	var out []Crumb
+	parts := strings.Split(leaf, "/")
+	for i := 1; i < len(parts); i++ {
+		anc := strings.Join(parts[:i], "/")
+		if title, ok := byPath[anc]; ok {
+			out = append(out, Crumb{Path: anc, Title: title})
+		}
+	}
+	out = append(out, Crumb{Path: leaf, Title: in.Title})
+	return out
 }
 
 // HeaderCSS is the slot-header stylesheet (namespaced, core tokens only).

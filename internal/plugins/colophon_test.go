@@ -14,13 +14,20 @@ func TestRenderColophon(t *testing.T) {
 		t.Errorf("target = %q", frag.Target)
 	}
 	for _, want := range []string{
-		"<footer", `<section aria-label="About this vault"`,
+		`<div data-plugin="vault-colophon"`, `<section aria-label="About this vault"`,
 		"Ember Vale", "42 pages",
 		"SRD", "CC-BY-4.0",
 	} {
 		if !strings.Contains(frag.HTML, want) {
 			t.Errorf("fragment missing %q:\n%s", want, frag.HTML)
 		}
+	}
+	// The fragment mounts inside the shell's footer.colophon (the page's
+	// contentinfo), so it must NOT render its own <footer> — a nested
+	// contentinfo fails axe (landmark-no-duplicate-contentinfo,
+	// landmark-contentinfo-is-top-level).
+	if strings.Contains(frag.HTML, "<footer") {
+		t.Errorf("fragment renders a nested <footer>:\n%s", frag.HTML)
 	}
 }
 
@@ -107,8 +114,8 @@ func TestColophonCheckPlugin(t *testing.T) {
 		t.Errorf("css bytes = %d", n)
 	}
 	a11y := p.A11y()
-	if len(a11y.Landmarks) == 0 || a11y.Landmarks[0] != "contentinfo" {
-		t.Errorf("landmarks = %v", a11y.Landmarks)
+	if len(a11y.Landmarks) == 0 || a11y.Landmarks[0] != "region" {
+		t.Errorf("landmarks = %v, want the labelled <section> region the fragment renders", a11y.Landmarks)
 	}
 	if len(a11y.Labels) == 0 {
 		t.Errorf("labels = %v", a11y.Labels)

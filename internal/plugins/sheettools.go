@@ -52,6 +52,28 @@ func NewSheetToolsSource(charID, charName string, hpCur, hpMax int64, csrfToken 
 	}
 }
 
+// RenderSlot (T1-D) renders the sheet-header tools fragment. The derived HP
+// values arrive already filtered (nil Sheet renders the empty state); preview
+// sessions render read-only, matching the preview-writes-403 rule.
+func (SheetToolsPlugin) RenderSlot(slot string, in web.SlotShellData, _ *auth.Viewer) (string, error) {
+	if slot != web.SlotSheetHeader {
+		return "", nil
+	}
+	var src SheetToolsSource
+	if in.Sheet != nil {
+		src = NewSheetToolsSource(in.Sheet.CharID, in.Sheet.CharName, in.Sheet.HPCur, in.Sheet.HPMax, in.CSRFToken)
+	} else {
+		src = SheetToolsSource{Filtered: true} // HasSheet false → empty state
+	}
+	src.IsGM = in.IsGM
+	src.PreviewAs = in.PreviewAs
+	f, err := RenderSheetTools(src)
+	if err != nil {
+		return "", err
+	}
+	return f.HTML, nil
+}
+
 // RenderSheetTools renders the sheet-header tools fragment. Read-only in
 // preview mode (PreviewAs != "") and when there is no sheet; otherwise two
 // labelled POST forms (short/long rest) against the existing sheet

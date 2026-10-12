@@ -3,6 +3,7 @@ package plugins
 import (
 	"context"
 	"fmt"
+	"github.com/semiplane/yonder/internal/auth"
 	"html"
 	"sort"
 	"strings"
@@ -195,10 +196,20 @@ func renderTreeFolder(b *strings.Builder, f *VaultTreeFolder) {
 	if f.Depth <= 0 {
 		open = " open"
 	}
+	// The count rides in the accessible name and is aria-hidden in the
+	// chrome: the visible label (the folder name) must be contained in the
+	// name (WCAG 2.5.3 Label in Name; axe label-content-name-mismatch), so
+	// "Toggle folder maps, 1 item" wraps the visible "maps" while AT users
+	// still get the count.
+	count := len(f.Folders) + len(f.Pages)
+	noun := "items"
+	if count == 1 {
+		noun = "item"
+	}
 	fmt.Fprintf(b, `<li class="vt-folder" data-tree-path="%s">`, html.EscapeString(f.Path))
 	fmt.Fprintf(b, `<details class="vt-details"%s>`, open)
-	fmt.Fprintf(b, `<summary class="vt-summary" aria-label="Toggle folder %s"><span class="vt-caret" aria-hidden="true">▾</span> <span class="vt-name">%s</span> <span class="vt-count">%d</span></summary>`+"\n",
-		html.EscapeString(f.Name), html.EscapeString(f.Name), len(f.Folders)+len(f.Pages))
+	fmt.Fprintf(b, `<summary class="vt-summary" aria-label="Toggle folder %s, %d %s"><span class="vt-caret" aria-hidden="true">▾</span> <span class="vt-name">%s</span> <span class="vt-count" aria-hidden="true">%d</span></summary>`+"\n",
+		html.EscapeString(f.Name), count, noun, html.EscapeString(f.Name), count)
 	b.WriteString(`<ul class="vt-list">` + "\n")
 	renderTreePages(b, f.Pages)
 	for _, sub := range f.Folders {
@@ -220,6 +231,24 @@ func renderTreePages(b *strings.Builder, pages []*VaultTreePage) {
 		}
 		b.WriteString("</li>\n")
 	}
+}
+
+// RenderSlot (T1-D) maps the filtered shell data onto the tree input and
+// renders the sidebar-left fragment. Entries arrive already filtered
+// (BuildTree rejects unmarked input); the active page highlights itself.
+func (VaultTreePlugin) RenderSlot(slot string, in web.SlotShellData, _ *auth.Viewer) (string, error) {
+	if slot != web.SlotSidebarLeft {
+		return "", nil
+	}
+	entries := make([]VaultTreeEntry, 0, len(in.Pages))
+	for _, p := range in.Pages {
+		entries = append(entries, VaultTreeEntry{Path: p.Path, Title: p.Title, Secret: p.Secret})
+	}
+	root, err := BuildTree(NewVaultTreeInput(entries), in.Path)
+	if err != nil {
+		return "", err
+	}
+	return RenderTree(root).HTML, nil
 }
 
 // vaultTreeCSS is the plugin stylesheet: @layer plugins, every selector

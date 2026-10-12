@@ -1,0 +1,284 @@
+/* Yonder core stylesheet — design tokens + shell structure.
+   Source of truth for the shell's base CSS: web/templates/shell.templ links
+   this file (the tokens used to live inline in the template). Wrapped in
+   `@layer core` so theme overrides (`@layer overrides`, see
+   web/static/themes/) beat it — unlayered rules outrank every layer, so the
+   shell CSS must live in a layer for themes to work at all.
+
+   Tokens only carry VALUES; every rule here is structure. A theme re-points
+   the tokens under `[data-theme]` — it never restructures the shell. cmd/app/
+   static/core/app.css is the verbatim served mirror (go:embed cannot reach
+   outside cmd/app); edit this file first, then copy (pinned by
+   TestW3StaticCopiesMatchSources).
+
+   Offline-first: no web fonts, no external requests, no build step. */
+@layer core {
+
+:root {
+  color-scheme: light dark;
+
+  /* Palette — unthemed defaults. Themes override these under [data-theme]. */
+  --ink: #1a1a1a;              /* body text */
+  --paper: #fff;               /* page background */
+  --surface: #fff;             /* raised surfaces: buttons, inputs, skip link */
+  --accent: #1d4ed8;           /* links, primary actions */
+  --on-accent: #fff;           /* text on --accent fills */
+  --line: #888;                /* dividers, panel + drawer borders */
+  --border: var(--line);       /* alias for plugin CSS that references
+                                  --border (vault-tree counts/badges);
+                                  undefined until T1, where it silently
+                                  fell back to currentColor */
+  --control-line: var(--line); /* control boundaries (secondary buttons,
+                                  drawer): WCAG 1.4.11 needs 3:1 here, so
+                                  themes may split this from decorative --line */
+  --input-line: var(--line);   /* form-control boundaries (WCAG 1.4.11) */
+  --focus: var(--accent);      /* focus ring (needs 3:1 vs adjacent) */
+  --hint: #6b7280;             /* secondary text (4.8:1 on --paper) */
+  --warn: #b45309;             /* GM / preview badges */
+  --danger: #b91c1c;           /* errors, locked state */
+  --danger-bg: #fef2f2;        /* error box fill */
+  --topnav-bg: #fff;           /* header bar */
+  --topnav-ink: #1a1a1a;       /* header text */
+  --topnav-link: #1d4ed8;      /* header links */
+  --topnav-line: var(--line);  /* header bottom rule */
+  --topnav-warn: #b45309;      /* badges inside the header bar */
+
+  /* Type — themes may swap stacks (serif book vs sans chart). */
+  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: var(--font-body);
+
+  /* Character-sheet card (sheet-header slot host). */
+  --card-line: var(--ink);
+  --card-bg: var(--surface);
+  --card-head-bg: var(--ink);
+  --card-head-ink: #fff;
+  --card-radius: 0.5rem;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: var(--font-body);
+  color: var(--ink);
+  background: var(--paper);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.skip { position: absolute; left: -999px; }
+.skip:focus { left: 0.5rem; top: 0.5rem; background: var(--surface); padding: 0.5rem; z-index: 10; }
+
+.topnav {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  background: var(--topnav-bg);
+  color: var(--topnav-ink);
+  border-bottom: 2px solid var(--topnav-line);
+}
+.topnav .primary { display: flex; gap: 0.25rem; }
+.topnav a { color: var(--topnav-link); padding: 0.6rem 0.8rem; min-height: 44px; display: inline-flex; align-items: center; }
+.brand { font-family: var(--font-display); letter-spacing: 0.06em; }
+
+.slot { min-width: 0; }
+.slot[data-slot="header-right"] { margin-left: auto; }
+
+/* Layout: three rails on wide screens (tree · page · companions), two on
+   tablets (page · companions, tree below), one column on phones with main
+   first. Grid areas keep the DOM order main-first for mobile while the CSS
+   places the rails beside it when there is room — the shipped shell had
+   `display: block`, which stacked both rails under main like a second
+   footer. */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "main" "left" "right";
+  gap: 1rem;
+  padding: 0 1rem;
+  margin: 0 auto;
+  width: 100%;
+}
+.sheet-col { grid-area: main; min-width: 0; max-width: 46rem; width: 100%; }
+.rail { grid-area: auto; min-width: 0; }
+.rail-left { grid-area: left; }
+.rail-right { grid-area: right; }
+
+@media (min-width: 900px) {
+  .layout {
+    max-width: 70rem;
+    grid-template-columns: minmax(0, 1fr) 17.5rem;
+    grid-template-areas: "main right" "left left";
+  }
+}
+@media (min-width: 1200px) {
+  .layout {
+    max-width: 84rem;
+    grid-template-columns: 15rem minmax(0, 1fr) 17.5rem;
+    grid-template-areas: "left main right";
+  }
+  /* Rails ride alongside the page: pinned, scrolling independently, so a
+     deep vault tree never pushes the page down. */
+  .rail {
+    position: sticky;
+    top: 1rem;
+    align-self: start;
+    max-height: calc(100vh - 2rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}
+
+/* Each rail is a native <details> so it collapses without JS: open by
+   default (the rails are navigation, not chrome to hunt for), full bordered
+   chrome while stacked on narrow screens, borderless once it is a permanent
+   side column — the slot panel inside carries the visual weight there. */
+.rail > .drawer { border: 1px solid var(--control-line); margin: 1rem 0; }
+.rail > .drawer > summary {
+  cursor: pointer;
+  padding: 0.6rem 0.8rem;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  font-family: var(--font-display);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--hint);
+}
+@media (min-width: 900px) {
+  .rail > .drawer { border: 0; margin: 0; padding: 0; background: none; }
+}
+
+/* (The generic `.drawer` rules moved onto `.rail > .drawer` above: the rails
+   are the only drawers the shell renders, and they need the extra
+   borderless-on-wide-screens treatment.) */
+
+.banner { border: 2px solid var(--line); padding: 0.6rem 1rem; margin: 0.5rem 1rem; }
+.banner.preview-banner, .badge.preview { border-color: var(--warn); }
+.banner.quarantine { border-style: dashed; }
+.badge {
+  display: inline-block;
+  border: 2px solid currentColor;
+  border-radius: 0.4rem;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+/* Badge color classes replace the old inline style="border-color:#b45309;color:#b45309"
+   attributes so themes can re-point them (inline styles beat every stylesheet). */
+.badge.gm, .badge.failed { color: var(--warn); border-color: var(--warn); }
+.badge.locked { color: var(--danger); border-color: var(--danger); }
+.badge.open::before { content: "○ "; }
+.badge.secret::before { content: "▪ "; }
+.redacted { border: 1px dashed currentColor; padding: 0 0.3rem; }
+
+.notice { border-left: 4px solid var(--line); padding: 0.5rem 0.8rem; margin: 0.8rem 0; }
+.block-tag { font-weight: 700; }
+
+.btn, button.btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0.5rem 1rem;
+  border: 2px solid var(--accent);
+  background: var(--surface);
+  color: var(--accent);
+  border-radius: 0.4rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+.btn.primary { background: var(--accent); color: var(--on-accent); }
+.btn.secondary { border-color: var(--control-line); color: var(--ink); }
+
+a:focus-visible,
+button:focus-visible,
+summary:focus-visible,
+input:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+.sse-state { font-size: 0.85rem; }
+
+.colophon { border-top: 2px solid var(--line); margin-top: 2rem; padding: 0.8rem 1rem; }
+.user-menu { display: flex; align-items: center; gap: 0.5rem; }
+.user-menu .btn { padding: 0.4rem 0.8rem; }
+
+/* Character-sheet card (hosts the sheet-header slot on characters/<pc>/ pages).
+   Structure only — themes re-point --card-*/--slot-* tokens. */
+.sheet-card {
+  border: 2px solid var(--card-line);
+  border-radius: var(--card-radius);
+  background: var(--card-bg);
+  overflow: hidden;
+  margin: 1rem 0;
+}
+.sheet-card .sheet-head {
+  background: var(--card-head-bg);
+  color: var(--card-head-ink);
+  padding: 0.6rem 0.9rem;
+}
+.sheet-card .sheet-head h2 { margin: 0; font-family: var(--font-display); }
+.sheet-card p { padding: 0 0.9rem; }
+.sheet-card table { width: 100%; border-collapse: collapse; }
+.sheet-card th, .sheet-card td {
+  text-align: left;
+  padding: 0.5rem 0.9rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.login-form { max-width: 24rem; margin: 0 auto; padding: 1.5rem; border: 1px solid var(--line); border-radius: 0.5rem; }
+.login-form h1 { margin-top: 0; }
+.form-group { margin-bottom: 1rem; }
+.login-form label { display: block; margin-bottom: 0.3rem; font-weight: 500; }
+.login-form input[type="text"],
+.login-form input[type="password"] {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid var(--input-line);
+  border-radius: 0.3rem;
+  min-height: 44px;
+  font-size: 1rem;
+}
+.login-form .btn { width: 100%; justify-content: center; margin-top: 0.5rem; }
+.login-form .error {
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  background: var(--danger-bg);
+  padding: 0.75rem;
+  border-radius: 0.3rem;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+.login-form .hint { font-size: 0.85rem; color: var(--hint); margin-top: 1rem; }
+.login-form .hint a { color: var(--accent); }
+
+/* Dev-only slot map: no shipped page sets data-debug-slots, so this changes
+   nothing in production. Set data-debug-slots on <body> (the theme preview
+   pages under web/static/themes/ do) to label every slot mount point. */
+[data-debug-slots] .slot[data-slot] {
+  position: relative;
+  outline: 1px dashed var(--line);
+  outline-offset: 2px;
+}
+[data-debug-slots] .slot[data-slot]::before {
+  content: attr(data-slot);
+  position: absolute;
+  top: -0.75em;
+  left: 0.4rem;
+  z-index: 5;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: ui-monospace, monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.04em;
+  padding: 0 0.35rem;
+  border-radius: 3px;
+  line-height: 1.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+
+} /* @layer core */

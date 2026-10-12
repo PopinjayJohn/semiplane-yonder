@@ -87,6 +87,12 @@ type SheetHandlers struct {
 	Pack         *Pack
 	Evaluator    RecoveryEvaluator // explicit engine in tests; vault-backed when VaultRoot is set
 	VaultRoot    string            // gate G3: vault truth for per-request pack/engine resolve (no restart on overlay switch)
+	// T1: resolved theme selection, same strings the shell renders ("" =
+	// unthemed). The sheet page is standalone HTML, so it must carry the
+	// theme attributes and stylesheet itself — a themed campaign that left
+	// this page unthemed would show parchment chrome around a white card.
+	Theme  string
+	Scheme string
 }
 
 // RegisterRoutes registers sheet routes with the frozen registry.
@@ -386,15 +392,20 @@ func sheetStyle() string {
 }
 
 // writeSheetHTML mirrors writeHTML for sheet pages (same per-viewer
-// no-store rule) with a phone-ready head: viewport meta, the core sheet
-// stylesheet link, and the embedded offline fallback style.
-func writeSheetHTML(w http.ResponseWriter, status int, title, body string) {
+// no-store rule) with a phone-ready head: viewport meta, the core token +
+// sheet stylesheets, the print stylesheet, the T1 theme stylesheet, and the
+// embedded offline fallback style. Sheet pages are standalone documents (no
+// shell), so the theme attributes and links live here — Theme/Scheme come
+// from the handler, which serve sets from the same resolved values the shell
+// renders.
+func (h *SheetHandlers) writeSheetHTML(w http.ResponseWriter, status int, title, body string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	// Per-viewer sheet output: never shared-cache, never stored (Lane L).
 	w.Header().Set("Cache-Control", "private, no-store")
 	w.WriteHeader(status)
-	_, _ = fmt.Fprintf(w, "<!DOCTYPE html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>%s</title>\n<link rel=\"stylesheet\" href=\"/static/core/sheet.css\">\n%s</head>\n<body>\n<a class=\"skip\" href=\"#main\">Skip to sheet content</a>\n%s\n</body>\n</html>\n",
-		html.EscapeString(title), sheetStyle(), body)
+	_, _ = fmt.Fprintf(w, "<!DOCTYPE html>\n%s\n<head><meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>%s</title>\n<link rel=\"stylesheet\" href=\"/static/core/app.css\">\n<link rel=\"stylesheet\" href=\"/static/core/sheet.css\">\n<link rel=\"stylesheet\" href=\"/static/print.css\" media=\"print\">\n%s%s</head>\n<body>\n<a class=\"skip\" href=\"#main\">Skip to sheet content</a>\n%s\n</body>\n</html>\n",
+		HTMLOpenTag(h.Theme, h.Scheme), html.EscapeString(title),
+		ThemeStylesheetLink(h.Theme), sheetStyle(), body)
 }
 
 // abilityMod derives the ability modifier for a score (floored, per SRD).
@@ -578,7 +589,7 @@ func (h *SheetHandlers) renderSheet(w http.ResponseWriter, r *http.Request, rel,
 	writeSheetDrawer(&b, sh, base)
 	b.WriteString("<p><a href=\"/me?view=simple\">Always use Simple</a> · <a href=\"/me?view=chips\">Always use Chips</a> · <a href=\"/me?view=advanced\">Always use Advanced</a></p>\n")
 	b.WriteString("</main>\n")
-	writeSheetHTML(w, http.StatusOK, filtered.Title, b.String())
+	h.writeSheetHTML(w, http.StatusOK, filtered.Title, b.String())
 }
 
 // pips renders ●/○ text pips (never color-only).
@@ -801,7 +812,7 @@ func (h *SheetHandlers) AdvancedForm(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(&b, "<textarea id=\"adv-content\" name=\"content\" rows=\"30\" cols=\"80\">%s</textarea></p>\n", html.EscapeString(string(raw)))
 	b.WriteString("<p><button class=\"btn\" type=\"submit\">Save with validation</button> <a href=\"/me?view=simple\">Back to Simple</a> · <a href=\"/me?view=chips\">Back to Chips</a></p>\n</form>\n")
 	b.WriteString("</main>\n")
-	writeSheetHTML(w, http.StatusOK, "Advanced: "+ls.page.Title, b.String())
+	h.writeSheetHTML(w, http.StatusOK, "Advanced: "+ls.page.Title, b.String())
 }
 
 // AdvancedSave validates the full text (schema + owner/secret invariants)

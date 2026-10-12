@@ -132,6 +132,17 @@ func TestRenderTreeStructure(t *testing.T) {
 	if strings.Count(frag.HTML, `<details class="vt-details">`) != 1 {
 		t.Errorf("want exactly one closed (nested) details:\n%s", frag.HTML)
 	}
+	// Label in Name (WCAG 2.5.3): the summary's accessible name must
+	// contain its visible text (the folder name), and the count rides in
+	// the name while the visual badge is aria-hidden — axe 4.14's
+	// label-content-name-mismatch fails the older "Toggle folder maps"
+	// name over a visible "maps 1".
+	if !strings.Contains(frag.HTML, `aria-label="Toggle folder quests, 2 items"`) {
+		t.Errorf("summary name missing count-in-label:\n%s", frag.HTML)
+	}
+	if !strings.Contains(frag.HTML, `<span class="vt-count" aria-hidden="true">2</span>`) {
+		t.Errorf("visual count must be aria-hidden (the name carries it):\n%s", frag.HTML)
+	}
 }
 
 func TestRenderTreeEscapesAllStrings(t *testing.T) {

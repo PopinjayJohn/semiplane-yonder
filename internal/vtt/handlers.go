@@ -24,6 +24,11 @@ type Handlers struct {
 	Store    store.Store
 	Sessions auth.SessionStore
 	Roller   dice.Roller
+	// T1: resolved theme selection ("" = unthemed), same values the shell
+	// and sheet page render. The VTT page is a standalone document, so it
+	// carries the attributes and stylesheet links itself.
+	Theme  string
+	Scheme string
 }
 
 func (h *Handlers) roller() dice.Roller {
@@ -161,6 +166,8 @@ func (h *Handlers) Page(w http.ResponseWriter, r *http.Request) {
 		ViewerLabel: viewerLabel(v),
 		StateURL:    "/api/vtt/" + mapID + "/state" + aq,
 		StreamURL:   "/events?map=" + mapID + strings.Replace(aq, "?", "&", 1),
+		Theme:       h.Theme,
+		Scheme:      h.Scheme,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "private, no-store")

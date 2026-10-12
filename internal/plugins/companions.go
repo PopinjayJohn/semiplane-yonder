@@ -3,6 +3,7 @@ package plugins
 import (
 	"context"
 	"fmt"
+	"github.com/semiplane/yonder/internal/auth"
 	"html"
 	"sort"
 	"strings"
@@ -155,6 +156,30 @@ func (p *CompanionsPlugin) Slots() []web.SlotComponent {
 		Component: CompanionsPluginID, Priority: 15,
 		SecretFiltered: true, PluginID: CompanionsPluginID,
 	}}
+}
+
+// RenderSlot (T1-D) maps the filtered shell data onto the companions input
+// and renders the sidebar-right fragment. All rows arrive already filtered
+// (AssembleCompanions refuses unmarked input).
+func (CompanionsPlugin) RenderSlot(slot string, in web.SlotShellData, _ *auth.Viewer) (string, error) {
+	if slot != web.SlotSidebarRight {
+		return "", nil
+	}
+	src := NewCompanionsSource()
+	for _, t := range in.TOC {
+		src.TOC = append(src.TOC, TOCItem{Anchor: t.Anchor, Title: t.Title})
+	}
+	for _, b := range in.Backlinks {
+		src.Backlinks = append(src.Backlinks, BacklinkItem{Path: b.Path, Title: b.Title})
+	}
+	for _, n := range in.Neighbors {
+		src.Neighbors = append(src.Neighbors, NeighborEdge{From: n.From, To: n.To})
+	}
+	d, err := AssembleCompanions(src)
+	if err != nil {
+		return "", err
+	}
+	return RenderCompanions(d).HTML, nil
 }
 
 // CSS returns the plugin stylesheet: @layer plugins, every selector scoped

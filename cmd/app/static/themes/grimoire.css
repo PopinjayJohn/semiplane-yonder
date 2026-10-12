@@ -1,0 +1,424 @@
+/* ============================================================================
+   GRIMOIRE — a D&D-first theme. Parchment light + torchlit dark.
+   ----------------------------------------------------------------------------
+   Concept: the table feels like the book. Aged parchment, oxblood rules,
+   aged-gold accents, bookish serif type, illuminated drop caps. Designed for
+   the 5e handbook look first and WCAG 2.2 AA second — where the two conflict,
+   flavor wins. The deliberate deviations are listed in
+   docs/plan/themes.md §5 (measured ratios included); everything that is not a
+   deviation passes the same targets as the core shell.
+
+   Slots: all eight mount points carry chrome (header-left/center/right,
+   sidebar-left/right, footer, page-actions, sheet-header). Slot structure is
+   token-driven so the same rules serve both schemes.
+
+   Apply: <html data-theme="grimoire" data-scheme="light|dark|auto">
+   (data-scheme absent = light). Themes are token overrides in
+   `@layer overrides` — never plugin CSS (docs/plugin-authoring.md §3).
+
+   Source of truth: web/static/themes/grimoire.css. cmd/app/static/themes/
+   grimoire.css is the verbatim served mirror (go:embed cannot reach outside
+   cmd/app) — edit this file first, then copy (pinned by
+   TestW3StaticCopiesMatchSources).
+   ===========================================================================
+   Pin the layer order explicitly: core (app.css/statblock.css) < plugins
+   (plugin stylesheets) < overrides (this file). Without the statement, a
+   later-delivered `@layer plugins` block could sort itself ahead of themes. */
+@layer core, plugins, overrides;
+
+@layer overrides {
+
+/* ==========================================================================
+   Scheme 1/2 — PARCHMENT (light; also the default when data-scheme is absent)
+   ========================================================================== */
+[data-theme="grimoire"] {
+  color-scheme: light;
+
+  /* Core palette re-points (app.css token names). */
+  --ink: #2b1a0d;            /* sepia-black body text — 13.3:1 on --paper */
+  --paper: #f1e4c6;          /* aged parchment */
+  --surface: #fbf3df;        /* lighter parchment for raised surfaces */
+  --accent: #8c1d10;         /* handbook oxblood: links + primary buttons */
+  --on-accent: #fbf3df;      /* text on oxblood fills — 8.3:1 */
+  --line: #b99456;           /* aged-gold rules — 2.2:1, decorative (deviation) */
+  --control-line: #8f6a2c;   /* control boundaries (secondary buttons, drawer) — 3.9:1 */
+  --input-line: #8a6f4d;     /* form boundaries kept legible — 3.7:1 */
+  --focus: #6e4f0e;          /* 6.0:1 focus ring, never compromised */
+  --hint: #7a5f38;           /* faded-ink hints — 4.7:1 */
+  --warn: #8a5a00;           /* GM / preview badges — 5.4:1 on --surface */
+  --danger: #a12a2a;         /* 5.8:1 */
+  --danger-bg: #f6dccd;
+  --topnav-bg: #5f1a0c;      /* leather-spine header band */
+  --topnav-ink: #f5e9cd;     /* 10.6:1 */
+  --topnav-link: #f0c98a;    /* 8.2:1 */
+  --topnav-line: #b99456;
+  --topnav-warn: #f2c879;
+
+  /* Bookish type. */
+  --font-body: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, Georgia, "Times New Roman", serif;
+  --font-display: var(--font-body);
+
+  /* Character-sheet card. */
+  --card-line: #7a200d;
+  --card-bg: #fbf3df;
+  --card-head-bg: #7a200d;
+  --card-head-ink: #fbf3df;
+  --card-radius: 0.35rem;
+
+  /* Slot chrome. */
+  --slot-line: #b99456;
+  --slot-bg: #f7ecd4;
+  --slot-radius: 0.3rem;
+  --slot-pad: 0.7rem;
+  --slot-label-ink: #7a200d;
+  --rule-accent: #e69a28;    /* aged-gold signature rules */
+
+  /* Parchment grain (see body background-image below). */
+  --tex-1: rgba(122, 90, 40, 0.05);
+  --tex-2: rgba(122, 90, 40, 0.03);
+  --tex-3: rgba(122, 90, 40, 0.02);
+
+  /* Statblock (S2) — re-pointed the way web/static/core/statblock.css asks. */
+  --sb-paper: #f6ead0;
+  --sb-red: #7a200d;
+  --sb-rule: #922610;
+  --sb-amber: #e69a28;
+  --sb-ink: #2b1a0d;
+
+  /* Callout/admonition (S3) — illuminated-manuscript ink tints. */
+  --callout-bg: #fbf3df;
+  --callout-ink: #2b1a0d;
+  --callout-note: 32, 84, 150;
+  --callout-abstract: 20, 90, 130;
+  --callout-info: 20, 96, 110;
+  --callout-tip: 20, 110, 95;
+  --callout-success: 20, 120, 60;
+  --callout-question: 150, 85, 10;
+  --callout-warning: 150, 85, 10;
+  --callout-failure: 165, 50, 45;
+  --callout-danger: 185, 25, 35;
+  --callout-bug: 150, 15, 70;
+  --callout-example: 95, 55, 190;
+  --callout-quote: 120, 105, 85;
+  --callout-default: 120, 100, 75;
+}
+
+/* ==========================================================================
+   Scheme 2/2 — TORCHLIT (dark; data-scheme="dark", or "auto" under the OS
+   preference)
+   ========================================================================== */
+[data-theme="grimoire"][data-scheme="dark"] {
+  color-scheme: dark;
+
+  --ink: #e8d9b8;            /* torch-pale ink — 13.4:1 on --paper */
+  --paper: #17110a;
+  --surface: #211a10;
+  --accent: #d9a441;         /* torch-gold — 8.3:1 */
+  --on-accent: #17110a;
+  --line: #6b4f2a;           /* 2.5:1, decorative (deviation) */
+  --input-line: #a98f68;
+  --control-line: #8a6a3c;   /* control boundaries — 3.75:1 on --paper */
+  --focus: #e8b64c;
+  --hint: #a98f68;
+  --warn: #e8a084;
+  --danger: #ff9a8a;
+  --danger-bg: #2a1410;
+  --topnav-bg: #0d0906;
+  --topnav-ink: #e8d9b8;
+  --topnav-link: #e8b64c;
+  --topnav-line: #6b4f2a;
+  --topnav-warn: #e8b64c;
+
+  --card-line: #6b4f2a;
+  --card-bg: #211a10;
+  --card-head-bg: #3a2413;
+  --card-head-ink: #f0dfb4;
+
+  --slot-line: #6b4f2a;
+  --slot-bg: #1d1610;
+  --slot-label-ink: #e8a084;
+  --rule-accent: #e6a23c;
+
+  --tex-1: rgba(232, 182, 76, 0.05);
+  --tex-2: rgba(232, 182, 76, 0.03);
+  --tex-3: rgba(232, 182, 76, 0.02);
+
+  --sb-paper: #241c12;
+  --sb-red: #e8a084;
+  --sb-rule: #c07a4a;
+  --sb-amber: #e6a23c;
+  --sb-ink: #f3e9d2;
+
+  --callout-bg: #1c150c;
+  --callout-ink: #ead9b5;
+  --callout-note: 130, 170, 235;
+  --callout-abstract: 110, 190, 225;
+  --callout-info: 105, 196, 210;
+  --callout-tip: 105, 215, 190;
+  --callout-success: 130, 225, 175;
+  --callout-question: 240, 180, 95;
+  --callout-warning: 240, 180, 95;
+  --callout-failure: 240, 150, 140;
+  --callout-danger: 245, 125, 135;
+  --callout-bug: 240, 120, 160;
+  --callout-example: 180, 150, 255;
+  --callout-quote: 175, 160, 135;
+  --callout-default: 175, 155, 120;
+
+  /* Scheme-independent structure, repeated so each scheme block is complete. */
+  --font-body: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, Georgia, "Times New Roman", serif;
+  --font-display: var(--font-body);
+  --card-radius: 0.35rem;
+}
+
+/* data-scheme="auto": follow the OS, same tokens as torchlit. */
+@media (prefers-color-scheme: dark) {
+  [data-theme="grimoire"][data-scheme="auto"] {
+    color-scheme: dark;
+
+    --ink: #e8d9b8;
+    --paper: #17110a;
+    --surface: #211a10;
+    --accent: #d9a441;
+    --on-accent: #17110a;
+    --line: #6b4f2a;
+    --input-line: #a98f68;
+  --control-line: #8a6a3c;   /* control boundaries — 3.75:1 on --paper */
+    --focus: #e8b64c;
+    --hint: #a98f68;
+    --warn: #e8a084;
+    --danger: #ff9a8a;
+    --danger-bg: #2a1410;
+    --topnav-bg: #0d0906;
+    --topnav-ink: #e8d9b8;
+    --topnav-link: #e8b64c;
+    --topnav-line: #6b4f2a;
+    --topnav-warn: #e8b64c;
+
+    --card-line: #6b4f2a;
+    --card-bg: #211a10;
+    --card-head-bg: #3a2413;
+    --card-head-ink: #f0dfb4;
+
+    --slot-line: #6b4f2a;
+    --slot-bg: #1d1610;
+    --slot-label-ink: #e8a084;
+    --rule-accent: #e6a23c;
+
+    --tex-1: rgba(232, 182, 76, 0.05);
+    --tex-2: rgba(232, 182, 76, 0.03);
+    --tex-3: rgba(232, 182, 76, 0.02);
+
+    --sb-paper: #241c12;
+    --sb-red: #e8a084;
+    --sb-rule: #c07a4a;
+    --sb-amber: #e6a23c;
+    --sb-ink: #f3e9d2;
+
+    --callout-bg: #1c150c;
+    --callout-ink: #ead9b5;
+    --callout-note: 130, 170, 235;
+    --callout-abstract: 110, 190, 225;
+    --callout-info: 105, 196, 210;
+    --callout-tip: 105, 215, 190;
+    --callout-success: 130, 225, 175;
+    --callout-question: 240, 180, 95;
+    --callout-warning: 240, 180, 95;
+    --callout-failure: 240, 150, 140;
+    --callout-danger: 245, 125, 135;
+    --callout-bug: 240, 120, 160;
+    --callout-example: 180, 150, 255;
+    --callout-quote: 175, 160, 135;
+    --callout-default: 175, 155, 120;
+
+  /* Scheme-independent structure, repeated so each scheme block is complete. */
+  --font-body: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, Georgia, "Times New Roman", serif;
+  --font-display: var(--font-body);
+  --card-radius: 0.35rem;
+}
+}
+
+/* ==========================================================================
+   Reading surface: parchment grain + bookish type. Tokens make the same
+   rules serve both schemes; the grain is static (no motion either way).
+   ========================================================================== */
+[data-theme="grimoire"] body {
+  background-color: var(--paper);
+  background-image:
+    radial-gradient(var(--tex-1) 1px, transparent 1.4px),
+    repeating-linear-gradient(0deg, var(--tex-2) 0 2px, transparent 2px 7px),
+    repeating-linear-gradient(90deg, var(--tex-3) 0 3px, transparent 3px 11px);
+  background-size: 17px 17px, auto, auto;
+  line-height: 1.6;
+}
+
+/* Illuminated touches: drop cap on column titles, ruled small-caps sections. */
+[data-theme="grimoire"] .sheet-col h1::first-letter {
+  font-family: var(--font-display);
+  font-size: 1.5em;
+  line-height: 1;
+  padding-right: 0.08em;
+  color: var(--accent);
+}
+[data-theme="grimoire"] .sheet-col h2 {
+  font-variant: small-caps;
+  letter-spacing: 0.04em;
+  color: var(--slot-label-ink);
+  border-bottom: 1px solid var(--rule-accent);
+  padding-bottom: 0.15rem;
+}
+
+/* Markdown reading surface (statblock/callout keep their own core rules —
+   those are more specific and win inside their boxes). */
+[data-theme="grimoire"] article.page-body table { border-collapse: collapse; }
+[data-theme="grimoire"] article.page-body th,
+[data-theme="grimoire"] article.page-body td { border: 1px solid var(--slot-line); padding: 0.4rem 0.6rem; }
+[data-theme="grimoire"] article.page-body blockquote {
+  border-left: 4px solid var(--rule-accent);
+  margin-left: 0;
+  padding-left: 0.9rem;
+  color: var(--hint);
+}
+
+/* ==========================================================================
+   SLOTS 1–3 — header-left / header-center / header-right
+   The header rides the leather band: inline chip strips, no panel borders,
+   every color re-pointed for the band (badges included — an unadapted
+   --warn would disappear on the dark oxblood).
+   ========================================================================== */
+[data-theme="grimoire"] header.topnav {
+  background: var(--topnav-bg);
+  color: var(--topnav-ink);
+  border-bottom-color: var(--topnav-line);
+}
+[data-theme="grimoire"] .topnav .brand { color: var(--topnav-ink); letter-spacing: 0.1em; }
+[data-theme="grimoire"] .topnav a { color: var(--topnav-link); }
+[data-theme="grimoire"] .topnav .btn {
+  border-color: var(--topnav-link);
+  color: var(--topnav-link);
+  background: transparent;
+}
+[data-theme="grimoire"] .topnav .badge.gm,
+[data-theme="grimoire"] .topnav .badge.failed,
+[data-theme="grimoire"] .topnav .badge.preview {
+  color: var(--topnav-warn);
+  border-color: var(--topnav-warn);
+}
+[data-theme="grimoire"] .slot[data-slot="header-left"],
+[data-theme="grimoire"] .slot[data-slot="header-center"],
+[data-theme="grimoire"] .slot[data-slot="header-right"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+[data-theme="grimoire"] .slot[data-slot="header-left"] [data-plugin-slot],
+[data-theme="grimoire"] .slot[data-slot="header-center"] [data-plugin-slot],
+[data-theme="grimoire"] .slot[data-slot="header-right"] [data-plugin-slot] {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* ==========================================================================
+   SLOTS 4–5 — sidebar-left (vault tree) / sidebar-right (backlinks)
+   Both are panels inside the drawer; right gets the gold edge.
+   ========================================================================== */
+[data-theme="grimoire"] .slot[data-slot="sidebar-left"],
+[data-theme="grimoire"] .slot[data-slot="sidebar-right"] {
+  border: 1px solid var(--slot-line);
+  background: var(--slot-bg);
+  border-radius: var(--slot-radius);
+  padding: var(--slot-pad);
+  margin: 0.5rem 0;
+}
+[data-theme="grimoire"] .slot[data-slot="sidebar-right"] { border-left: 3px solid var(--rule-accent); }
+[data-theme="grimoire"] .rail > .drawer > summary {
+  color: var(--slot-label-ink);
+}
+[data-theme="grimoire"] details.drawer { border-color: var(--slot-line); }
+
+/* ==========================================================================
+   SLOT 6 — footer: colophon strip with a double rule (book spine).
+   ========================================================================== */
+[data-theme="grimoire"] footer.colophon { border-top: 3px double var(--slot-line); }
+[data-theme="grimoire"] .slot[data-slot="footer"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  letter-spacing: 0.05em;
+  color: var(--hint);
+}
+
+/* ==========================================================================
+   SLOT 7 — page-actions: the action bar above the article.
+   ========================================================================== */
+[data-theme="grimoire"] .slot[data-slot="page-actions"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  margin: 0.75rem 0;
+  background: var(--slot-bg);
+  border: 1px solid var(--slot-line);
+  border-radius: var(--slot-radius);
+}
+[data-theme="grimoire"] .slot[data-slot="page-actions"] .actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+}
+[data-theme="grimoire"] .slot[data-slot="page-actions"] [data-plugin-slot] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* ==========================================================================
+   SLOT 8 — sheet-header: the character card. Visible chrome comes from the
+   core .sheet-card structure + the --card-* tokens above; the slot itself
+   stays a plain mount host so plugin mounts (sheet-tools) sit inside it.
+   ========================================================================== */
+[data-theme="grimoire"] .sheet-card {
+  border: 2px solid var(--card-line);
+  border-radius: var(--card-radius);
+  background: var(--card-bg);
+}
+[data-theme="grimoire"] .sheet-card .sheet-head { background: var(--card-head-bg); color: var(--card-head-ink); }
+[data-theme="grimoire"] .sheet-card .sheet-head h2 { font-variant: small-caps; letter-spacing: 0.05em; }
+[data-theme="grimoire"] .sheet-card th,
+[data-theme="grimoire"] .sheet-card td { border-bottom: 1px solid var(--slot-line); }
+[data-theme="grimoire"] .sheet-card th[scope="row"] {
+  font-variant: small-caps;
+  letter-spacing: 0.08em;
+  color: var(--slot-label-ink);
+}
+[data-theme="grimoire"] .slot[data-slot="sheet-header"] { display: block; }
+
+/* ==========================================================================
+   Print: handouts stay black-on-white (print.css is unlayered and wins for
+   what it covers, but it knows nothing about theme chrome — strip it here).
+   ========================================================================== */
+@media print {
+  [data-theme="grimoire"] body { background-image: none; line-height: 1.5; }
+  [data-theme="grimoire"] header.topnav {
+    background: none;
+    color: #000;
+    border-bottom: 1px solid #000;
+  }
+  [data-theme="grimoire"] .topnav .brand,
+  [data-theme="grimoire"] .topnav a,
+  [data-theme="grimoire"] .topnav .btn { color: #000; }
+  [data-theme="grimoire"] .slot[data-slot] { background: none; border-color: #000; }
+  [data-theme="grimoire"] .sheet-card,
+  [data-theme="grimoire"] .sheet-card .sheet-head { background: none; color: #000; border-color: #000; }
+}
+
+} /* @layer overrides */

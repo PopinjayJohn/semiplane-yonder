@@ -1,0 +1,414 @@
+/* ============================================================================
+   CARTOGRAPHER — a chart-table theme. Daylight Chart light + Night Watch dark.
+   ----------------------------------------------------------------------------
+   Concept: the table feels like the map room. Cool vellum paper, ink-navy
+   chrome, brass rules, a faint chart grid, engraved small labels. Built to
+   the same targets as the core shell (WCAG 2.2 AA) — every measured pair in
+   docs/plan/themes.md §6 passes; no deviations.
+
+   Slots: all eight mount points carry chrome (header-left/center/right,
+   sidebar-left/right, footer, page-actions, sheet-header). Slot structure is
+   token-driven so the same rules serve both schemes.
+
+   Apply: <html data-theme="cartographer" data-scheme="light|dark|auto">
+   (data-scheme absent = light). Themes are token overrides in
+   `@layer overrides` — never plugin CSS (docs/plugin-authoring.md §3).
+
+   Source of truth: web/static/themes/cartographer.css. cmd/app/static/themes/
+   cartographer.css is the verbatim served mirror (go:embed cannot reach
+   outside cmd/app) — edit this file first, then copy (pinned by
+   TestW3StaticCopiesMatchSources).
+   ===========================================================================
+   Pin the layer order explicitly: core (app.css/statblock.css) < plugins
+   (plugin stylesheets) < overrides (this file). Without the statement, a
+   later-delivered `@layer plugins` block could sort itself ahead of themes. */
+@layer core, plugins, overrides;
+
+@layer overrides {
+
+/* ==========================================================================
+   Scheme 1/2 — DAYLIGHT CHART (light; also the default when data-scheme is
+   absent)
+   ========================================================================== */
+[data-theme="cartographer"] {
+  color-scheme: light;
+
+  /* Core palette re-points (app.css token names). */
+  --ink: #16283c;            /* ink navy — 13.3:1 on --paper */
+  --paper: #eef2f6;          /* pale chart vellum */
+  --surface: #ffffff;        /* white card stock */
+  --accent: #0b5a8a;         /* marine: links + primary buttons */
+  --on-accent: #ffffff;      /* 7.4:1 */
+  --line: #6b8a9e;           /* 3.2:1 on paper / 3.7:1 on surface (>=3, UI) */
+  --input-line: var(--line);
+  --control-line: var(--line); /* --line already >=3:1 in this theme */
+  --focus: #0b5a8a;          /* 6.6:1 focus ring */
+  --hint: #4a6172;           /* 5.8:1 */
+  --warn: #8a5a00;           /* 5.9:1 on --surface */
+  --danger: #a12a2a;         /* 6.5:1 */
+  --danger-bg: #fdeeee;
+  --topnav-bg: #16283c;      /* ink band with a brass rule */
+  --topnav-ink: #e8eff5;     /* 12.9:1 */
+  --topnav-link: #9ecbe8;    /* 8.7:1 */
+  --topnav-line: #d9b45b;
+  --topnav-warn: #e8c26a;
+
+  /* Chart type: sans for prose, serif for engraved labels. */
+  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: Georgia, "Iowan Old Style", "Times New Roman", serif;
+
+  /* Character-sheet card. */
+  --card-line: #16283c;
+  --card-bg: #ffffff;
+  --card-head-bg: #16283c;
+  --card-head-ink: #e8eff5;
+  --card-radius: 0.5rem;
+
+  /* Slot chrome. */
+  --slot-line: #6b8a9e;
+  --slot-bg: #ffffff;
+  --slot-radius: 0.4rem;
+  --slot-pad: 0.7rem;
+  --slot-label-ink: #7a5c12; /* brass, 5.5:1 */
+  --rule-accent: #7a5c12;    /* brass signature rules */
+
+  /* Chart grid (see body background-image below). */
+  --tex-1: rgba(11, 90, 138, 0.06);
+  --tex-2: rgba(11, 90, 138, 0.04);
+
+  /* Statblock (S2) — re-pointed the way web/static/core/statblock.css asks;
+     the SRD parchment box survives as a recognizable artifact. */
+  --sb-paper: #f7f3e6;
+  --sb-red: #7a200d;
+  --sb-rule: #922610;
+  --sb-amber: #b97f16;
+  --sb-ink: #1d2b3a;
+
+  /* Callout/admonition (S3) — the Obsidian palette, AA on white. */
+  --callout-bg: #ffffff;
+  --callout-ink: #16283c;
+  --callout-note: 68, 138, 255;
+  --callout-abstract: 0, 176, 255;
+  --callout-info: 0, 184, 212;
+  --callout-tip: 0, 191, 165;
+  --callout-success: 0, 200, 83;
+  --callout-question: 255, 145, 0;
+  --callout-warning: 255, 145, 0;
+  --callout-failure: 255, 82, 82;
+  --callout-danger: 255, 23, 68;
+  --callout-bug: 245, 0, 87;
+  --callout-example: 124, 77, 255;
+  --callout-quote: 158, 158, 158;
+  --callout-default: 136, 136, 136;
+}
+
+/* ==========================================================================
+   Scheme 2/2 — NIGHT WATCH (dark; data-scheme="dark", or "auto" under the OS
+   preference)
+   ========================================================================== */
+[data-theme="cartographer"][data-scheme="dark"] {
+  color-scheme: dark;
+
+  --ink: #dbe7f0;            /* 14.0:1 on --paper */
+  --paper: #0e1a24;
+  --surface: #16283a;
+  --accent: #6fb6e0;         /* 7.9:1 */
+  --on-accent: #08131b;      /* 8.4:1 */
+  --line: #5a7d94;           /* 3.5:1 on paper / 3.4:1 on surface (>=3, UI) */
+  --focus: #8ecbec;
+  --hint: #9db4c4;           /* 8.2:1 */
+  --warn: #e0b25a;
+  --danger: #ff9a8a;
+  --danger-bg: #2a1512;
+  --topnav-bg: #081119;
+  --topnav-ink: #dbe7f0;     /* 15.1:1 */
+  --topnav-link: #8ecbec;    /* 10.8:1 */
+  --topnav-line: #d9b45b;
+  --topnav-warn: #e0b25a;
+
+  --card-line: #5a7d94;
+  --card-bg: #16283a;
+  --card-head-bg: #1d3a52;
+  --card-head-ink: #dbe7f0;
+
+  --slot-line: #5a7d94;
+  --slot-bg: #12212e;
+  --slot-label-ink: #d9b45b; /* brass, 8.9:1 */
+  --rule-accent: #d9b45b;
+
+  --tex-1: rgba(111, 182, 224, 0.06);
+  --tex-2: rgba(111, 182, 224, 0.045);
+
+  --sb-paper: #101d26;
+  --sb-red: #e8a084;
+  --sb-rule: #c07a4a;
+  --sb-amber: #d9b45b;
+  --sb-ink: #dbe7f0;
+
+  --callout-bg: #16283a;
+  --callout-ink: #dbe7f0;
+  --callout-note: 120, 170, 255;
+  --callout-abstract: 77, 208, 255;
+  --callout-info: 77, 208, 225;
+  --callout-tip: 77, 225, 200;
+  --callout-success: 105, 240, 174;
+  --callout-question: 255, 171, 64;
+  --callout-warning: 255, 171, 64;
+  --callout-failure: 255, 138, 128;
+  --callout-danger: 255, 110, 130;
+  --callout-bug: 250, 100, 150;
+  --callout-example: 179, 136, 255;
+  --callout-quote: 189, 189, 189;
+  --callout-default: 170, 170, 170;
+
+  /* Scheme-independent structure, repeated so each scheme block is complete. */
+  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: Georgia, "Iowan Old Style", "Times New Roman", serif;
+  --input-line: var(--line);
+  --control-line: var(--line); /* --line already >=3:1 in this theme */
+  --card-radius: 0.5rem;
+}
+
+/* data-scheme="auto": follow the OS, same tokens as night watch. */
+@media (prefers-color-scheme: dark) {
+  [data-theme="cartographer"][data-scheme="auto"] {
+    color-scheme: dark;
+
+    --ink: #dbe7f0;
+    --paper: #0e1a24;
+    --surface: #16283a;
+    --accent: #6fb6e0;
+    --on-accent: #08131b;
+    --line: #5a7d94;
+    --focus: #8ecbec;
+    --hint: #9db4c4;
+    --warn: #e0b25a;
+    --danger: #ff9a8a;
+    --danger-bg: #2a1512;
+    --topnav-bg: #081119;
+    --topnav-ink: #dbe7f0;
+    --topnav-link: #8ecbec;
+    --topnav-line: #d9b45b;
+    --topnav-warn: #e0b25a;
+
+    --card-line: #5a7d94;
+    --card-bg: #16283a;
+    --card-head-bg: #1d3a52;
+    --card-head-ink: #dbe7f0;
+
+    --slot-line: #5a7d94;
+    --slot-bg: #12212e;
+    --slot-label-ink: #d9b45b;
+    --rule-accent: #d9b45b;
+
+    --tex-1: rgba(111, 182, 224, 0.06);
+    --tex-2: rgba(111, 182, 224, 0.045);
+
+    --sb-paper: #101d26;
+    --sb-red: #e8a084;
+    --sb-rule: #c07a4a;
+    --sb-amber: #d9b45b;
+    --sb-ink: #dbe7f0;
+
+    --callout-bg: #16283a;
+    --callout-ink: #dbe7f0;
+    --callout-note: 120, 170, 255;
+    --callout-abstract: 77, 208, 255;
+    --callout-info: 77, 208, 225;
+    --callout-tip: 77, 225, 200;
+    --callout-success: 105, 240, 174;
+    --callout-question: 255, 171, 64;
+    --callout-warning: 255, 171, 64;
+    --callout-failure: 255, 138, 128;
+    --callout-danger: 255, 110, 130;
+    --callout-bug: 250, 100, 150;
+    --callout-example: 179, 136, 255;
+    --callout-quote: 189, 189, 189;
+    --callout-default: 170, 170, 170;
+
+  /* Scheme-independent structure, repeated so each scheme block is complete. */
+  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: Georgia, "Iowan Old Style", "Times New Roman", serif;
+  --input-line: var(--line);
+  --control-line: var(--line); /* --line already >=3:1 in this theme */
+  --card-radius: 0.5rem;
+}
+}
+
+/* ==========================================================================
+   Reading surface: faint chart grid. Static (no motion), token-driven.
+   ========================================================================== */
+[data-theme="cartographer"] body {
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(var(--tex-1) 1px, transparent 1px),
+    linear-gradient(90deg, var(--tex-1) 1px, transparent 1px),
+    repeating-linear-gradient(0deg, var(--tex-2) 0 1px, transparent 1px 104px),
+    repeating-linear-gradient(90deg, var(--tex-2) 0 1px, transparent 1px 104px);
+  background-size: 26px 26px, 26px 26px, auto, auto;
+}
+
+/* Chart headings: engraved serif with a brass hairline under h2. */
+[data-theme="cartographer"] .sheet-col h2 {
+  font-family: var(--font-display);
+  letter-spacing: 0.03em;
+  color: var(--ink);
+  border-bottom: 1px solid var(--rule-accent);
+  padding-bottom: 0.15rem;
+}
+
+/* Markdown reading surface (statblock/callout keep their own core rules —
+   those are more specific and win inside their boxes). */
+[data-theme="cartographer"] article.page-body table { border-collapse: collapse; }
+[data-theme="cartographer"] article.page-body th,
+[data-theme="cartographer"] article.page-body td { border: 1px solid var(--slot-line); padding: 0.4rem 0.6rem; }
+[data-theme="cartographer"] article.page-body th { background: var(--slot-bg); }
+[data-theme="cartographer"] article.page-body blockquote {
+  border-left: 4px solid var(--rule-accent);
+  margin-left: 0;
+  padding-left: 0.9rem;
+  color: var(--hint);
+}
+
+/* ==========================================================================
+   SLOTS 1–3 — header-left / header-center / header-right
+   Ink band with a brass rule; inline chip strips; every color re-pointed for
+   the band (badges included — an unadapted --warn would sink into the navy).
+   ========================================================================== */
+[data-theme="cartographer"] header.topnav {
+  background: var(--topnav-bg);
+  color: var(--topnav-ink);
+  border-bottom-color: var(--topnav-line);
+}
+[data-theme="cartographer"] .topnav .brand { color: var(--topnav-ink); font-family: var(--font-display); letter-spacing: 0.08em; }
+[data-theme="cartographer"] .topnav a { color: var(--topnav-link); }
+[data-theme="cartographer"] .topnav .btn {
+  border-color: var(--topnav-link);
+  color: var(--topnav-link);
+  background: transparent;
+}
+[data-theme="cartographer"] .topnav .badge.gm,
+[data-theme="cartographer"] .topnav .badge.failed,
+[data-theme="cartographer"] .topnav .badge.preview {
+  color: var(--topnav-warn);
+  border-color: var(--topnav-warn);
+}
+[data-theme="cartographer"] .slot[data-slot="header-left"],
+[data-theme="cartographer"] .slot[data-slot="header-center"],
+[data-theme="cartographer"] .slot[data-slot="header-right"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+[data-theme="cartographer"] .slot[data-slot="header-left"] [data-plugin-slot],
+[data-theme="cartographer"] .slot[data-slot="header-center"] [data-plugin-slot],
+[data-theme="cartographer"] .slot[data-slot="header-right"] [data-plugin-slot] {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* ==========================================================================
+   SLOTS 4–5 — sidebar-left (vault tree) / sidebar-right (backlinks)
+   White panels on the vellum; brass edge on the right rail.
+   ========================================================================== */
+[data-theme="cartographer"] .slot[data-slot="sidebar-left"],
+[data-theme="cartographer"] .slot[data-slot="sidebar-right"] {
+  border: 1px solid var(--slot-line);
+  background: var(--slot-bg);
+  border-radius: var(--slot-radius);
+  padding: var(--slot-pad);
+  margin: 0.5rem 0;
+}
+[data-theme="cartographer"] .slot[data-slot="sidebar-right"] { border-left: 3px solid var(--rule-accent); }
+[data-theme="cartographer"] .rail > .drawer > summary {
+  color: var(--slot-label-ink);
+}
+[data-theme="cartographer"] details.drawer { border-color: var(--slot-line); }
+
+/* ==========================================================================
+   SLOT 6 — footer: colophon strip, brass top rule.
+   ========================================================================== */
+[data-theme="cartographer"] footer.colophon { border-top: 2px solid var(--slot-line); }
+[data-theme="cartographer"] .slot[data-slot="footer"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  letter-spacing: 0.05em;
+  color: var(--hint);
+}
+
+/* ==========================================================================
+   SLOT 7 — page-actions: the action bar above the article.
+   ========================================================================== */
+[data-theme="cartographer"] .slot[data-slot="page-actions"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  margin: 0.75rem 0;
+  background: var(--slot-bg);
+  border: 1px solid var(--slot-line);
+  border-radius: var(--slot-radius);
+}
+[data-theme="cartographer"] .slot[data-slot="page-actions"] .actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+}
+[data-theme="cartographer"] .slot[data-slot="page-actions"] [data-plugin-slot] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* ==========================================================================
+   SLOT 8 — sheet-header: the character card. Visible chrome comes from the
+   core .sheet-card structure + the --card-* tokens above; the slot itself
+   stays a plain mount host so plugin mounts (sheet-tools) sit inside it.
+   ========================================================================== */
+[data-theme="cartographer"] .sheet-card {
+  border: 2px solid var(--card-line);
+  border-radius: var(--card-radius);
+  background: var(--card-bg);
+}
+[data-theme="cartographer"] .sheet-card .sheet-head { background: var(--card-head-bg); color: var(--card-head-ink); }
+[data-theme="cartographer"] .sheet-card .sheet-head h2 { font-family: var(--font-display); letter-spacing: 0.03em; }
+[data-theme="cartographer"] .sheet-card th,
+[data-theme="cartographer"] .sheet-card td { border-bottom: 1px solid var(--slot-line); }
+[data-theme="cartographer"] .sheet-card th[scope="row"] {
+  font-size: 0.86rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--slot-label-ink);
+}
+[data-theme="cartographer"] .slot[data-slot="sheet-header"] { display: block; }
+
+/* ==========================================================================
+   Print: handouts stay black-on-white (print.css is unlayered and wins for
+   what it covers, but it knows nothing about theme chrome — strip it here).
+   ========================================================================== */
+@media print {
+  [data-theme="cartographer"] body { background-image: none; }
+  [data-theme="cartographer"] header.topnav {
+    background: none;
+    color: #000;
+    border-bottom: 1px solid #000;
+  }
+  [data-theme="cartographer"] .topnav .brand,
+  [data-theme="cartographer"] .topnav a,
+  [data-theme="cartographer"] .topnav .btn { color: #000; }
+  [data-theme="cartographer"] .slot[data-slot] { background: none; border-color: #000; }
+  [data-theme="cartographer"] .sheet-card,
+  [data-theme="cartographer"] .sheet-card .sheet-head { background: none; color: #000; border-color: #000; }
+}
+
+} /* @layer overrides */

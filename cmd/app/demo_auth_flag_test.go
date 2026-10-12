@@ -60,7 +60,7 @@ func TestServeDemoAuthRetiresAsTier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wiring := wireHandlers(buildInfo{Version: "demoauth"}, vault, dataDir, sessionStore)
+	wiring := wireHandlers(buildInfo{Version: "demoauth"}, vault, dataDir, sessionStore, "", "")
 	srv := httptest.NewServer(wiring.Handler)
 	t.Cleanup(srv.Close)
 
