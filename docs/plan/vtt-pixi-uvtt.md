@@ -49,10 +49,17 @@ Pan (drag-board/arrows), clamped zoom, drag-token (`eventMode='static'`, `pointe
 ### P4 — Juice + scale
 HP bars + text labels, turn highlight (`aria-live assertive`), spawn tween gated by reduced-motion, atlas + viewport culling. Done: resync `<1s`, budgets held.
 
-## 4. Order + open questions
+## 4. Order + decisions + deferred revisits
 
 Order: P0 → P1 → P-UVTT → P2 → P3 → P4.
 
-1. HTTP import cap: CLI-only for large files, or raise to ~55MB with amend?
-2. Grid >64: downscale PPG on import, or raise `MaxGridCols/Rows`?
-3. `objects_line_of_sight` default: movement-only (proposed) or full blocker?
+Decided 2026-10-12 (detail in `amend-vtt2-pixi-uvtt.md` §§8–9):
+1. HTTP import cap: CLI uncapped, HTTP 12MB → 413 (raise deferred to R1).
+2. Grid >64: reject 422 now; downscale `effectivePpg` deferred to P3 (R2).
+3. `objects_line_of_sight`: movement-only.
+4. Light `range`: spike behavior (pixels ÷ ppg) until verified vs a real export — must verify before amend merges.
+5. VP8X: best-effort + verify vs real export before merge.
+6. OOB lights: drop now (glow deferred to R3).
+7. Pixi pin: newest 8.x at P0 via vendor flow, then freeze.
+8. Loader: `web/static/vtt/pixi-board.js`, `?renderer=` per load only.
+9. Doors: GM-only toggle first (owner-movable deferred to R4).

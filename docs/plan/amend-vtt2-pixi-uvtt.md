@@ -62,3 +62,26 @@ Ambient string      `json:"ambient,omitempty"`
 
 - Raising HTTP cap to ~55MB now (DoS review deferred to P3).
 - Silent downscaling of large maps (fail loudly instead).
+
+## 8. Decisions (accepted 2026-10-12, implement as specified)
+
+- D1 HTTP cap: CLI `import-uvtt` uncapped; HTTP `POST /vtt/{mapID}/import` capped 12MB → 413. (§4)
+- D2 Grid >64: reject 422 with reason now; downscale `effectivePpg` deferred to P3. (§4)
+- D3 `objects_line_of_sight`: movement-only (Roll20 convention); `Objects` reuses `WallSeg`. (§2)
+- D4 Light `range`: keep spike (pixels ÷ ppg → squares) until verified against one real Dungeondraft/Foundry export; verification required before this amend merges, then pin the interpretation here.
+- D5 WebP VP8X dims: best-effort parse + verify against a real extended-WebP export before merge.
+- D6 OOB lights: drop now; retain-for-glow deferred to P3.
+- D7 Pixi pin: re-pin newest 8.x at P0 execution via `vendor sha256` + `vendor verify --fetch`, then freeze; ESM `dist/pixi.min.mjs` via jsdelivr, `file=pixi.js` fallback. SRI never fabricated.
+- D8 Loader: new `web/static/vtt/pixi-board.js` (first-party), lazy `import()` gated on `?renderer=pixi`; vendor bytes stay in `/static/vendor`.
+- D9 Renderer selection: query-param per load only (`?renderer=pixi|dom`); no sticky pref.
+- D10 Door toggle: GM-only first (matches `SetFog`); owner-movable deferred.
+- D11 Wall scaling at downscaled PPG (P3): client-side float scale; floats survive exactly.
+
+## 9. Deferred revisits (P3 or later, each needs its own note/amend)
+
+- R1 HTTP ~55MB + DoS review (rate-limit, base64 cost, single-writer impact).
+- R2 `effectivePpg` downscale for large maps (scale walls/lights by same factor + warn).
+- R3 OOB-light glow retention + culling/filtering rules.
+- R4 Owner-movable doors (auth surface + griefing review).
+- R5 Sticky renderer preference (shared-tablet stickiness unresolved — cf. T1-C).
+- R6 Optional full-blocker flag for `objects_line_of_sight` (Foundry-style).
