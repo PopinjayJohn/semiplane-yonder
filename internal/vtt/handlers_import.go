@@ -8,10 +8,12 @@
 // original filename for audit metadata only (sanitized to a base name,
 // never a path).
 //
-// CanViewMap gates on an EXISTING sidecar (the map's ACL): a brand-new map
-// id 404s here by design — create the sidecar page first (editor or the
-// import-uvtt CLI), then import calibrates it. That keeps map creation a
-// deliberate page-writing act rather than a side effect of a state post.
+// CanViewMap gates an EXISTING sidecar (the map's ACL). A brand-new map id
+// is not an error: a GM may create a map by importing into a fresh id — the
+// import writes the sidecar page itself (title + vtt-map calibration +
+// generated body), so creation stays a deliberate calibration act rather
+// than a side effect of browsing. A fresh sidecar inside a secret maps/
+// tree is stamped secret:true (fail closed).
 //
 // On success: image + sidecar are written through the vault (atomic), live
 // state is reseeded (ResetToSidecar + fog all-hidden, fail closed), the
@@ -20,6 +22,8 @@
 package vtt
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -27,6 +31,7 @@ import (
 	"strings"
 
 	"github.com/semiplane/yonder/internal/plugins"
+	"github.com/semiplane/yonder/internal/store"
 	"github.com/semiplane/yonder/internal/uploads"
 )
 
@@ -58,10 +63,6 @@ func (h *Handlers) Import(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	if !CanViewMap(ctx, h.Store, v, mapID) {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
-	}
 	if h.Vault == nil {
 		http.Error(w, "vault is not configured", http.StatusInternalServerError)
 		return
@@ -70,6 +71,26 @@ func (h *Handlers) Import(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "application/json only", http.StatusUnsupportedMediaType)
 		return
 	}
+	// Map resolution: an existing sidecar is gated by CanViewMap (the map's
+	// ACL; GMs pass, and non-GMs were already rejected above). A MISSING
+	// sidecar is not a 404 — a GM may create a map by importing into a fresh
+	// id (the import writes the sidecar itself, so map creation is a
+	// deliberate calibration act, not an accidental page write). A fresh
+	// sidecar fails closed on a secret maps/ tree (stamped by the caller).
+	sidecar, serr := Sidecar(ctx, h.Store, mapID)
+	switch {
+	case serr == nil:
+		if !CanViewMap(ctx, h.Store, v, mapID) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+	case errors.Is(serr, sql.ErrNoRows):
+		// new map: allowed for the GM (already gated above)
+	default:
+		http.Error(w, "cannot look up map", http.StatusInternalServerError)
+		return
+	}
+	freshSecret := sidecar == nil && mapDirSecret(ctx, h.Store)
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxImportBody+1))
 	if err != nil {
 		http.Error(w, "cannot read body", http.StatusBadRequest)
@@ -91,6 +112,7 @@ func (h *Handlers) Import(w http.ResponseWriter, r *http.Request) {
 	res, err := ApplyImport(ctx, ImportRequest{
 		Vault: h.Vault, MapID: mapID, Map: m,
 		ImageByteCap: uploads.MaxImageBytes,
+		FreshSecret:  freshSecret,
 	})
 	if err != nil {
 		http.Error(w, importErrorMsg(err), http.StatusUnprocessableEntity)
@@ -117,6 +139,23 @@ func (h *Handlers) Import(w http.ResponseWriter, r *http.Request) {
 	}
 	Publish(Event{Name: plugins.EventFogUpdate, Map: mapID})
 	writeImportJSON(w, mapID, res)
+}
+
+// mapDirSecret reports whether the maps/ directory itself is a secret tree
+// (maps.md or maps/index.md secret). A freshly created sidecar inside a
+// secret tree is stamped secret:true (fail closed) — otherwise the import
+// would create an open page under a hidden folder.
+func mapDirSecret(ctx context.Context, st store.Store) bool {
+	if st == nil {
+		return false
+	}
+	for _, cand := range []string{SidecarDir + ".md", SidecarDir + "/index.md"} {
+		p, err := st.PageGet(ctx, cand)
+		if err == nil && p != nil && p.Secret {
+			return true
+		}
+	}
+	return false
 }
 
 // importErrorMsg renders a rejection reason with no vault content: typed

@@ -1,6 +1,7 @@
 ---
 title: tomb
 vtt-map:
+  background: assets/maps/tomb.jpg
   grid: {cols: 96, rows: 72, cell: 100}
   grid-baked: false
   ppg: 100
@@ -1659,7 +1660,7 @@ Ambient light #ffffff; baked lighting: true.
 This page holds calibration only — live tokens, fog, and door states live in the app DB
 and reseed from this page when a GM clicks **Reset to sidecar** (fog always starts hidden).
 
-No background art is committed (UVTT imports can link it instead of vendoring the
-bytes). Drop the export image at `assets/maps/tomb.png` (or `.webp`/`.jpg`) and add
-`background: assets/maps/tomb.png` to the `vtt-map` block above when you want art on the
-table; the board serves it through the ACL-checked `/assets` handler.
+Background art lives at `assets/maps/tomb.jpg` (the exporter's art, downscaled to keep
+the demo vault small) and the board serves it through the ACL-checked `/assets`
+handler — never raw. Re-import with `--background <file>` to swap the art; the
+importer keeps `grid-baked: false`, so the overlay grid is drawn over it.

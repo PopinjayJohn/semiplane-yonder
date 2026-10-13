@@ -1,12 +1,15 @@
 # Amend A-VTT2: PixiJS renderer + UVTT import (branch `plan/vtt-pixi-uvtt`, PR #33 draft)
 
-Status 2026-10-13: full surface LANDED on this branch (vendor pin pixi.js@8.22.0
-ESM + `/static/vtt/` loader mount, `POST /vtt/{mapID}/import` + `import-uvtt`
-CLI, door-toggle op + GM door panel, Tomb 96x72 + Ground-Floor demo sidecars
-link-only). Parser D4b/D4c/D5b fixes, grid cap 128, `grid-baked` + overlay,
-`FragmentVersion` 2 + snapshot fields, `vtt_doors` 0004, door helpers + reseed
-landed earlier (05254f7). Remaining: merge gates (`make check`, CI axe, leak
-matrix) — see PR #33.
+Status 2026-10-13 (final): full surface LANDED on this branch — vendor pin
+pixi.js@8.22.0 ESM + `/static/vtt/` loader mount, `POST /vtt/{mapID}/import`
+(with fresh-map auto-create) + `import-uvtt` CLI, door-toggle op + GM door
+panel, Tomb 96x72 + Ground-Floor demo sidecars with downscaled art. Parser
+D4b/D4c/D5b fixes, grid cap 128, `grid-baked` + overlay, `FragmentVersion` 2 +
+snapshot fields, `vtt_doors` 0004, door helpers + reseed landed earlier
+(05254f7); the browser pass also fixed three shipped defects (client syntax
+error, `?as=` refetch, bundle-dir asset ACL) and a latent WCAG 2.5.3 violation.
+Remaining: merge gates (CI `make check`, CI axe) — PR #33 stays draft until
+then.
 
 Targets: `docs/spec.md:9,24,27,30`, `internal/plugins/fragment.go:15`, `internal/markdown/frontmatter.go:20`, `web/static/vendor/VERSIONS:1`. No code on `main` changes until this amend merges as its own PR.
 
@@ -49,8 +52,7 @@ Ambient string      `json:"ambient,omitempty"`
 
 ## 4. Import surface — one route + one CLI
 
-- `POST /vtt/{mapID}/import`: GM-only, login + `CanViewMap`, double-submit CSRF, `preview_as` 403. Body `.uvtt/.dd2vtt/.df2vtt` JSON (`application/json`), 12MB cap → 413 over. Larger files via CLI.
-- `import-uvtt --vault <dir> --map <id> <file>`: same parser, no HTTP cap.
+- `POST /vtt/{mapID}/import`: GM-only, login + `CanViewMap`, double-submit CSRF, `preview_as` 403. Body `.uvtt/.dd2vtt/.df2vtt` JSON (`application/json`), 12MB cap → 413 over. Larger files via CLI. A MISSING sidecar is not a 404 (2026-10-13 decision): a GM may create a map by importing into a fresh id — the import writes the sidecar itself (title + `vtt-map` + generated body), stamped `secret: true` fail-closed when the `maps/` tree is secret. Malformed ids still 404.- `import-uvtt --vault <dir> --map <id> <file>`: same parser, no HTTP cap.
 - Accept all three extensions interchangeably, sniff JSON. `image`: chunked base64 decode, magic-sniff, `uploads.Process` + `Vault.WriteFileBytes` to `assets/maps/<id>.<png|webp|jpg>` (bundle dir, inherits sidecar ACL). Never serve `.uvtt` bytes via `/assets`.
 - Mapping per `vtt-pixi-uvtt.md` §2. `map_size` >128 or image dims >128MP → 422 with reason (no silent downscale). Grid cap raised 64→128 to admit 96x72-class maps (Tomb verification 2026-10-13: 96x72 @100ppg, 105 LOS polylines, 24 objects, 19 closed portals, 0 lights, `baked_lighting:true`).
 - Background selection: importer writes the embedded `image` by default (Dungeondraft bakes nogrid into it — overlay rendered since `grid-baked:false`). A GM may replace `background` with external grid-baked art (e.g. `*-grid-*` files) and hand-set `grid-baked:true`; cols/rows must equal the baked squares or the overlay/table misaligns — hand-swapped art is GM's responsibility. Import takes `--background <file> --grid-baked/--no-grid-baked` (CLI) / `grid_baked` field (HTTP) to do both in one step.
@@ -93,6 +95,10 @@ Ambient string      `json:"ambient,omitempty"`
 - D11 Wall scaling at downscaled PPG (P3): client-side float scale; floats survive exactly.
 
 ## 9. Deferred revisits (P3 or later, each needs its own note/amend)
+
+Stance confirmed 2026-10-13: R1–R3, R5, R6 stay deferred exactly as listed;
+R4 stays deferred with GM-only door ownership for now (no owner-movable
+doors without its own auth + griefing review).
 
 - R1 HTTP ~55MB + DoS review (rate-limit, base64 cost, single-writer impact).
 - R2 `effectivePpg` downscale for large maps (scale walls/lights by same factor + warn).

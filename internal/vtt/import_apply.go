@@ -52,6 +52,11 @@ type ImportRequest struct {
 	// D1 — "larger files via CLI"). The parser's 96MB decoded cap and the
 	// 128MP dims cap bound both surfaces regardless.
 	ImageByteCap int
+	// FreshSecret stamps `secret: true` on a sidecar this import CREATES
+	// (the maps/ tree is secret). Existing sidecars keep their own flag.
+	// The HTTP route computes it from the index; the CLI (a local GM tool
+	// against the GM's own vault) leaves it false.
+	FreshSecret bool
 }
 
 // ImportResult reports what an import wrote (for CLI output + tests).
@@ -130,7 +135,7 @@ func ApplyImport(ctx context.Context, req ImportRequest) (*ImportResult, error) 
 		existing = string(b)
 	}
 	updated := applyVTTMapBlock(existing, req.MapID, sidecarVTTMapEntries(m, assetRel),
-		sidecarBodyFor(req.MapID, m, assetRel))
+		sidecarBodyFor(req.MapID, m, assetRel), req.FreshSecret)
 	if err := req.Vault.WriteFile(ctx, res.SidecarPath, updated); err != nil {
 		return nil, fmt.Errorf("import: write sidecar: %w", err)
 	}

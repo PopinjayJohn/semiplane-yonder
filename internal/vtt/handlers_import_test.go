@@ -177,9 +177,9 @@ func TestImportRouteAuthMatrix(t *testing.T) {
 	}
 }
 
-// New map ids 404 here by design: the sidecar page (the map ACL) must exist
-// first — create it via the editor or the CLI, then import calibrates it.
-func TestImportRouteUnknownMap404(t *testing.T) {
+// A GM may CREATE a map by importing into a fresh id (2026-10-13 decision):
+// the import writes the sidecar itself. Malformed ids still 404.
+func TestImportRouteCreatesNewMap(t *testing.T) {
 	env := newImportTestEnv(t, "---\ntitle: Arena\nvtt-map:\n  grid: {cols: 20, rows: 14}\n---\n")
 	req := httptest.NewRequest(http.MethodPost, "/vtt/ghost/import", strings.NewReader(uvttBasic(t, tinyPNG)))
 	req.Header.Set("Content-Type", "application/json")
@@ -188,8 +188,74 @@ func TestImportRouteUnknownMap404(t *testing.T) {
 	req = withViewerCtx(req, gmViewer())
 	rec := httptest.NewRecorder()
 	env.h.Import(rec, req)
-	if rec.Code != http.StatusNotFound {
-		t.Errorf("new-map import = %d, want 404", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("new-map import = %d: %s", rec.Code, rec.Body.String())
+	}
+	// The sidecar was created with calibration + generated body prose.
+	out, err := os.ReadFile(filepath.Join(env.vault, "maps", "ghost.md"))
+	if err != nil {
+		t.Fatalf("sidecar not created: %v", err)
+	}
+	got := string(out)
+	if !strings.HasPrefix(got, "---\ntitle: ghost\nvtt-map:") {
+		t.Errorf("fresh sidecar head:\n%s", got)
+	}
+	if !strings.Contains(got, "grid: {cols: 4, rows: 3, cell: 100}") || !strings.Contains(got, "uvtt-source: upload.uvtt") {
+		t.Errorf("fresh sidecar missing calibration:\n%s", got)
+	}
+	if !strings.Contains(got, "This page holds calibration only") {
+		t.Error("fresh sidecar missing generated body")
+	}
+	// The index refresh (OnAfterWrite) makes the new map immediately visible.
+	snap, _, err := SnapshotFor(context.Background(), env.s, gmViewer(), "ghost")
+	if err != nil {
+		t.Fatalf("new map not visible after import: %v", err)
+	}
+	if len(snap.Walls) != 4 {
+		t.Errorf("new map walls = %d, want 4", len(snap.Walls))
+	}
+	// Malformed ids are still 404 (never created).
+	for _, bad := range []string{"/vtt/a/b/import", "/vtt/CON/import"} {
+		req := httptest.NewRequest(http.MethodPost, bad, strings.NewReader(uvttBasic(t, tinyPNG)))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set(auth.CSRFHeaderName, testCSRF)
+		req.AddCookie(gmCookie())
+		req = withViewerCtx(req, gmViewer())
+		rec := httptest.NewRecorder()
+		env.h.Import(rec, req)
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("import %s = %d, want 404", bad, rec.Code)
+		}
+	}
+}
+
+// A fresh sidecar inside a secret maps/ tree is stamped secret:true (fail
+// closed) — the import must never open a page under a hidden folder.
+func TestImportRouteFreshSidecarSecretStamp(t *testing.T) {
+	env := newImportTestEnv(t, "---\ntitle: Arena\nvtt-map:\n  grid: {cols: 20, rows: 14}\n---\n")
+	if err := env.s.PageUpsert(context.Background(), &store.Page{
+		Path: "maps/index.md", Title: "Maps", Secret: true, Owner: "gm",
+		EditableBy: []string{}, UpdatedAt: time.Now().Unix(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/vtt/ghost/import", strings.NewReader(uvttBasic(t, tinyPNG)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(auth.CSRFHeaderName, testCSRF)
+	req.AddCookie(gmCookie())
+	req = withViewerCtx(req, gmViewer())
+	rec := httptest.NewRecorder()
+	env.h.Import(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("import = %d: %s", rec.Code, rec.Body.String())
+	}
+	out, _ := os.ReadFile(filepath.Join(env.vault, "maps", "ghost.md"))
+	if !strings.Contains(string(out), "secret: true") {
+		t.Errorf("fresh sidecar in a secret tree must be stamped secret:\n%s", out)
+	}
+	// The GM still sees the new map; another player never will.
+	if _, _, err := SnapshotFor(context.Background(), env.s, gmViewer(), "ghost"); err != nil {
+		t.Errorf("GM lost the new map: %v", err)
 	}
 }
 

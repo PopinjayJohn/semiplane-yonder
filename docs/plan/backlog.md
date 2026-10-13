@@ -146,8 +146,10 @@ the contract; decisions D1–D12, revisits R1–R6):
   board stays the operable truth (aria-hidden, never removed); SSR is
   byte-identical on the default path.
 - **UVTT import**: `POST /vtt/{mapID}/import` (GM-only, login + CanViewMap,
-  CSRF, preview-403, 12MB cap → 413) + `import-uvtt --vault --map
-  [--background] [--grid-baked|--no-grid-baked] <file>` CLI (uncapped, D1).
+  CSRF, preview-403, 12MB cap → 413; a FRESH map id auto-creates the sidecar —
+  stamped `secret: true` fail-closed inside a secret `maps/` tree) +
+  `import-uvtt --vault --map [--background] [--grid-baked|--no-grid-baked] <file>`
+  CLI (uncapped, D1).
   Image rides the frozen uploads pipeline into `assets/maps/<id>.<ext>`; the
   sidecar `vtt-map` merge is surgical (importer-owned keys replaced;
   hand-edited `tokens`/`fog-default`/comments preserved). Live state reseeds
@@ -156,13 +158,15 @@ the contract; decisions D1–D12, revisits R1–R6):
   plus the GM door panel in the DOM fragment (text state + toggle buttons).
 - **Demo**: `maps/tomb.md` (96x72, 1237 walls, 19 portals, baked-lighting) and
   `maps/ground-floor.md` (20x20, 91 walls, 31 portals, 28 lights, ambient
-  #80668d) imported link-only — no image bytes vendored (demo vault stays
-  417KB); drop art at `assets/maps/<id>.<ext>` and add `background:` when
-  wanted. The verified 29→28 light drop is OOB light #25 (x = -0.57).
+  #80668d) with small downscaled art (`assets/maps/tomb.jpg` ~320KB,
+  `ground-floor.jpg` ~560KB — demo vault 1.4MB vs 7MB+ of sources; JPEG
+  flattens the art's transparent surround to black). The verified 29→28 light
+  drop is OOB light #25 (x = -0.57).
 
-Deferred revisits (each needs its own amend): R1 HTTP ~55MB + DoS review,
-R2 `effectivePpg` downscale, R3 OOB-light glow retention, R4 owner-movable
-doors, R5 sticky renderer preference, R6 full-blocker `objects_line_of_sight`.
+Deferred revisits (each needs its own amend; stance confirmed 2026-10-13 — R4
+stays GM-only for now): R1 HTTP ~55MB + DoS review, R2 `effectivePpg` downscale,
+R3 OOB-light glow retention, R4 owner-movable doors, R5 sticky renderer
+preference, R6 full-blocker `objects_line_of_sight`.
 
 ## Post-v1 feature ideas (unscoped — carried from overview §8–§10)
 DM lens: torch/puzzle timers + spotlight tracker; downtime

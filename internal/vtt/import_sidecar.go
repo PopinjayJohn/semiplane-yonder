@@ -24,8 +24,9 @@ import (
 // applyVTTMapBlock surgically merges the importer entries into the page's
 // vtt-map block. mapID is only used to title a freshly created sidecar.
 // freshBody is the prose a brand-new sidecar gets (an existing page keeps
-// its body byte-for-byte).
-func applyVTTMapBlock(content, mapID string, entries []sidecarEntry, freshBody string) string {
+// its body byte-for-byte). freshSecret stamps secret:true on a NEW sidecar
+// only, when the maps/ tree is secret (fail closed).
+func applyVTTMapBlock(content, mapID string, entries []sidecarEntry, freshBody string, freshSecret bool) string {
 	eol := "\n"
 	if strings.Contains(content, "\r\n") {
 		eol = "\r\n"
@@ -46,6 +47,9 @@ func applyVTTMapBlock(content, mapID string, entries []sidecarEntry, freshBody s
 		var b strings.Builder
 		b.WriteString("---" + eol)
 		b.WriteString("title: " + quoteScalar(mapID) + eol)
+		if freshSecret {
+			b.WriteString("secret: true" + eol)
+		}
 		b.WriteString("vtt-map:" + eol)
 		for _, ln := range renderBlock(nil, entries) {
 			b.WriteString(ln + eol)
