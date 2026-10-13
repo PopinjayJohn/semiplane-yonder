@@ -198,7 +198,7 @@ func TestAppMigrationsApplyClean(t *testing.T) {
 	}
 	for _, tbl := range []string{"users", "auth_sessions", "login_attempts", "claim_tokens",
 		"groups", "group_members", "edits_log", "characters", "sessions", "events",
-		"clocks", "wizard_drafts", "dice_logs", "vtt_maps", "vtt_tokens", "vtt_fog"} {
+		"clocks", "wizard_drafts", "dice_logs", "vtt_maps", "vtt_tokens", "vtt_fog", "vtt_doors"} {
 		var name string
 		if err := appDB.QueryRow(`SELECT name FROM sqlite_master WHERE name = ?`, tbl).Scan(&name); err != nil {
 			t.Fatalf("app table %s missing: %v", tbl, err)

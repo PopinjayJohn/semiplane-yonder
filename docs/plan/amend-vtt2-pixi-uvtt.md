@@ -1,5 +1,7 @@
 # Amend A-VTT2: PixiJS renderer + UVTT import (DRAFT, branch `plan/vtt-pixi-uvtt`)
 
+Status 2026-10-13: core slice LANDED on this branch (parser D4b/D4c/D5b fixes, grid cap 128, `grid-baked` + overlay, `FragmentVersion` 2 + snapshot fields, `vtt_doors` 0004, door helpers + reseed). REMAINING: import route + CLI, Pixi vendor pin, door-toggle op, demo content, full gates — see draft PR + handoff prompt.
+
 Targets: `docs/spec.md:9,24,27,30`, `internal/plugins/fragment.go:15`, `internal/markdown/frontmatter.go:20`, `web/static/vendor/VERSIONS:1`. No code on `main` changes until this amend merges as its own PR.
 
 ## 1. Stack (§2) — one vendored JS dep

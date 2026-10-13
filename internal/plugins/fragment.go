@@ -13,7 +13,10 @@ package plugins
 
 const (
 	// FragmentVersion pins the fragment/snapshot schema (bump only via amend).
-	FragmentVersion = 1
+	// v2 (amend A-VTT2): adds walls/objects/doors/lights/ambient for the
+	// PixiJS renderer + UVTT import; v1 rect fog encoding is unchanged and
+	// v1 clients ignore the new fields.
+	FragmentVersion = 2
 
 	// MapFragmentPath is the per-map HTML fragment Lane K serves:
 	//   GET /vtt/{mapID}/fragment
@@ -77,6 +80,45 @@ type StateSnapshot struct {
 	Tokens     []SnapshotToken     `json:"tokens"`
 	Fog        SnapshotFog         `json:"fog"`
 	Initiative []SnapshotInitEntry `json:"initiative"`
+	// v2 fields (omitempty: v1-shaped rows encode identically and v1
+	// clients ignore unknown keys). Walls/objects/doors/lights/ambient
+	// are board-visible to all map viewers; hidden-token stripping is
+	// unchanged.
+	Walls   []WallSeg   `json:"walls,omitempty"`
+	Objects []WallSeg   `json:"objects,omitempty"`
+	Doors   []DoorState `json:"doors,omitempty"`
+	Lights  []Light     `json:"lights,omitempty"`
+	Ambient string      `json:"ambient,omitempty"`
+}
+
+// WallSeg is one blocker segment in grid-square floats.
+type WallSeg struct {
+	X1 float64 `json:"x1"`
+	Y1 float64 `json:"y1"`
+	X2 float64 `json:"x2"`
+	Y2 float64 `json:"y2"`
+}
+
+// DoorState is one portal with live open/closed state. A/B are the portal
+// endpoints (grid squares); Closed is the effective state (sidecar default
+// overridden by the vtt_doors row when present, fail-closed to closed on
+// loss). Idx is the 0-based position in the sidecar portals list.
+type DoorState struct {
+	Idx    int        `json:"idx"`
+	A      [2]float64 `json:"a"`
+	B      [2]float64 `json:"b"`
+	Closed bool       `json:"closed"`
+}
+
+// Light is one dynamic light in grid squares (range in squares, color
+// lowercase rrggbb).
+type Light struct {
+	X         float64 `json:"x"`
+	Y         float64 `json:"y"`
+	Range     float64 `json:"range"`
+	Color     string  `json:"color"`
+	Intensity float64 `json:"intensity"`
+	Shadows   bool    `json:"shadows"`
 }
 
 // SnapshotToken is one board-visible token.

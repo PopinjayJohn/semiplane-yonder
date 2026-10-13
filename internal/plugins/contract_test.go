@@ -93,7 +93,7 @@ func TestFrozenContractStrings(t *testing.T) {
 		}
 		seen[e] = true
 	}
-	if FragmentVersion != 1 {
+	if FragmentVersion != 2 {
 		t.Errorf("FragmentVersion = %d", FragmentVersion)
 	}
 }
@@ -110,9 +110,15 @@ func TestSnapshotJSONShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(b)
-	for _, want := range []string{`"version":1`, `"map_id":"arena"`, `"hidden":true`, `"order":1`} {
+	for _, want := range []string{`"version":2`, `"map_id":"arena"`, `"hidden":true`, `"order":1`} {
 		if !strings.Contains(s, want) {
 			t.Errorf("snapshot missing %s: %s", want, s)
+		}
+	}
+	// v2 fields are omitempty: v1-shaped rows encode without them.
+	for _, absent := range []string{`"walls"`, `"doors"`, `"lights"`, `"ambient"`} {
+		if strings.Contains(s, absent) {
+			t.Errorf("v1-shaped snapshot leaks %s: %s", absent, s)
 		}
 	}
 }

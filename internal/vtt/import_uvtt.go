@@ -42,9 +42,11 @@ import (
 
 // Limits --------------------------------------------------------------------
 
-// MaxImageMegapixels caps the decoded map image: width*height must fit in
-// 32 megapixels (amend A-VTT2 section 4: no silent downscale, fail loudly).
-const MaxImageMegapixels = 32 * 1024 * 1024
+// MaxImageMegapixels caps the map image dims check: width*height must fit
+// in 128 megapixels (A-VTT2: admits 9600x7200-class webp, which is stored
+// as-is and never fully decoded at import; png/jpeg write-path decodes stay
+// guarded by uploads.Normalize — over-cap png/jpeg must arrive as webp).
+const MaxImageMegapixels = 128 * 1024 * 1024
 
 // maxImageDecodedBytes bounds base64 output before sniffing so a hostile
 // file cannot OOM the importer ahead of the megapixel check.
@@ -175,31 +177,30 @@ func Parse(data []byte, source string) (*UVTTMap, error) {
 		OriginX: ox,
 		OriginY: oy,
 	}
-	toGrid := func(px, py float64) (float64, float64) {
-		return (px - ox) / ppg, (py - oy) / ppg
+	toGrid := func(sx, sy float64) (float64, float64) {
+		// UVTT coordinates are grid squares (verified vs real exports);
+		// only the crop origin shifts them. ppg relates image pixels to
+		// squares and never touches geometry.
+		return sx - ox, sy - oy
 	}
 	maxX, maxY := float64(cols), float64(rows)
 
 	for _, seg := range raw.LineOfSight {
-		x1, y1, x2, y2, ok := parseSegPixels(seg)
-		if !ok {
-			continue // one bad segment never bricks the import
-		}
-		gx1, gy1 := toGrid(x1, y1)
-		gx2, gy2 := toGrid(x2, y2)
-		if cx1, cy1, cx2, cy2, ok := clipSegToGrid(gx1, gy1, gx2, gy2, maxX, maxY); ok {
-			out.Walls = append(out.Walls, WallSeg{cx1, cy1, cx2, cy2})
+		for _, s := range splitPolyline(seg) {
+			gx1, gy1 := toGrid(s[0], s[1])
+			gx2, gy2 := toGrid(s[2], s[3])
+			if cx1, cy1, cx2, cy2, ok := clipSegToGrid(gx1, gy1, gx2, gy2, maxX, maxY); ok {
+				out.Walls = append(out.Walls, WallSeg{cx1, cy1, cx2, cy2})
+			}
 		}
 	}
 	for _, seg := range raw.ObjectsLineOfSight {
-		x1, y1, x2, y2, ok := parseSegPixels(seg)
-		if !ok {
-			continue
-		}
-		gx1, gy1 := toGrid(x1, y1)
-		gx2, gy2 := toGrid(x2, y2)
-		if cx1, cy1, cx2, cy2, ok := clipSegToGrid(gx1, gy1, gx2, gy2, maxX, maxY); ok {
-			out.Objects = append(out.Objects, WallSeg{cx1, cy1, cx2, cy2})
+		for _, s := range splitPolyline(seg) {
+			gx1, gy1 := toGrid(s[0], s[1])
+			gx2, gy2 := toGrid(s[2], s[3])
+			if cx1, cy1, cx2, cy2, ok := clipSegToGrid(gx1, gy1, gx2, gy2, maxX, maxY); ok {
+				out.Objects = append(out.Objects, WallSeg{cx1, cy1, cx2, cy2})
+			}
 		}
 	}
 	for _, praw := range raw.Portals {
@@ -237,11 +238,14 @@ func Parse(data []byte, source string) (*UVTTMap, error) {
 			if err := json.Unmarshal(l.Range, &r); err != nil || !finite(r) || r < 0 {
 				r = 0
 			}
-			rng = r / ppg // pixels -> squares
+			rng = r // UVTT range is grid squares (verified vs real export)
+		}
+		if rng <= 0 {
+			continue // zero/negative range lights are dropped
 		}
 		color, ok := parseUVTTColor(l.Color)
 		if !ok {
-			color = "ffffff"
+			continue // unparseable color drops the light; never invent one
 		}
 		intensity := 1.0
 		if len(l.Intensity) > 0 {
@@ -251,7 +255,7 @@ func Parse(data []byte, source string) (*UVTTMap, error) {
 			}
 			intensity = in
 		}
-		shadows := true
+		shadows := false
 		if len(l.Shadows) > 0 {
 			var b bool
 			if err := json.Unmarshal(l.Shadows, &b); err != nil {
@@ -259,7 +263,7 @@ func Parse(data []byte, source string) (*UVTTMap, error) {
 				if jerr := json.Unmarshal(l.Shadows, &n); jerr == nil {
 					b = n != 0
 				} else {
-					b = true
+					b = false
 				}
 			}
 			shadows = b
@@ -396,6 +400,35 @@ func parseSegPixels(raw json.RawMessage) (x1, y1, x2, y2 float64, ok bool) {
 	return 0, 0, 0, 0, false
 }
 
+// splitPolyline splits one line_of_sight element into [x1,y1,x2,y2]
+// segments: N-point polylines yield N-1 consecutive pairs (cave walls
+// arrive as many-point chains); other shapes fall back to parseSegPixels.
+func splitPolyline(raw json.RawMessage) [][4]float64 {
+	var arr []json.RawMessage
+	if err := json.Unmarshal(raw, &arr); err == nil && len(arr) >= 2 {
+		pts := make([][2]float64, 0, len(arr))
+		for _, p := range arr {
+			x, y, ok := parsePoint(p)
+			if !ok || !finite(x) || !finite(y) {
+				pts = nil
+				break
+			}
+			pts = append(pts, [2]float64{x, y})
+		}
+		if len(pts) >= 2 {
+			out := make([][4]float64, 0, len(pts)-1)
+			for i := 0; i+1 < len(pts); i++ {
+				out = append(out, [4]float64{pts[i][0], pts[i][1], pts[i+1][0], pts[i+1][1]})
+			}
+			return out
+		}
+	}
+	if x1, y1, x2, y2, ok := parseSegPixels(raw); ok {
+		return [][4]float64{{x1, y1, x2, y2}}
+	}
+	return nil
+}
+
 // portalClosed treats missing as open (window); accepts bool or 0/1.
 func portalClosed(raw json.RawMessage) bool {
 	if len(raw) == 0 {
@@ -479,14 +512,16 @@ func parseUVTTColor(s string) (string, bool) {
 	case 3:
 		return expand(t)
 	case 4:
-		return expand(t[:3]) // drop alpha nibble
+		return expand(t[:3]) // drop alpha nibble (#rgba order)
 	case 6:
 		if isHexStr(t) {
 			return t, true
 		}
 	case 8:
-		if isHexStr(t[:6]) && isHexStr(t[6:]) {
-			return t[:6], true
+		// UVTT emits aarrggbb: drop the LEADING alpha pair, keep last 6
+		// (verified vs 00-Ground-Floor: "ffeccd8b" -> "eccd8b").
+		if isHexStr(t[2:]) && isHexStr(t[:2]) {
+			return t[2:], true
 		}
 	}
 	return "", false
@@ -646,10 +681,11 @@ func webpDims(data []byte) (int, int, bool) {
 			}
 			return 0, 0, false
 		case "VP8X":
-			// Best-effort: flags byte + 24-bit LE width-1 + height-1.
-			if len(body) >= 7 {
-				w := int(body[1]) | int(body[2])<<8 | int(body[3])<<16
-				h := int(body[4]) | int(body[5])<<8 | int(body[6])<<16
+			// flags byte + 3 reserved bytes + 24-bit LE width-1 +
+			// 24-bit LE height-1 (verified vs a real animated VP8X).
+			if len(body) >= 10 {
+				w := int(body[4]) | int(body[5])<<8 | int(body[6])<<16
+				h := int(body[7]) | int(body[8])<<8 | int(body[9])<<16
 				return w + 1, h + 1, true
 			}
 			return 0, 0, false

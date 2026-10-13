@@ -64,6 +64,12 @@ func renderBoard(in FragmentInput) string {
 	} else {
 		b.WriteString(`<div data-board-image><p>No background image set. Ask your GM to set one in the map sidecar.</p></div>` + "\n")
 	}
+	// Grid overlay for nogrid art (aria-hidden: token labels already carry
+	// text coordinates). Grid-baked art carries its own lines — skip.
+	if !in.Cal.GridBaked {
+		fmt.Fprintf(&b, `<div data-grid aria-hidden="true" style="background-size:%.4f%% %.4f%%"></div>`+"\n",
+			100/float64(g.Cols), 100/float64(g.Rows))
+	}
 	// Fog overlay + text equivalent.
 	b.WriteString(renderFog(in))
 	// Tokens as real buttons (keyboard-reachable, 44px, text labels).
@@ -283,6 +289,7 @@ a[href="#vtt-map"]:focus{position:static}
 button,input[type=submit]{min-width:44px;min-height:44px}
 [data-board]{position:relative;border:2px solid currentColor;max-width:100%}
 [data-board-image] img{display:block;width:100%;height:auto}
+[data-grid]{position:absolute;inset:0;pointer-events:none;opacity:.3;background-image:linear-gradient(to right,currentColor 1px,transparent 1px),linear-gradient(to bottom,currentColor 1px,transparent 1px)}
 [data-tokens]{position:absolute;inset:0}
 [data-token]{position:absolute;transform:translate(-50%,-50%);min-width:44px;min-height:44px;border-radius:50%;border:2px solid currentColor;background:ButtonFace;font-weight:bold}
 [data-token][aria-pressed=true]{outline:3px solid currentColor}

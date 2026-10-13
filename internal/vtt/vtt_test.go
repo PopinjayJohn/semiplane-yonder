@@ -75,6 +75,74 @@ func TestParseCalibrationDefaults(t *testing.T) {
 	}
 }
 
+func TestParseCalibrationVTT2Keys(t *testing.T) {
+	c := ParseCalibration(map[string]any{
+		"grid":             map[string]any{"cols": int64(10), "rows": int64(8)},
+		"grid-baked":       true,
+		"ppg":              float64(100),
+		"ambient":          "FF80668D",
+		"baked-lighting":   true,
+		"walls":            []any{[]any{int64(0), int64(0), int64(10), int64(0)}, []any{int64(0)}},
+		"blocking-objects": []any{[]any{int64(1), int64(1), int64(2), int64(2)}},
+		"portals": []any{
+			map[string]any{"a": []any{int64(3), int64(0)}, "b": []any{int64(4), int64(0)}, "closed": true},
+			map[string]any{"a": []any{int64(0), int64(0)}, "b": []any{int64(1), int64(0)}, "closed": "maybe"},
+		},
+		"lights": []any{
+			map[string]any{"x": float64(5), "y": float64(4), "range": float64(6), "color": "ffeccd8b", "intensity": float64(0.8), "shadows": true},
+			map[string]any{"x": float64(9), "y": float64(9), "range": float64(2), "color": "zzz", "intensity": float64(1), "shadows": false},
+			map[string]any{"x": float64(50), "y": float64(50), "range": float64(2), "color": "ffffff", "intensity": float64(1), "shadows": false},
+		},
+		"uvtt-source": "maps/tomb.dd2vtt",
+	})
+	if !c.GridBaked {
+		t.Errorf("grid-baked = false, want true")
+	}
+	if c.PPG != 100 || c.Ambient != "80668d" || !c.BakedLighting {
+		t.Errorf("ppg/ambient/baked = %g/%q/%v, want 100/80668d/true", c.PPG, c.Ambient, c.BakedLighting)
+	}
+	if len(c.Walls) != 1 || len(c.Objects) != 1 {
+		t.Fatalf("walls/objects = %d/%d, want 1/1 (bad seg dropped)", len(c.Walls), len(c.Objects))
+	}
+	if len(c.Portals) != 2 || !c.Portals[0].Closed || !c.Portals[1].Closed {
+		t.Errorf("portals = %+v, want 2 closed (non-bool fails closed)", c.Portals)
+	}
+	if len(c.Lights) != 1 {
+		t.Fatalf("lights = %d, want 1 (bad color + oob dropped)", len(c.Lights))
+	}
+	l := c.Lights[0]
+	if l.X != 5 || l.Y != 4 || l.Range != 6 || l.Color != "eccd8b" || l.Intensity != 0.8 || !l.Shadows {
+		t.Errorf("light = %+v, want 5,4 r6 eccd8b 0.8 shadows", l)
+	}
+	if c.UVTTSource != "tomb.dd2vtt" {
+		t.Errorf("uvtt-source = %q, want bare base name", c.UVTTSource)
+	}
+	// Broken sub-keys degrade to zero values, never brick the board.
+	b := ParseCalibration(map[string]any{
+		"grid":       map[string]any{"cols": int64(4), "rows": int64(4)},
+		"grid-baked": "perhaps",
+		"ambient":    "morse",
+		"walls":      "fortress",
+		"lights":     []any{map[string]any{"x": "far", "y": "away"}},
+	})
+	if b.GridBaked || b.Ambient != "" || len(b.Walls) != 0 || len(b.Lights) != 0 {
+		t.Errorf("broken vtt2 keys not dropped: %+v", b)
+	}
+}
+
+func TestGridOverlayBaked(t *testing.T) {
+	base := FragmentInput{MapID: "arena", Title: "Arena", Cal: Calibration{Grid: DefaultGrid()}}
+	nogrid := RenderFragment(base)
+	if !strings.Contains(nogrid, `data-grid`) {
+		t.Errorf("nogrid fragment missing data-grid overlay")
+	}
+	baked := base
+	baked.Cal.GridBaked = true
+	if strings.Contains(RenderFragment(baked), `data-grid`) {
+		t.Errorf("grid-baked fragment renders overlay grid")
+	}
+}
+
 func TestFogCodecRoundTrip(t *testing.T) {
 	g := Grid{Cols: 20, Rows: 14}
 	rects := []Rect{{X: 18, Y: 12, W: 10, H: 10}, {X: -2, Y: 0, W: 5, H: 3}, {X: 1, Y: 1, W: 0, H: 2}}

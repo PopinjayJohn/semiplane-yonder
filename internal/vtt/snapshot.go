@@ -79,6 +79,35 @@ func SnapshotFor(ctx context.Context, st store.Store, viewer *auth.Viewer, mapID
 	isGM := eff != nil && eff.IsGM
 	fog := ResolveFog(live.FogMask, live.FogPresent, cal.Grid)
 	snap.Fog = plugins.SnapshotFog{Hidden: fog.Hidden, Shape: fog.Shape}
+	// v2 geometry rides the same fail-closed gate as tokens: a fully
+	// hidden board shows nothing, not even walls (layout is content).
+	if !fog.Hidden {
+		for _, w := range cal.Walls {
+			snap.Walls = append(snap.Walls, plugins.WallSeg{X1: w.X1, Y1: w.Y1, X2: w.X2, Y2: w.Y2})
+		}
+		for _, w := range cal.Objects {
+			snap.Objects = append(snap.Objects, plugins.WallSeg{X1: w.X1, Y1: w.Y1, X2: w.X2, Y2: w.Y2})
+		}
+		for _, l := range cal.Lights {
+			snap.Lights = append(snap.Lights, plugins.Light{X: l.X, Y: l.Y, Range: l.Range, Color: l.Color, Intensity: l.Intensity, Shadows: l.Shadows})
+		}
+		snap.Ambient = cal.Ambient
+		// Live open overrides keyed by sidecar list position; out-of-range
+		// rows (sidecar list edited shorter) are ignored, never emitted.
+		over := map[int]bool{}
+		for _, d := range live.Doors {
+			over[d.Idx] = d.Open
+		}
+		for i, p := range cal.Portals {
+			closed := p.Closed
+			if open, ok := over[i]; ok {
+				closed = !open
+			}
+			snap.Doors = append(snap.Doors, plugins.DoorState{
+				Idx: i, A: [2]float64{p.AX, p.AY}, B: [2]float64{p.BX, p.BY}, Closed: closed,
+			})
+		}
+	}
 	visible := map[string]plugins.SnapshotToken{}
 	if !fog.Hidden {
 		for _, t := range SortedTokens(live.Tokens) {

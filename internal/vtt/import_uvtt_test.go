@@ -1,7 +1,8 @@
 // UVTT parser spike tests: small hand-written fixtures only (no golden
-// files, no vault writes). Covers walls+door+light with a cropped
-// map_origin, out-of-bounds clipping, corrupt inputs, color/alpha leniency,
-// the >64 typed rejection, the >32MP typed rejection, and extension
+// files, no vault writes). Covers walls+door+light in grid squares (UVTT
+// units, verified vs real exports) with a cropped map_origin, polyline
+// splitting, out-of-bounds clipping, corrupt inputs, color/alpha leniency,
+// the >128 typed rejection, the >128MP typed rejection, and extension
 // agnosticism.
 package vtt
 
@@ -23,20 +24,21 @@ func uvttBasic(t *testing.T, imageB64 string) string {
 	t.Helper()
 	return fmt.Sprintf(`{
   "format": 1.0,
-  "resolution": {"map_origin": {"x":50,"y":25}, "map_size": {"x":4,"y":3}, "pixels_per_grid": 100},
+  "resolution": {"map_origin": {"x":0,"y":0}, "map_size": {"x":4,"y":3}, "pixels_per_grid": 100},
   "line_of_sight": [
-    [{"x":50,"y":25},{"x":450,"y":25}],
-    [{"x":450,"y":25},{"x":450,"y":325}]
+    [{"x":0,"y":0},{"x":4,"y":0}],
+    [{"x":4,"y":0},{"x":4,"y":3}],
+    [{"x":0,"y":3},{"x":2,"y":3},{"x":2,"y":1}]
   ],
   "objects_line_of_sight": [
-    [{"x":50,"y":325},{"x":450,"y":325}]
+    [{"x":0,"y":3},{"x":4,"y":3}]
   ],
   "portals": [
-    {"position":{"x":200,"y":25},"bounds":[{"x":150,"y":25},{"x":250,"y":25}],"rotation":0,"closed":true}
+    {"position":{"x":1.5,"y":0},"bounds":[{"x":1,"y":0},{"x":2,"y":0}],"rotation":0,"closed":true}
   ],
   "environment": {"baked_lighting": false, "ambient_light": "ffffffff"},
   "lights": [
-    {"position":{"x":250,"y":175},"range":200,"color":"ff0000ff","intensity":0.8,"shadows":true}
+    {"position":{"x":2,"y":1.5},"range":2,"color":"ff0000ff","intensity":0.8,"shadows":true}
   ],
   "image": "%s"
 }`, imageB64)
@@ -66,11 +68,13 @@ func TestImportUVTTBasic(t *testing.T) {
 	if m.Cell != 100 || m.PPG != 100 {
 		t.Errorf("cell/ppg = %d/%g, want 100/100", m.Cell, m.PPG)
 	}
-	if len(m.Walls) != 2 {
-		t.Fatalf("walls = %d, want 2", len(m.Walls))
+	if len(m.Walls) != 4 {
+		t.Fatalf("walls = %d, want 4 (2 segs + 3-point polyline split)", len(m.Walls))
 	}
 	checkSeg(t, "wall0", m.Walls[0], WallSeg{0, 0, 4, 0})
 	checkSeg(t, "wall1", m.Walls[1], WallSeg{4, 0, 4, 3})
+	checkSeg(t, "wall2", m.Walls[2], WallSeg{0, 3, 2, 3})
+	checkSeg(t, "wall3", m.Walls[3], WallSeg{2, 3, 2, 1})
 	if len(m.Objects) != 1 {
 		t.Fatalf("objects = %d, want 1", len(m.Objects))
 	}
@@ -93,10 +97,10 @@ func TestImportUVTTBasic(t *testing.T) {
 		t.Errorf("light pos = (%g,%g), want (2,1.5)", l.X, l.Y)
 	}
 	if !approxEq(l.Range, 2) {
-		t.Errorf("light range = %g squares, want 2 (200px/100ppg)", l.Range)
+		t.Errorf("light range = %g squares, want 2 (units are squares)", l.Range)
 	}
-	if l.Color != "ff0000" {
-		t.Errorf("light color = %q, want ff0000 (alpha dropped)", l.Color)
+	if l.Color != "0000ff" {
+		t.Errorf("light color = %q, want 0000ff (leading alpha dropped)", l.Color)
 	}
 	if !approxEq(l.Intensity, 0.8) || !l.Shadows {
 		t.Errorf("light intensity/shadows = %g/%v, want 0.8/true", l.Intensity, l.Shadows)
@@ -115,6 +119,26 @@ func TestImportUVTTBasic(t *testing.T) {
 	}
 }
 
+func TestImportUVTTCroppedOrigin(t *testing.T) {
+	// map_origin is in squares and only shifts geometry (never scales it).
+	payload := `{
+  "resolution": {"map_origin": {"x":10,"y":5}, "map_size": {"x":4,"y":3}, "pixels_per_grid": 100},
+  "line_of_sight": [[{"x":10,"y":5},{"x":14,"y":5}]],
+  "lights": [{"position":{"x":12,"y":6.5},"range":2,"color":"ffffff","intensity":1,"shadows":false}]
+}`
+	m, err := Parse([]byte(payload), "crop.uvtt")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(m.Walls) != 1 {
+		t.Fatalf("walls = %d, want 1", len(m.Walls))
+	}
+	checkSeg(t, "cropped", m.Walls[0], WallSeg{0, 0, 4, 0})
+	if len(m.Lights) != 1 || !approxEq(m.Lights[0].X, 2) || !approxEq(m.Lights[0].Y, 1.5) {
+		t.Errorf("lights = %+v, want one at (2,1.5)", m.Lights)
+	}
+}
+
 func TestImportUVTTExtensionAgnostic(t *testing.T) {
 	payload := uvttBasic(t, tinyPNG)
 	for _, name := range []string{"map.uvtt", "map.dd2vtt", "map.df2vtt", "map.weird"} {
@@ -126,8 +150,8 @@ func TestImportUVTTExtensionAgnostic(t *testing.T) {
 		if m.Source != name {
 			t.Errorf("Source = %q, want %q", m.Source, name)
 		}
-		if len(m.Walls) != 2 {
-			t.Errorf("Parse(%s) walls = %d, want 2", name, len(m.Walls))
+		if len(m.Walls) != 4 {
+			t.Errorf("Parse(%s) walls = %d, want 4", name, len(m.Walls))
 		}
 	}
 	// Windows-hostile source is sanitized, never used as a path.
@@ -144,16 +168,16 @@ func TestImportUVTTOOBClip(t *testing.T) {
 	payload := `{
   "resolution": {"map_origin": {"x":0,"y":0}, "map_size": {"x":4,"y":4}, "pixels_per_grid": 50},
   "line_of_sight": [
-    [{"x":-100,"y":100},{"x":100,"y":100}],
-    [{"x":300,"y":300},{"x":400,"y":400}]
+    [{"x":-1,"y":2},{"x":2,"y":2}],
+    [{"x":9,"y":9},{"x":10,"y":10}]
   ],
   "objects_line_of_sight": [],
   "portals": [
-    {"bounds":[{"x":-50,"y":0},{"x":50,"y":0}],"closed":false}
+    {"bounds":[{"x":-0.5,"y":0},{"x":1,"y":0}],"closed":false}
   ],
   "lights": [
-    {"position":{"x":500,"y":500},"range":50,"color":"ffffff","intensity":1,"shadows":false},
-    {"position":{"x":100,"y":100},"range":50,"color":"ffffff","intensity":1,"shadows":false}
+    {"position":{"x":5,"y":5},"range":2,"color":"ffffff","intensity":1,"shadows":false},
+    {"position":{"x":2,"y":2},"range":2,"color":"ffffff","intensity":1,"shadows":false}
   ]
 }`
 	m, err := Parse([]byte(payload), "oob.uvtt")
@@ -211,18 +235,19 @@ func TestImportUVTTColorLeniency(t *testing.T) {
   "resolution": {"map_origin": [0,0], "map_size": [4,4], "pixels_per_grid": 50},
   "environment": {"ambient_light": "#00FF00"},
   "lights": [
-    {"position":[10,10],"range":50,"color":"#FF0000"},
-    {"position":[20,20],"range":50,"color":"00ff00ff"},
-    {"position":[30,30],"range":50,"color":"abc"},
-    {"position":[40,40],"range":50,"color":"AABBCCDD"},
-    {"position":[50,50],"range":50,"color":"zzz"}
+    {"position":[1,1],"range":2,"color":"#FF0000"},
+    {"position":[2,2],"range":2,"color":"00ff00ff"},
+    {"position":[3,3],"range":2,"color":"abc"},
+    {"position":[1,3],"range":2,"color":"AABBCCDD"},
+    {"position":[3,1],"range":2,"color":"zzz"}
   ]
 }`
 	m, err := Parse([]byte(payload), "color.uvtt")
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	want := []string{"ff0000", "00ff00", "aabbcc", "aabbcc", "ffffff"}
+	// 8-hex drops the LEADING alpha pair; bad colors drop the light.
+	want := []string{"ff0000", "ff00ff", "aabbcc", "bbccdd"}
 	if len(m.Lights) != len(want) {
 		t.Fatalf("lights = %d, want %d", len(m.Lights), len(want))
 	}
@@ -245,7 +270,7 @@ func TestImportUVTTColorLeniency(t *testing.T) {
 }
 
 func TestImportUVTTMapTooLarge(t *testing.T) {
-	for _, size := range []string{`[65,10]`, `[10,100]`, `{"x":200,"y":200}`} {
+	for _, size := range []string{`[129,10]`, `[10,200]`, `{"x":200,"y":200}`} {
 		payload := fmt.Sprintf(`{"resolution": {"map_origin": [0,0], "map_size": %s, "pixels_per_grid": 50}}`, size)
 		_, err := Parse([]byte(payload), "big.uvtt")
 		if err == nil {
@@ -257,13 +282,13 @@ func TestImportUVTTMapTooLarge(t *testing.T) {
 			t.Errorf("size %s: error %v is not *MapSizeError", size, err)
 		}
 	}
-	// 64x64 exactly is the cap, not over it.
-	m, err := Parse([]byte(`{"resolution": {"map_origin": [0,0], "map_size": [64,64], "pixels_per_grid": 50}}`), "cap.uvtt")
+	// 128x128 exactly is the cap, not over it.
+	m, err := Parse([]byte(`{"resolution": {"map_origin": [0,0], "map_size": [128,128], "pixels_per_grid": 50}}`), "cap.uvtt")
 	if err != nil {
-		t.Fatalf("64x64 at cap: %v", err)
+		t.Fatalf("128x128 at cap: %v", err)
 	}
-	if m.Cols != 64 || m.Rows != 64 {
-		t.Errorf("grid = %dx%d, want 64x64", m.Cols, m.Rows)
+	if m.Cols != 128 || m.Rows != 128 {
+		t.Errorf("grid = %dx%d, want 128x128", m.Cols, m.Rows)
 	}
 }
 
@@ -290,7 +315,7 @@ func pngWithDims(t *testing.T, w, h uint32) string {
 }
 
 func TestImportUVTTImageTooLarge(t *testing.T) {
-	payload := strings.Replace(uvttBasic(t, "PLACEHOLDER"), "PLACEHOLDER", pngWithDims(t, 6000, 6000), 1)
+	payload := strings.Replace(uvttBasic(t, "PLACEHOLDER"), "PLACEHOLDER", pngWithDims(t, 12000, 12000), 1)
 	_, err := Parse([]byte(payload), "huge.uvtt")
 	if err == nil {
 		t.Fatalf("want error, got nil")
@@ -299,8 +324,8 @@ func TestImportUVTTImageTooLarge(t *testing.T) {
 	if !errors.As(err, &imgErr) {
 		t.Fatalf("error %v is not *ImageSizeError", err)
 	}
-	if imgErr.Width != 6000 || imgErr.Height != 6000 {
-		t.Errorf("dims = %dx%d, want 6000x6000", imgErr.Width, imgErr.Height)
+	if imgErr.Width != 12000 || imgErr.Height != 12000 {
+		t.Errorf("dims = %dx%d, want 12000x12000", imgErr.Width, imgErr.Height)
 	}
 }
 
@@ -328,8 +353,8 @@ func TestImportUVTTWebPDims(t *testing.T) {
 	vp8l := webpFile("VP8L", []byte{0x2F, 0, 0, 0, 0})
 	// Lossy 8x8: frame tag + start code + LE dims.
 	vp8 := webpFile("VP8 ", []byte{0, 0, 0, 0x9D, 0x01, 0x2A, 8, 0, 8, 0})
-	// Extended 2x3 best-effort: flags + 24-bit LE (width-1, height-1).
-	vp8x := webpFile("VP8X", []byte{0, 1, 0, 0, 2, 0, 0})
+	// Extended 2x3: flags + 3 reserved bytes + 24-bit LE (width-1, height-1).
+	vp8x := webpFile("VP8X", []byte{0, 0, 0, 0, 1, 0, 0, 2, 0, 0})
 	for name, tc := range map[string]struct {
 		b64  string
 		w, h int
