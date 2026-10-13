@@ -113,10 +113,14 @@ type UVTTImage struct {
 // sidecar writer is mechanical.
 type UVTTMap struct {
 	Source string  // sanitized base name of the uploaded file (audit only)
-	Cols   int     // from map_size.x, 1..64
-	Rows   int     // from map_size.y, 1..64
+	Cols   int     // from map_size.x, 1..MaxGridCols
+	Rows   int     // from map_size.y, 1..MaxGridRows
 	Cell   int     // pixels_per_grid clamped to MinCellPx..MaxCellPx
 	PPG    float64 // source pixels-per_grid (info only)
+	// GridBaked is the D12 posture the importer writes: false = the
+	// renderer draws the overlay grid (the UVTT embedded-image default,
+	// Dungeondraft bakes nogrid art); true = art carries its own grid.
+	GridBaked bool
 
 	OriginX, OriginY float64 // map_origin in image pixels (cropped-export offset)
 
@@ -135,10 +139,45 @@ type UVTTMap struct {
 // filename; it is reduced to a Windows-safe base name and stored as audit
 // metadata only (never used as a path). Parse performs no I/O.
 func Parse(data []byte, source string) (*UVTTMap, error) {
-	var raw uvttFile
-	if err := json.Unmarshal(data, &raw); err != nil {
+	return ParseWithOpts(data, source, ImportOpts{})
+}
+
+// ImportOpts carries surface-specific import options. GridBaked is a pointer
+// so "absent" (importer default false) is distinct from an explicit
+// --no-grid-baked: the HTTP body's `grid_baked` field is read first, then a
+// non-nil opts value (CLI flag) overrides it.
+type ImportOpts struct {
+	GridBaked *bool
+}
+
+// ParseWithOpts is Parse plus the D12 grid-baked posture: the JSON body may
+// carry `grid_baked` (HTTP field / CLI parity), and a non-nil
+// opts.GridBaked overrides it (CLI --grid-baked/--no-grid-baked).
+func ParseWithOpts(data []byte, source string, opts ImportOpts) (*UVTTMap, error) {
+	var wrap struct {
+		uvttFile
+		GridBaked *bool `json:"grid_baked"`
+	}
+	if err := json.Unmarshal(data, &wrap); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %v", ErrCorrupt, err)
 	}
+	m, err := mapUVTT(wrap.uvttFile, source)
+	if err != nil {
+		return nil, err
+	}
+	baked := false
+	if wrap.GridBaked != nil {
+		baked = *wrap.GridBaked
+	}
+	if opts.GridBaked != nil {
+		baked = *opts.GridBaked
+	}
+	m.GridBaked = baked
+	return m, nil
+}
+
+// mapUVTT validates + maps the raw schema (Parse's original body).
+func mapUVTT(raw uvttFile, source string) (*UVTTMap, error) {
 	if len(raw.Resolution) == 0 {
 		return nil, fmt.Errorf("%w: missing resolution", ErrCorrupt)
 	}

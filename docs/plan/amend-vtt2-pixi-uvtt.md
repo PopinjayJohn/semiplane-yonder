@@ -1,6 +1,12 @@
-# Amend A-VTT2: PixiJS renderer + UVTT import (DRAFT, branch `plan/vtt-pixi-uvtt`)
+# Amend A-VTT2: PixiJS renderer + UVTT import (branch `plan/vtt-pixi-uvtt`, PR #33 draft)
 
-Status 2026-10-13: core slice LANDED on this branch (parser D4b/D4c/D5b fixes, grid cap 128, `grid-baked` + overlay, `FragmentVersion` 2 + snapshot fields, `vtt_doors` 0004, door helpers + reseed). REMAINING: import route + CLI, Pixi vendor pin, door-toggle op, demo content, full gates — see draft PR + handoff prompt.
+Status 2026-10-13: full surface LANDED on this branch (vendor pin pixi.js@8.22.0
+ESM + `/static/vtt/` loader mount, `POST /vtt/{mapID}/import` + `import-uvtt`
+CLI, door-toggle op + GM door panel, Tomb 96x72 + Ground-Floor demo sidecars
+link-only). Parser D4b/D4c/D5b fixes, grid cap 128, `grid-baked` + overlay,
+`FragmentVersion` 2 + snapshot fields, `vtt_doors` 0004, door helpers + reseed
+landed earlier (05254f7). Remaining: merge gates (`make check`, CI axe, leak
+matrix) — see PR #33.
 
 Targets: `docs/spec.md:9,24,27,30`, `internal/plugins/fragment.go:15`, `internal/markdown/frontmatter.go:20`, `web/static/vendor/VERSIONS:1`. No code on `main` changes until this amend merges as its own PR.
 

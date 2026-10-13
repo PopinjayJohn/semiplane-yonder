@@ -19,7 +19,7 @@ import (
 //
 // Commands: serve, init, reindex, reset-password, rotate-session-key,
 // transfer-ownership, archive-vault, clone-vault, rules lint,
-// vendor verify, version.
+// vendor verify, import-uvtt, version.
 //
 // Flags beat env beat defaults. Logging is JSON (slog); secret material
 // (passwords, keys) is never logged.
@@ -131,6 +131,8 @@ func run(args []string) error {
 		return runRulesCommand(vaultPath, rest[1:])
 	case "vendor":
 		return runVendorCommand(rest[1:])
+	case "import-uvtt":
+		return runImportUVTTCommand(vaultPath, rest[1:])
 	default:
 		usage()
 		return fmt.Errorf("unknown command %q", rest[0])
@@ -319,7 +321,7 @@ func usage() {
 usage: yonder [--vault DIR] [--data-dir DIR] [--addr ADDR] <command> [flags]
   serve | init --bare | reindex | reset-password | rotate-session-key |
   transfer-ownership | archive-vault | clone-vault | rules lint |
-  vendor (verify|sha256) | version`)
+  vendor (verify|sha256) | import-uvtt --map ID <file> | version`)
 }
 
 func splitPair(s string) (string, string) {

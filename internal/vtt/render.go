@@ -3,6 +3,7 @@ package vtt
 import (
 	"fmt"
 	"html"
+	"math"
 	"strings"
 
 	"github.com/semiplane/yonder/internal/auth"
@@ -40,6 +41,9 @@ func RenderFragment(in FragmentInput) string {
 	b.WriteString(renderInitiative(in))
 	b.WriteString(renderDiceTray(in))
 	b.WriteString(renderTokenList(in))
+	if in.IsGM && len(in.Snap.Doors) > 0 {
+		b.WriteString(renderDoors(in))
+	}
 	if in.IsGM {
 		b.WriteString(renderFogControls(in))
 	}
@@ -205,6 +209,27 @@ func renderTokenList(in FragmentInput) string {
 	return b.String()
 }
 
+// renderDoors renders the GM door panel (A-VTT2 D10): one row per sidecar
+// portal with its effective live state as TEXT (never color-only) and a
+// toggle button posting {op:"door"}. Players never see this section.
+func renderDoors(in FragmentInput) string {
+	var b strings.Builder
+	b.WriteString(`<section aria-label="Doors" data-doors><h2>Doors (GM)</h2>` + "\n")
+	b.WriteString(`<ol data-door-list aria-live="polite">` + "\n")
+	for _, d := range in.Snap.Doors {
+		col := int(math.Floor((d.A[0] + d.B[0]) / 2))
+		row := int(math.Floor((d.A[1] + d.B[1]) / 2))
+		state, action := "closed", "Open"
+		if !d.Closed {
+			state, action = "open", "Close"
+		}
+		fmt.Fprintf(&b, `<li data-door-row="%d" data-open="%t"><span>Door %d (column %d, row %d): </span><span data-door-state>%s</span> <button type="button" data-door-toggle="%d" data-open="%t" aria-pressed="%t">%s</button></li>`+"\n",
+			d.Idx, !d.Closed, d.Idx+1, col, row, state, d.Idx, !d.Closed, !d.Closed, action)
+	}
+	b.WriteString("</ol>\n</section>\n")
+	return b.String()
+}
+
 func renderFogControls(in FragmentInput) string {
 	var b strings.Builder
 	b.WriteString(`<section aria-label="Fog controls" data-fog-controls><h2>Fog (GM)</h2>` + "\n")
@@ -269,8 +294,60 @@ func RenderPage(in PageInput) string {
 	b.WriteString("</div>\n</main>\n")
 	fmt.Fprintf(&b, `<script data-vtt-client data-map-id="%s" data-cols="%d" data-rows="%d">`+"\n%s\n</script>\n",
 		html.EscapeString(in.MapID), g.Cols, g.Rows, clientJS())
+	// Pixi loader (amend A-VTT2, D8/D9): one module script, zero vendor bytes
+	// fetched unless ?renderer=pixi is present. The DOM board below stays the
+	// operable/a11y truth; the canvas is an enhancement that is aria-hidden on
+	// mount and dropped (never partially shown) on any failure.
+	fmt.Fprintf(&b, `<script type="module" data-pixi-loader data-map-id="%s" data-cols="%d" data-rows="%d" data-state-url="%s" data-stream-url="%s" data-vendor="/static/vendor/pixi.js" data-loader="/static/vtt/pixi-board.js">`+"\n%s\n</script>\n",
+		html.EscapeString(in.MapID), g.Cols, g.Rows,
+		html.EscapeString(in.StateURL), html.EscapeString(in.StreamURL), pixiLoaderJS())
 	b.WriteString("</body>\n</html>\n")
 	return b.String()
+}
+
+// pixiLoaderJS gates the Pixi canvas mount on ?renderer=pixi (D9: per-load
+// query param, no sticky preference). It fetches the same per-viewer-
+// filtered state snapshot the DOM path uses, imports the pinned vendor ESM
+// plus the first-party loader, and mounts. Every failure path leaves the
+// SSR'd DOM board untouched and announces through the existing polite live
+// region — the canvas never blank-replaces the operable board.
+func pixiLoaderJS() string {
+	return `(function () {
+"use strict";
+var el = document.querySelector("[data-pixi-loader]");
+if (!el) return;
+var d = el.dataset;
+var q = new URLSearchParams(location.search);
+if (q.get("renderer") !== "pixi") return; // DOM is the default path: no vendor bytes fetched
+var board = document.querySelector("[data-board]");
+var status = document.querySelector("[data-sse-state]");
+var reduceMotion = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+function say(msg) { if (status) status.textContent = msg; }
+if (!board) return;
+fetch(d.stateUrl, {headers: {"Accept": "application/json"}}).then(function (r) {
+  if (!r.ok) throw new Error("state " + r.status);
+  return r.json();
+}).then(function (snap) {
+  return Promise.all([import(d.vendor), import(d.loader)]).then(function (mods) {
+    return mods[1].bootPixi(mods[0], board, {
+      reduceMotion: reduceMotion, snapshot: snap,
+      cols: parseInt(d.cols, 10), rows: parseInt(d.rows, 10),
+      stateURL: d.stateUrl, streamURL: d.streamUrl,
+    });
+  });
+}).then(function (view) {
+  if (!view) throw new Error("pixi boot declined");
+  // Hide (never remove) the DOM board: it stays the operable/a11y truth.
+  board.setAttribute("aria-hidden", "true");
+  document.documentElement.classList.add("pixi-on");
+  say("Canvas board active. Keyboard controls remain available.");
+}).catch(function () {
+  // No WebGL/Canvas, import failed, asset load failed, or boot threw:
+  // stay on the shipped DOM renderer, announced via the status line.
+  document.documentElement.classList.remove("pixi-on");
+  say("Canvas unavailable, DOM board kept.");
+});
+})();`
 }
 
 func displayTitle(title, mapID string) string {
@@ -506,7 +583,32 @@ function bindForms() {
         .catch(function () { say(statusEl, "Initiative change failed."); });
     });
   }
+  bindDoors();
   void rf; void mf;
+}
+// --- door toggles (A-VTT2: GM-only; optimistic text + fog-update refetch) ---
+function bindDoors() {
+  root.querySelectorAll("[data-door-toggle]").forEach(function (btn) {
+    if (btn.__bound) return;
+    btn.__bound = true;
+    btn.addEventListener("click", function () {
+      var idx = parseInt(btn.getAttribute("data-door-toggle"), 10);
+      var open = btn.getAttribute("data-open") !== "true";
+      fetch(stateURL, {method: "POST", headers: headers(), body: JSON.stringify({op: "door", idx: idx, open: open})})
+        .then(function (r) {
+          if (!r.ok) { say(statusEl, "Door change rejected."); return; }
+          var row = root.querySelector('[data-door-row="' + idx + '"]');
+          var st = row ? row.querySelector("[data-door-state]") : null;
+          if (st) st.textContent = open ? "open" : "closed";
+          if (row) row.setAttribute("data-open", open ? "true" : "false");
+          btn.setAttribute("data-open", open ? "true" : "false");
+          btn.setAttribute("aria-pressed", open ? "true" : "false");
+          btn.textContent = open ? "Close" : "Open";
+          say(statusEl, "Door " + (idx + 1) + (open ? " opened." : " closed."));
+        })
+        .catch(function () { say(statusEl, "Door change failed."); });
+    });
+  });
 }
 // --- SSE: hello resyncs, board events refetch, dice appends, flips reload ---
 function connect() {

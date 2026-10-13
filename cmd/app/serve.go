@@ -23,7 +23,7 @@ import (
 	"github.com/semiplane/yonder/internal/web"
 )
 
-//go:embed static/print.css static/core static/vendor static/themes
+//go:embed static/print.css static/core static/vendor static/themes static/vtt
 var staticFS embed.FS
 
 // Ops HTTP surface owned by Lane E1 (P09): /healthz + /version expose the
@@ -111,10 +111,12 @@ func versionHandler(info buildInfo) http.HandlerFunc {
 // Cache directives for embedded public assets (runbook §5). Core CSS and
 // theme stylesheets are unversioned, so they get the same day-long public
 // cache as print.css. Vendor JS is version-pinned (web/static/vendor/VERSIONS,
-// `yonder vendor verify`), so it is immutable for a year.
+// `yonder vendor verify`), so it is immutable for a year. The first-party
+// VTT loader (web/static/vtt/) is unversioned like core: day-long public.
 const (
 	staticCoreCache   = "public, max-age=86400"
 	staticVendorCache = "public, max-age=31536000, immutable"
+	staticVTTCache    = "public, max-age=86400"
 )
 
 // staticDirHandler serves one embedded public-asset subtree (static/core,
@@ -316,7 +318,10 @@ func wireHandlers(info buildInfo, vaultDir, dataDir string, sessionStore auth.Se
 	// BEFORE F1/F2 (first-wins registry rule, same G3 precedent as I1's /me):
 	// GET /vtt/{mapID} retires F1's placeholder and POST /vtt/{mapID}/state
 	// retires F2's stub deliberately. No dashboard code is registered here.
-	vttH := vtt.Handlers{Store: st, Sessions: sessionStore, Theme: theme, Scheme: scheme}
+	// A-VTT2: the Vault + reindex seams let POST /vtt/{mapID}/import write
+	// map art + sidecar calibration and refresh the index, same pattern as
+	// WriteHandlers.
+	vttH := vtt.Handlers{Store: st, Sessions: sessionStore, Vault: v, OnAfterWrite: reindexAndRefresh, Theme: theme, Scheme: scheme}
 	vttH.RegisterRoutes(reg)
 	readH.RegisterRoutes(reg)
 	writeH.RegisterRoutes(reg)
@@ -332,6 +337,7 @@ func wireHandlers(info buildInfo, vaultDir, dataDir string, sessionStore auth.Se
 	opsMux.Handle("/static/core/", staticDirHandler("/static/core/", "static/core", staticCoreCache))
 	opsMux.Handle("/static/vendor/", staticDirHandler("/static/vendor/", "static/vendor", staticVendorCache))
 	opsMux.Handle("/static/themes/", staticDirHandler("/static/themes/", "static/themes", staticCoreCache))
+	opsMux.Handle("/static/vtt/", staticDirHandler("/static/vtt/", "static/vtt", staticVTTCache))
 
 	// Install ops handlers for paths NOT owned by the registry.
 	regRoutes := reg.Routes()
@@ -386,16 +392,16 @@ func wireHandlers(info buildInfo, vaultDir, dataDir string, sessionStore auth.Se
 }
 
 // isPublicStatic reports the embedded public-asset paths served by the ops
-// mux: the print stylesheet plus the core/vendor/themes subtrees (W3). The
-// registry never registers these, but its "/" catch-all prefix-matches
-// everything in ownedByRegistry — so the outer mux consults this FIRST and
-// unknown paths (e.g. /bogus) keep flowing to the registry's styled 404
-// untouched.
+// mux: the print stylesheet plus the core/vendor/themes/vtt subtrees (W3 +
+// A-VTT2). The registry never registers these, but its "/" catch-all
+// prefix-matches everything in ownedByRegistry — so the outer mux consults
+// this FIRST and unknown paths (e.g. /bogus) keep flowing to the registry's
+// styled 404 untouched.
 func isPublicStatic(path string) bool {
 	if path == "/static/print.css" {
 		return true
 	}
-	for _, prefix := range []string{"/static/core/", "/static/vendor/", "/static/themes/"} {
+	for _, prefix := range []string{"/static/core/", "/static/vendor/", "/static/themes/", "/static/vtt/"} {
 		if path == strings.TrimSuffix(prefix, "/") || strings.HasPrefix(path, prefix) {
 			return true
 		}

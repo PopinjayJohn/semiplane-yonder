@@ -61,6 +61,8 @@ var w3StaticPairs = []struct{ src, embedded string }{
 	{"web/static/core/app.css", "static/core/app.css"},
 	{"web/static/vendor/codemirror.js", "static/vendor/codemirror.js"},
 	{"web/static/vendor/datastar.js", "static/vendor/datastar.js"},
+	{"web/static/vendor/pixi.js", "static/vendor/pixi.js"},
+	{"web/static/vtt/pixi-board.js", "static/vtt/pixi-board.js"},
 	{"web/static/themes/grimoire.css", "static/themes/grimoire.css"},
 	{"web/static/themes/cartographer.css", "static/themes/cartographer.css"},
 	{"web/static/themes/preview-grimoire.html", "static/themes/preview-grimoire.html"},
@@ -89,6 +91,7 @@ func TestW3StaticServing(t *testing.T) {
 	core := staticDirHandler("/static/core/", "static/core", staticCoreCache)
 	vendor := staticDirHandler("/static/vendor/", "static/vendor", staticVendorCache)
 	themes := staticDirHandler("/static/themes/", "static/themes", staticCoreCache)
+	vttLoader := staticDirHandler("/static/vtt/", "static/vtt", staticVTTCache)
 
 	get := func(h http.Handler, method, target string) *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
@@ -129,6 +132,22 @@ func TestW3StaticServing(t *testing.T) {
 		if rec.Header().Get("X-Content-Type-Options") != "nosniff" {
 			t.Errorf("%s missing X-Content-Type-Options: nosniff", target)
 		}
+	}
+
+	// First-party VTT loader (A-VTT2): JS type, day-long public cache, and
+	// the dynamic import target the page's module script names.
+	rec = get(vttLoader, http.MethodGet, "/static/vtt/pixi-board.js")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/static/vtt/pixi-board.js = %d, want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "javascript") {
+		t.Errorf("vtt content-type = %q, want javascript", ct)
+	}
+	if cc := rec.Header().Get("Cache-Control"); cc != staticVTTCache {
+		t.Errorf("vtt Cache-Control = %q, want %q", cc, staticVTTCache)
+	}
+	if !strings.Contains(rec.Body.String(), "bootPixi") {
+		t.Error("pixi-board.js body missing bootPixi export")
 	}
 
 	// Vendor bundles: JS type, immutable year-long cache.
@@ -194,8 +213,12 @@ func TestW3StaticServing(t *testing.T) {
 		{themes, http.MethodGet, "/static/themes/", http.StatusNotFound},
 		{themes, http.MethodGet, "/static/themes/nope.css", http.StatusNotFound},
 		{themes, http.MethodGet, "/static/themes/../app.css", http.StatusNotFound},
+		{vttLoader, http.MethodGet, "/static/vtt/", http.StatusNotFound},
+		{vttLoader, http.MethodGet, "/static/vtt/nope.js", http.StatusNotFound},
+		{vttLoader, http.MethodGet, "/static/vtt/../../go.mod", http.StatusNotFound},
 		{core, http.MethodPost, "/static/core/sheet.css", http.StatusMethodNotAllowed},
 		{vendor, http.MethodPost, "/static/vendor/codemirror.js", http.StatusMethodNotAllowed},
+		{vttLoader, http.MethodPost, "/static/vtt/pixi-board.js", http.StatusMethodNotAllowed},
 		{themes, http.MethodPost, "/static/themes/grimoire.css", http.StatusMethodNotAllowed},
 	} {
 		if rec := get(tc.h, tc.method, tc.target); rec.Code != tc.want {
@@ -214,6 +237,9 @@ func TestW3IsPublicStatic(t *testing.T) {
 		"/static/core/sheet.css",
 		"/static/vendor", "/static/vendor/",
 		"/static/vendor/codemirror.js", "/static/vendor/datastar.js",
+		"/static/vendor/pixi.js",
+		"/static/vtt", "/static/vtt/",
+		"/static/vtt/pixi-board.js",
 		"/static/themes", "/static/themes/",
 		"/static/themes/grimoire.css", "/static/themes/cartographer.css",
 	} {
@@ -224,7 +250,7 @@ func TestW3IsPublicStatic(t *testing.T) {
 	for _, p := range []string{
 		"/", "/healthz", "/version", "/p/welcome.md", "/assets/x.png",
 		"/bogus", "/static/other.css", "/static/core-evil/sheet.css",
-		"/static/themes-evil/grimoire.css",
+		"/static/themes-evil/grimoire.css", "/static/vtt-evil/pixi-board.js",
 	} {
 		if isPublicStatic(p) {
 			t.Errorf("isPublicStatic(%q) = true, want false", p)
@@ -266,6 +292,8 @@ func TestW3StaticOverHTTP(t *testing.T) {
 		"/static/themes/cartographer.css": {"text/css", staticCoreCache},
 		"/static/vendor/codemirror.js":    {"javascript", staticVendorCache},
 		"/static/vendor/datastar.js":      {"javascript", staticVendorCache},
+		"/static/vendor/pixi.js":          {"javascript", staticVendorCache},
+		"/static/vtt/pixi-board.js":       {"javascript", staticVTTCache},
 		"/static/print.css":               {"text/css", "public, max-age=86400"},
 	} {
 		resp, err := http.Get(srv.URL + target)

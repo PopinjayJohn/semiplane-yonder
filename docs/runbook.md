@@ -115,6 +115,7 @@ than one command.
 | Offline copy | `yonder clone-vault --vault SRC --dest DST` (dest must be empty) |
 | Validate rules packs | `yonder rules lint [--vault DIR] [dir]` (errors fail; non-SRD warnings don't) |
 | Verify vendored JS pins | `yonder vendor verify [--fetch]` |
+| Import a Universal VTT map (A-VTT2) | `yonder import-uvtt --vault DIR --map ID [--background FILE] [--grid-baked] <file.uvtt\|dd2vtt\|df2vtt>` (GM-only surface; writes the image to `assets/maps/<ID>.<ext>` and merges `vtt-map` calibration into `maps/<ID>.md`; run `reindex` afterwards when serving is not running). The same import over HTTP is `POST /vtt/{mapID}/import` (12MB cap → 413). |
 
 **Restore:** fresh `init --bare` + unzip a vault zip over the empty vault +
 `reindex` = identical vault + index (proven by
@@ -148,8 +149,14 @@ zip (.zip)" (`GET /dashboard/vault.zip`, GM-only + logged, same
   `docs/plan/themes.md`).
 - Vendored JS (`/static/vendor/…`, pinned by `web/static/vendor/VERSIONS`,
   `yonder vendor verify`): `public, max-age=31536000, immutable`,
-  `X-Content-Type-Options: nosniff`.
-- All four mounts serve embedded public files only — vault bytes never
+  `X-Content-Type-Options: nosniff`. The pixi.js v8 ESM pin (A-VTT2) is
+  fetched only by the VTT page's lazy loader (`?renderer=pixi`), never by a
+  render-blocking tag.
+- First-party VTT loader (`/static/vtt/pixi-board.js`, A-VTT2): `public,
+  max-age=86400`, `X-Content-Type-Options: nosniff`. Unversioned like core;
+  the page's inline module script `import()`s it (and the pinned vendor file)
+  only when `?renderer=pixi` is present.
+- All five mounts serve embedded public files only — vault bytes never
   appear here (vault assets stay on the ACL-checked `/assets` handler);
   directory roots and traversal escapes 404.
 - SSE, `/healthz`, `/version`: `no-store`.
