@@ -25,7 +25,7 @@ DOM-only board (`internal/vtt/render.go:clientJS()`): `<img /assets/...>` backgr
 
 Top-level fields: `format`, `resolution{map_origin, map_size, pixels_per_grid}`, `line_of_sight`, `objects_line_of_sight`, `portals[{position, bounds[2], closed}]`, `environment{baked_lighting, ambient_light}`, `lights[{position, range, color, intensity, shadows}]`, `image` (raw base64, no `data:` prefix). Units = grid squares (float), top-left origin, +y down. Pixels = `(coord - map_origin) * ppg`. No tokens/notes in spec.
 
-Mapping: `map_size → grid.cols/rows` (reject >64 with 422 for now); `ppg → grid.cell` (clamp 16–256, keep source `ppg` as info); `line_of_sight → walls` (sight+movement); `objects_ → blocking-objects` (movement-only, Roll20 convention); `portals[].bounds → portals` (`closed=true` door, `false` window; ignore `rotation`); `lights/environment → lights/ambient`; `image` magic-sniffed (`PNG`/`RIFF`/`FFD8`) and written to `assets/maps/<id>.<png|webp|jpg>` bundle dir.
+Mapping: `map_size → grid.cols/rows` (1..128 — raised for 96x72-class maps); `ppg → grid.cell` (clamp 16–256, keep source `ppg` as info); `grid-baked` overlay flag (false = render grid for nogrid art, true = skip overlay for grid-baked art); `line_of_sight → walls` (sight+movement); `objects_ → blocking-objects` (movement-only, Roll20 convention); `portals[].bounds → portals` (`closed=true` door, `false` window; ignore `rotation`); `lights/environment → lights/ambient`; `image` magic-sniffed (`PNG`/`RIFF`/`FFD8`) and written to `assets/maps/<id>.<png|webp|jpg>` bundle dir.
 
 Caps problem: typical exports 5–50MB break `MaxImageBytes=5MiB` / HTTP 12MB body. This plan: CLI `import-uvtt` uncapped for large files; HTTP `POST /vtt/{id}/import` capped at 12MB with clean 413. Raising the HTTP cap needs a later amend + DoS review.
 
@@ -54,12 +54,13 @@ HP bars + text labels, turn highlight (`aria-live assertive`), spawn tween gated
 Order: P0 → P1 → P-UVTT → P2 → P3 → P4.
 
 Decided 2026-10-12 (detail in `amend-vtt2-pixi-uvtt.md` §§8–9):
-1. HTTP import cap: CLI uncapped, HTTP 12MB → 413 (raise deferred to R1).
-2. Grid >64: reject 422 now; downscale `effectivePpg` deferred to P3 (R2).
+1. HTTP import cap: CLI uncapped, HTTP 12MB → 413 (raise deferred to R1). NOTE 2026-10-13: Tomb `.dd2vtt` is 4.2MB — fits HTTP; embedded webp 9600x7200 decodes under the 96MiB decoded cap.
+2. Grid cap: raised 64→128 (admits the 96x72 Tomb map; verified). Downscale `effectivePpg` still deferred to P3 for anything larger.
 3. `objects_line_of_sight`: movement-only.
-4. Light `range`: spike behavior (pixels ÷ ppg) until verified vs a real export — must verify before amend merges.
-5. VP8X: best-effort + verify vs real export before merge.
+4. Light `range`: spike behavior (pixels ÷ ppg) still UNVERIFIED — Tomb export carries 0 lights. Must verify against a lit export before the amend merges.
+5. VP8X: best-effort + verify vs real export before merge. (Tomb embedded image is plain VP8 9600x7200 — parses; only the 64-cap blocked it.)
 6. OOB lights: drop now (glow deferred to R3).
 7. Pixi pin: newest 8.x at P0 via vendor flow, then freeze.
 8. Loader: `web/static/vtt/pixi-board.js`, `?renderer=` per load only.
 9. Doors: GM-only toggle first (owner-movable deferred to R4).
+10. Grid overlay (new 2026-10-13): `grid-baked:false` = render overlay (nogrid art, incl. dd2vtt embedded image); `true` = skip overlay (grid-baked art). Importer `--grid-baked` flag / `grid_baked` field; external `*-grid-*` / `*-nogrid-*` art swappable by hand.

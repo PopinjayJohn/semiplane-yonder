@@ -13,7 +13,8 @@ No new top-level key (`AllowedKeys` untouched). Inside `vtt-map` (`internal/vtt/
 ```yaml
 vtt-map:
   background: assets/maps/ford.png   # unchanged, set by import
-  grid: {cols, rows, cell}            # unchanged; cell := pixels_per_grid clamped 16..256
+  grid: {cols, rows, cell}            # cols/rows 1..128 (raised for 96x72-class maps); cell := pixels_per_grid clamped 16..256
+  grid-baked: false                  # true = art has its own grid, renderer skips overlay; false = render overlay
   ppg: 128                           # source pixels-per-grid (info only)
   ambient: "ffffff"                  # RRGGBB, lenient parse
   baked-lighting: false              # warning hint only
@@ -43,7 +44,8 @@ Ambient string      `json:"ambient,omitempty"`
 - `POST /vtt/{mapID}/import`: GM-only, login + `CanViewMap`, double-submit CSRF, `preview_as` 403. Body `.uvtt/.dd2vtt/.df2vtt` JSON (`application/json`), 12MB cap → 413 over. Larger files via CLI.
 - `import-uvtt --vault <dir> --map <id> <file>`: same parser, no HTTP cap.
 - Accept all three extensions interchangeably, sniff JSON. `image`: chunked base64 decode, magic-sniff, `uploads.Process` + `Vault.WriteFileBytes` to `assets/maps/<id>.<png|webp|jpg>` (bundle dir, inherits sidecar ACL). Never serve `.uvtt` bytes via `/assets`.
-- Mapping per `vtt-pixi-uvtt.md` §2. `map_size` >64 or image >32MP → 422 with reason (no silent downscale).
+- Mapping per `vtt-pixi-uvtt.md` §2. `map_size` >128 or image dims >128MP → 422 with reason (no silent downscale). Grid cap raised 64→128 to admit 96x72-class maps (Tomb verification 2026-10-13: 96x72 @100ppg, 105 LOS polylines, 24 objects, 19 closed portals, 0 lights, `baked_lighting:true`).
+- Background selection: importer writes the embedded `image` by default (Dungeondraft bakes nogrid into it — overlay rendered since `grid-baked:false`). A GM may replace `background` with external grid-baked art (e.g. `*-grid-*` files) and hand-set `grid-baked:true`; cols/rows must equal the baked squares or the overlay/table misaligns — hand-swapped art is GM's responsibility. Import takes `--background <file> --grid-baked/--no-grid-baked` (CLI) / `grid_baked` field (HTTP) to do both in one step.
 - After sidecar write: `ResetToSidecar` + `SetFog(all-hidden)` + `Publish(fog-update)`.
 - New app-DB table `vtt_doors(map, idx, open)` via migrated stream (`user_version`), ephemeral like `vtt_fog`, fail-closed closed on loss. Never write `vtt_maps.calibration` directly (legacy column).
 
@@ -66,7 +68,9 @@ Ambient string      `json:"ambient,omitempty"`
 ## 8. Decisions (accepted 2026-10-12, implement as specified)
 
 - D1 HTTP cap: CLI `import-uvtt` uncapped; HTTP `POST /vtt/{mapID}/import` capped 12MB → 413. (§4)
-- D2 Grid >64: reject 422 with reason now; downscale `effectivePpg` deferred to P3. (§4)
+- D2 Grid cap: raised 64→128 (admits 96x72-class maps; verified against Tomb export). Image dims cap raised 32MP→128MP for the dims-only check (webp stored as-is, never fully decoded at import); png/jpeg write path still guarded by `uploads.Normalize` 32MP — over-cap png/jpeg must be converted to webp externally first (follow-up note for the implementer, not a new cap).
+- D3 `objects_line_of_sight`: movement-only (Roll20 convention); `Objects` reuses `WallSeg`. (§2)
+- D12 Grid overlay: new `grid-baked` sub-key, default false. `false` = renderer draws the grid (DOM now, Pixi P1); `true` = art carries its own grid, renderer skips overlay lines (tokens/fog/pings still render). Importer sets it via `--grid-baked` flag / `grid_baked` field; hand-edits allowed (Obsidian-safe, field-by-field fallback).
 - D3 `objects_line_of_sight`: movement-only (Roll20 convention); `Objects` reuses `WallSeg`. (§2)
 - D4 Light `range`: keep spike (pixels ÷ ppg → squares) until verified against one real Dungeondraft/Foundry export; verification required before this amend merges, then pin the interpretation here.
 - D5 WebP VP8X dims: best-effort parse + verify against a real extended-WebP export before merge.
