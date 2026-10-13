@@ -59,7 +59,15 @@ func renderBoard(in FragmentInput) string {
 	if title == "" {
 		title = in.MapID
 	}
-	fmt.Fprintf(&b, `<section aria-label="Battle map: %s" data-board>`+"\n", html.EscapeString(title))
+	fmt.Fprintf(&b, `<section aria-label="Battle map: %s" data-board`, html.EscapeString(title))
+	if in.Cal.Background == "" {
+		// Link-only map (imported calibration, art not on disk yet): give the
+		// board its grid's intrinsic aspect ratio (with a floor for extreme
+		// grids) so the overlay grid, tokens, and fog still have a board area;
+		// dropping art in later fills the same box.
+		fmt.Fprintf(&b, ` style="aspect-ratio:%d / %d;min-height:240px"`, g.Cols, g.Rows)
+	}
+	b.WriteString(">" + "\n")
 	// Background through the ACL-checked asset handler (bytes never served
 	// here; unauthorized viewers 404 at /assets, fail closed). The sidecar
 	// value is vault-relative (amend A-VTT2: assets/maps/<mapID>.<ext>) and
@@ -79,7 +87,11 @@ func renderBoard(in FragmentInput) string {
 	}
 	// Fog overlay + text equivalent.
 	b.WriteString(renderFog(in))
-	// Tokens as real buttons (keyboard-reachable, 44px, text labels).
+	// Tokens as real buttons (keyboard-reachable, 44px, text labels). The
+	// button carries NO DOM text: its face (initial + HP) is CSS-generated
+	// (--face/--hp), so WCAG 2.5.3's visible-text check has nothing to
+	// mismatch against the full-text aria-label, and the sheet link / hidden
+	// tag are SIBLINGS (a link inside a button is invalid HTML).
 	fmt.Fprintf(&b, `<div data-tokens role="group" aria-label="Tokens on %s">`+"\n", html.EscapeString(title))
 	for _, t := range in.Snap.Tokens {
 		left := (float64(t.X) + 0.5) * 100 / float64(g.Cols)
@@ -88,21 +100,32 @@ func renderBoard(in FragmentInput) string {
 		if t.Hidden {
 			label += ", hidden from party"
 		}
-		initial := strings.ToUpper(string(runeOf(t.Name)))
-		link := ""
-		if page, ok := in.CharLinks[t.ID]; ok && page != "" {
-			link = fmt.Sprintf(` <a href="/p/%s%s" data-char-link>sheet</a>`, html.EscapeString(page), html.EscapeString(in.AsQuery))
-		}
-		hiddenTag := ""
+		face := strings.ToUpper(string(runeOf(t.Name)))
+		hp := fmt.Sprintf("%d/%d", t.HP, t.MaxHP)
+		fmt.Fprintf(&b, `<span data-token-wrap style="left:%.2f%%;top:%.2f%%">`, left, top)
+		fmt.Fprintf(&b, `<button type="button" data-token="%s" data-x="%d" data-y="%d" data-name="%s" aria-label="%s" aria-pressed="false" style="--face:%s;--hp:%s"></button>`,
+			html.EscapeString(t.ID), t.X, t.Y, html.EscapeString(t.Name),
+			html.EscapeString(label), cssContent(face), cssContent(hp))
 		if t.Hidden {
-			hiddenTag = ` <span data-tag>hidden</span>`
+			b.WriteString(`<span data-tag>hidden</span>`)
 		}
-		fmt.Fprintf(&b, `<button type="button" data-token="%s" data-x="%d" data-y="%d" data-name="%s" style="left:%.2f%%;top:%.2f%%" aria-label="%s" aria-pressed="false"><span aria-hidden="true">%s</span><span data-hp>%d/%d</span>%s</button>%s`+"\n",
-			html.EscapeString(t.ID), t.X, t.Y, html.EscapeString(t.Name), left, top,
-			html.EscapeString(label), html.EscapeString(initial), t.HP, t.MaxHP, hiddenTag, link)
+		if page, ok := in.CharLinks[t.ID]; ok && page != "" {
+			fmt.Fprintf(&b, `<a href="/p/%s%s" data-char-link>sheet</a>`, html.EscapeString(page), html.EscapeString(in.AsQuery))
+		}
+		b.WriteString("</span>\n")
 	}
 	b.WriteString("</div>\n</section>\n")
 	return b.String()
+}
+
+// cssContent renders a CSS custom-property value (single-quoted, quotes
+// stripped) for the token face / HP pseudo-content.
+func cssContent(s string) string {
+	s = strings.ReplaceAll(s, "'", "")
+	if s == "" {
+		return `""`
+	}
+	return "'" + s + "'"
 }
 
 func runeOf(s string) rune {
@@ -332,7 +355,11 @@ fetch(d.stateUrl, {headers: {"Accept": "application/json"}}).then(function (r) {
   return r.json();
 }).then(function (snap) {
   return Promise.all([import(d.vendor), import(d.loader)]).then(function (mods) {
-    return mods[1].bootPixi(mods[0], board, {
+    // Re-resolve the board at call time: the SSE hello resync may have
+    // morphed the fragment (replacing this element) while the bundles loaded.
+    var live = document.querySelector("[data-board]");
+    if (!live) throw new Error("board element gone");
+    return mods[1].bootPixi(mods[0], live, {
       reduceMotion: reduceMotion, snapshot: snap,
       cols: parseInt(d.cols, 10), rows: parseInt(d.rows, 10),
       stateURL: d.stateUrl, streamURL: d.streamUrl,
@@ -340,8 +367,10 @@ fetch(d.stateUrl, {headers: {"Accept": "application/json"}}).then(function (r) {
   });
 }).then(function (view) {
   if (!view) throw new Error("pixi boot declined");
-  // Hide (never remove) the DOM board: it stays the operable/a11y truth.
-  board.setAttribute("aria-hidden", "true");
+  // The canvas is a decorative overlay: it is aria-hidden (pixi-board.js)
+  // and pointer-transparent (CSS), so the DOM board underneath stays the
+  // operable, keyboard-reachable truth — hiding it would take the token
+  // buttons out of the a11y tree while they remain the only write path.
   document.documentElement.classList.add("pixi-on");
   say("Canvas board active. Keyboard controls remain available.");
 }).catch(function () {
@@ -369,9 +398,19 @@ a[href="#vtt-map"]:focus{position:static}
 button,input[type=submit]{min-width:44px;min-height:44px}
 [data-board]{position:relative;border:2px solid currentColor;max-width:100%}
 [data-board-image] img{display:block;width:100%;height:auto}
+/* Pixi parity canvas (A-VTT2): a DECORATIVE overlay of the same state —
+   aria-hidden in pixi-board.js and pointer-transparent, so the DOM board
+   underneath stays the operable, keyboard-reachable, screen-reader truth
+   (spec §6). The canvas never intercepts clicks or focus. */
+[data-pixi-canvas]{position:absolute;inset:0;width:100%;height:100%;z-index:5;pointer-events:none}
 [data-grid]{position:absolute;inset:0;pointer-events:none;opacity:.3;background-image:linear-gradient(to right,currentColor 1px,transparent 1px),linear-gradient(to bottom,currentColor 1px,transparent 1px)}
 [data-tokens]{position:absolute;inset:0}
-[data-token]{position:absolute;transform:translate(-50%,-50%);min-width:44px;min-height:44px;border-radius:50%;border:2px solid currentColor;background:ButtonFace;font-weight:bold}
+[data-token-wrap]{position:absolute;transform:translate(-50%,-50%);display:flex;align-items:center;gap:.25em}
+[data-token]{display:flex;align-items:center;justify-content:center;gap:.15em;min-width:44px;min-height:44px;border-radius:50%;border:2px solid currentColor;background:ButtonFace;font-weight:bold}
+/* Token face is CSS-generated (never DOM text): the aria-label is the full
+   text equivalent, so WCAG 2.5.3 has no visible text to mismatch. */
+[data-token]::before{content:var(--face,"?")}
+[data-token]::after{content:var(--hp,"")}
 [data-token][aria-pressed=true]{outline:3px solid currentColor}
 [data-fog]{position:absolute;inset:0;pointer-events:none}
 [data-fog-rect]{position:absolute;background:rgba(0,0,0,.72);border:1px dashed #fff}
@@ -413,8 +452,21 @@ var pendingMorph = null;
 function applyMorph(html) {
   if (focusedInside()) { pendingMorph = html; return; }
   root.innerHTML = html;
+  reattachPixi();
   rebind();
   pendingMorph = null;
+}
+// The pixi canvas lives inside [data-board] (inside the fragment), so an SSE
+// morph would drop it. When a pixi view is live, re-attach the SAME canvas
+// node (WebGL context intact) to the new board. The board is NOT aria-hidden:
+// the canvas is a decorative overlay (aria-hidden + pointer-events:none) and
+// the DOM stays the operable truth.
+function reattachPixi() {
+  var pv = window.__pixiView;
+  if (!pv || !pv.canvasEl) return;
+  var nb = root.querySelector("[data-board]");
+  if (!nb) return;
+  if (pv.canvasEl.parentNode !== nb) nb.appendChild(pv.canvasEl);
 }
 document.addEventListener("focusout", function () {
   if (pendingMorph !== null && !focusedInside()) { var h = pendingMorph; pendingMorph = null; applyMorph(h); }
@@ -471,7 +523,9 @@ function rebind() {
   });
   var board = root.querySelector("[data-board]");
   if (board) board.addEventListener("click", function (ev) {
-    if (ev.target.closest("[data-token]") || !selected) return;
+    // Token buttons and their sibling sheet links own their clicks; only a
+    // bare board click moves the selected token.
+    if (ev.target.closest("[data-token]") || ev.target.closest("a") || !selected) return;
     var rect = board.getBoundingClientRect();
     var x = Math.floor((ev.clientX - rect.left) / rect.width * COLS);
     var y = Math.floor((ev.clientY - rect.top) / rect.height * ROWS);

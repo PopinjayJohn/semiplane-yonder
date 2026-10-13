@@ -149,6 +149,19 @@ func TestW3StaticServing(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "bootPixi") {
 		t.Error("pixi-board.js body missing bootPixi export")
 	}
+	// Decorative-canvas contract (A-VTT2): the canvas is aria-hidden and
+	// pointer-transparent; the DOM board underneath stays operable. Re-attach
+	// seam for SSE morphs: the loader publishes the live view at page scope.
+	loader := rec.Body.String()
+	for _, want := range []string{
+		`app.canvas.setAttribute("aria-hidden", "true")`,
+		`window.__pixiView = view`,
+		`view.canvasEl = app.canvas`,
+	} {
+		if !strings.Contains(loader, want) {
+			t.Errorf("pixi-board.js missing %q", want)
+		}
+	}
 
 	// Vendor bundles: JS type, immutable year-long cache.
 	for _, target := range []string{"/static/vendor/codemirror.js", "/static/vendor/datastar.js"} {

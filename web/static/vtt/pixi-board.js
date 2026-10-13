@@ -18,7 +18,13 @@
 //     build throw) leaves the shipped DOM board exactly as SSR'd.
 //   - prefers-reduced-motion: no Ticker loop, no tweens — render on state
 //     change only (same as the DOM morph beat).
+// pixi-board.js is a single-mount loader per page, so the vendored namespace
+// is bound once here (bootPixi's parameter) and the scene helpers below read
+// it from module scope.
+let PIXI_LIB = null;
+
 export async function bootPixi(PIXI, board, opts) {
+  PIXI_LIB = PIXI;
   const o = opts || {};
   const reduceMotion = !!o.reduceMotion;
   const cols = o.cols, rows = o.rows;
@@ -84,8 +90,8 @@ export async function bootPixi(PIXI, board, opts) {
     view.render = function (snap) { renderSnapshot(view, snap); };
     if (o.snapshot) renderSnapshot(view, o.snapshot);
   } catch (e) {
+    const cv = app.canvas || app.view; // BEFORE destroy: canvas is a getter over renderer.canvas
     try { app.destroy(true); } catch (_) {}
-    const cv = app.canvas || app.view;
     if (cv && cv.parentNode) cv.parentNode.removeChild(cv);
     return false;
   }
@@ -94,6 +100,12 @@ export async function bootPixi(PIXI, board, opts) {
   board.appendChild(app.canvas);
   app.canvas.setAttribute("data-pixi-canvas", "");
   app.canvas.setAttribute("aria-hidden", "true");
+  // The DOM client's SSE morph rewrites #vtt-map's innerHTML on every board
+  // event, which would drop this canvas with it: publish the live view at
+  // page scope so applyMorph can re-attach the SAME canvas node (the WebGL
+  // context survives) and re-hide the DOM board.
+  view.canvasEl = app.canvas;
+  if (typeof window !== "undefined") window.__pixiView = view;
 
   // Private SSE subscription: same event names as clientJS(); every board
   // event refetches the (already per-viewer filtered) snapshot and repaints.
@@ -115,6 +127,7 @@ export async function bootPixi(PIXI, board, opts) {
   }
   view.destroy = function () {
     if (view.stop) view.stop();
+    if (typeof window !== "undefined" && window.__pixiView === view) window.__pixiView = null;
     try { app.destroy(true); } catch (e) {}
   };
   return view;
@@ -143,8 +156,10 @@ function drawGrid(g, w, h, cols, rows) {
 }
 
 // Fog: v1 rect codec ("v1;<cols>x<rows>;x,y,w,h;..."), the same opaque Shape
-// the snapshot carries. Corrupt/missing -> full cover (fail-closed, mirrors
-// ResolveFog). Rect fills use the DOM's rgba(0,0,0,.72).
+// the snapshot carries. Missing/hidden/corrupt -> full cover (fail-closed,
+// mirrors ResolveFog). A revealed board carries ZERO rects: nothing is drawn
+// (an empty rect list means no hidden areas, not an unreadable mask — filling
+// the board there would black out a revealed map).
 function drawFog(view, fog) {
   const g = view.fog;
   g.clear();
@@ -159,7 +174,6 @@ function drawFog(view, fog) {
     g.rect(0, 0, s.w, s.h).fill({ color: 0x000000, alpha: 0.85 });
     return;
   }
-  let drew = false;
   for (let i = 2; i < parts.length; i++) {
     const n = parts[i].split(",");
     if (n.length !== 4) continue;
@@ -167,10 +181,6 @@ function drawFog(view, fog) {
     if (!isFinite(x) || !isFinite(y) || w <= 0 || h <= 0) continue;
     const a = px(view, x, y), b = px(view, x + w, y + h);
     g.rect(a.x, a.y, b.x - a.x, b.y - a.y).fill({ color: 0x000000, alpha: 0.72 });
-    drew = true;
-  }
-  if (!drew) {
-    g.rect(0, 0, s.w, s.h).fill({ color: 0x000000, alpha: 0.72 });
   }
 }
 
@@ -227,12 +237,12 @@ function drawTokens(view, tokens) {
   const rad = Math.max(8, Math.min(s.w / view.cols, s.h / view.rows) * 0.4);
   (tokens || []).forEach(function (t) {
     const c = px(view, t.x + 0.5, t.y + 0.5);
-    const g = new PIXI.Graphics();
+    const g = new PIXI_LIB.Graphics();
     g.circle(0, 0, rad).fill({ color: 0xf5f5f5, alpha: 0.95 }).stroke({ width: 2, color: 0x222222 });
     g.label = "";
     g.x = c.x; g.y = c.y;
     const name = String(t.name || t.id || "?");
-    const txt = new PIXI.Text({ text: name.slice(0, 1).toUpperCase(), style: { fontFamily: "system-ui, sans-serif", fontSize: Math.round(rad), fill: 0x111111 } });
+    const txt = new PIXI_LIB.Text({ text: name.slice(0, 1).toUpperCase(), style: { fontFamily: "system-ui, sans-serif", fontSize: Math.round(rad), fill: 0x111111 } });
     txt.anchor.set(0.5);
     g.addChild(txt);
     g.eventMode = "none";

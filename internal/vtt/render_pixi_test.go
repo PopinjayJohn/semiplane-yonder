@@ -31,7 +31,6 @@ func TestRenderPagePixiLoader(t *testing.T) {
 		`data-state-url="/api/vtt/arena/state?as=gm"`,
 		`data-stream-url="/events?map=arena&amp;as=gm"`,
 		`"renderer") !== "pixi") return;`, // DOM stays the default path
-		`aria-hidden", "true"`,            // DOM board hidden, never removed
 		`data-vtt-client`,                 // the DOM client still ships
 	} {
 		if !strings.Contains(page, want) {
@@ -161,5 +160,45 @@ func TestRenderPageScriptsBalanced(t *testing.T) {
 		if !strings.Contains(page, want) {
 			t.Errorf("client missing the query-preserving refetch rewrite: %q", want)
 		}
+	}
+	// A morph rewrites #vtt-map's innerHTML, which drops an appended pixi
+	// canvas with it: applyMorph re-attaches the live view's canvas node.
+	for _, want := range []string{
+		`var pv = window.__pixiView;`,
+		`if (pv.canvasEl.parentNode !== nb) nb.appendChild(pv.canvasEl);`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("client missing the pixi morph re-attach seam: %q", want)
+		}
+	}
+	// The canvas is a DECORATIVE overlay: aria-hidden + pointer-transparent.
+	// The DOM board is NOT hidden — hiding it would take the focusable token
+	// buttons out of the a11y tree while they remain the only write path.
+	if strings.Contains(page, `board.setAttribute("aria-hidden"`) {
+		t.Error("the pixi mount must not aria-hide the DOM board (focusable content)")
+	}
+	if !strings.Contains(page, `[data-pixi-canvas]{position:absolute;inset:0;width:100%;height:100%;z-index:5;pointer-events:none}`) {
+		t.Error("pageCSS missing the decorative pixi canvas overlay rule")
+	}
+	// The loader re-resolves the board element at call time: the hello
+	// resync may have replaced it while the vendor bundle loaded.
+	if !strings.Contains(page, `var live = document.querySelector("[data-board]");`) {
+		t.Error("pixi loader must re-resolve the board after the bundles load")
+	}
+}
+
+// A link-only map (imported calibration, no art on disk) still needs a board
+// area: the section carries its grid's intrinsic aspect ratio so the grid
+// overlay, tokens, and fog render; art-backed boards are unchanged.
+func TestRenderBoardAspectRatioWithoutArt(t *testing.T) {
+	in := FragmentInput{MapID: "tomb", Title: "tomb", Cal: Calibration{Grid: Grid{Cols: 96, Rows: 72, CellPx: 100}}}
+	html := RenderFragment(in)
+	if !strings.Contains(html, `<section aria-label="Battle map: tomb" data-board style="aspect-ratio:96 / 72;min-height:240px">`) {
+		t.Errorf("art-less board missing its grid aspect ratio:\n%s", html)
+	}
+	in.Cal.Background = "maps/arena.png"
+	html = RenderFragment(in)
+	if !strings.Contains(html, `<section aria-label="Battle map: tomb" data-board>`) {
+		t.Errorf("art-backed board must stay unstyled:\n%s", html)
 	}
 }
