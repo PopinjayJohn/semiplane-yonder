@@ -58,7 +58,7 @@ Decided 2026-10-12 (detail in `amend-vtt2-pixi-uvtt.md` §§8–9):
 2. Grid cap: raised 64→128 (admits the 96x72 Tomb map; verified). Downscale `effectivePpg` still deferred to P3 for anything larger.
 3. `objects_line_of_sight`: movement-only.
 4. Light `range`: VERIFIED 2026-10-13 — squares, pass through as-is (`00-Ground-Floor.dd2vtt`: 29 lights, range 5/1). Spike divides by ppg: must fix, with geometry-units fix (all coords squares, origin squares, no ppg division) and color alpha-prefix fix (`ffeccd8b`→`eccd8b`). Re-verify wall/portal/light counts against the export at implementation.
-5. VP8X: best-effort + verify vs real export before merge. (Plain VP8 + PNG verified.)
+5. VP8X: bug found + filed (D5b) 2026-10-13 — parser reads reserved bytes as width (real animated 1920x1080 → 1x1920). Fix shape + 30-byte fixture pinned in amend §8. Plain VP8 + PNG verified good.
 6. OOB lights: drop now (glow deferred to R3).
 7. Pixi pin: newest 8.x at P0 via vendor flow, then freeze.
 8. Loader: `web/static/vtt/pixi-board.js`, `?renderer=` per load only.
