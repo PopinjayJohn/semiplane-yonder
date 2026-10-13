@@ -221,3 +221,44 @@ func TestImportGateOverHTTP(t *testing.T) {
 		t.Errorf("guest state = %d, want 401", code)
 	}
 }
+
+// A GM may create a map by importing into a fresh id over HTTP: the route
+// writes the sidecar itself, the index refresh makes it visible, and the
+// whole thing rides the production mux (route pattern, session CSRF).
+func TestImportGateCreatesMapOverHTTP(t *testing.T) {
+	g := newImportGate(t)
+	code, body := g.req(http.MethodPost, "/vtt/crypt/import?source=crypt.dd2vtt", gateUVTT, g.gm.cookie, g.gm.csrf)
+	if code != http.StatusOK {
+		t.Fatalf("fresh-map import = %d: %s", code, body)
+	}
+	side, err := os.ReadFile(filepath.Join(g.vault, "maps", "crypt.md"))
+	if err != nil {
+		t.Fatalf("sidecar not created: %v", err)
+	}
+	for _, want := range []string{"title: crypt", "grid: {cols: 4, rows: 3, cell: 100}", "uvtt-source: crypt.dd2vtt", "This page holds calibration only"} {
+		if !strings.Contains(string(side), want) {
+			t.Errorf("fresh sidecar missing %q:\n%s", want, side)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(g.vault, "assets", "maps", "crypt.png")); err != nil {
+		t.Errorf("image not written: %v", err)
+	}
+	code, body = g.req(http.MethodGet, "/api/vtt/crypt/state?as=gm", "", "", "")
+	if code != http.StatusOK {
+		t.Fatalf("state = %d", code)
+	}
+	var snap map[string]any
+	if err := json.Unmarshal([]byte(body), &snap); err != nil {
+		t.Fatal(err)
+	}
+	if walls, _ := snap["walls"].([]any); len(walls) != 1 {
+		t.Errorf("fresh-map walls = %v, want 1", snap["walls"])
+	}
+	// Players are rejected before any creation happens.
+	if code, _ := g.req(http.MethodPost, "/vtt/crypt2/import", gateUVTT, g.pl.cookie, g.pl.csrf); code != http.StatusForbidden {
+		t.Errorf("player fresh-map import = %d, want 403", code)
+	}
+	if _, err := os.Stat(filepath.Join(g.vault, "maps", "crypt2.md")); err == nil {
+		t.Error("rejected import created a sidecar")
+	}
+}
