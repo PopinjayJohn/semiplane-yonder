@@ -1,7 +1,7 @@
 ---
 title: Ashen Ford
 vtt-map:
-  background: assets/maps/ford.png
+  background: assets/maps/arena.png
   grid: {cols: 20, rows: 14}
   fog-default: hidden
   tokens:
@@ -22,9 +22,11 @@ defaults. Live token positions, fog, and initiative live in the app DB
 (`vtt_tokens` / `vtt_fog` / `vtt_initiative`) and are rebuilt from these
 defaults if the data dir is ever lost, with fog **hidden** (never revealed).
 
-No background image is set. Drop one at `assets/maps/ford.png` and add
-`background: assets/maps/ford.png` here when the GM has art — the board
-serves it through the ACL-checked `/assets` handler, never raw.
+Background art lives at `assets/maps/arena.png` and the board serves it through
+the ACL-checked `/assets` handler, never raw. Art in the `assets/maps/` bundle
+dir inherits this page's ACL (amend A-VTT2): `assets/maps/<stem>.<ext>` is
+visible exactly while `maps/<stem>.md` is, so swapping the art never widens the
+map's audience.
 
 Map id is `arena`, so the table lives at `/vtt/arena` (title and id need not
 match).

@@ -61,7 +61,10 @@ func renderBoard(in FragmentInput) string {
 	}
 	fmt.Fprintf(&b, `<section aria-label="Battle map: %s" data-board>`+"\n", html.EscapeString(title))
 	// Background through the ACL-checked asset handler (bytes never served
-	// here; unauthorized viewers 404 at /assets, fail closed).
+	// here; unauthorized viewers 404 at /assets, fail closed). The sidecar
+	// value is vault-relative (amend A-VTT2: assets/maps/<mapID>.<ext>) and
+	// the handler serves /assets/<vault-path>, so the URL keeps the /assets/
+	// prefix; bundle-dir art inherits the sidecar ACL (assetVisible).
 	if in.Cal.Background != "" {
 		fmt.Fprintf(&b, `<div data-board-image><img src="/assets/%s%s" alt="Map background for %s"></div>`+"\n",
 			html.EscapeString(in.Cal.Background), html.EscapeString(in.AsQuery), html.EscapeString(title))
@@ -417,7 +420,13 @@ document.addEventListener("focusout", function () {
   if (pendingMorph !== null && !focusedInside()) { var h = pendingMorph; pendingMorph = null; applyMorph(h); }
 });
 function refetchFragment() {
-  var fragURL = stateURL.replace(/\/api\/vtt\//, "/vtt/").replace(/\/state$/, "/fragment");
+  // The state URL may carry the demo identity query (?as=…): rewrite the
+  // PATH only, then re-attach the query, or the /state→/fragment rewrite
+  // silently misses and the SSE resync 404s on the demo tier.
+  var qi = stateURL.indexOf("?");
+  var base = qi >= 0 ? stateURL.slice(0, qi) : stateURL;
+  var query = qi >= 0 ? stateURL.slice(qi) : "";
+  var fragURL = base.replace(/\/api\/vtt\//, "/vtt/").replace(/\/state$/, "/fragment") + query;
   fetch(fragURL, {headers: {"Accept": "text/html"}}).then(function (r) {
     if (!r.ok) throw new Error("fragment " + r.status);
     return r.text();
@@ -567,7 +576,7 @@ function bindForms() {
       var fd = new FormData(ff);
       var mode = (document.activeElement && document.activeElement.value) || "hide";
       fetch(stateURL, {method: "POST", headers: headers(), body: JSON.stringify({op: "fog", mode: mode,
-        rect: {x: parseInt(fd.get("x"), 10) || 0, y: parseInt(fd.get("y"), 10) || 0, w: parseInt(fd.get("w"), 10) || 1, h: parseInt(fd.get("h"), 10) || 1}}})
+        rect: {x: parseInt(fd.get("x"), 10) || 0, y: parseInt(fd.get("y"), 10) || 0, w: parseInt(fd.get("w"), 10) || 1, h: parseInt(fd.get("h"), 10) || 1}})})
         .then(function (r) { say(root.querySelector("[data-fog-state]"), r.ok ? "Fog updated." : "Fog change rejected."); })
         .catch(function () { say(root.querySelector("[data-fog-state]"), "Fog change failed."); });
     });

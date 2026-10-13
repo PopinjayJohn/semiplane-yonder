@@ -593,6 +593,58 @@ func TestAssetsBundleRule(t *testing.T) {
 	}
 }
 
+// Amend A-VTT2: the assets/maps/ bundle dir holds imported map art (no
+// pages of its own), so the same-directory ruling would fail it closed to
+// invisible for everyone. Bundle art inherits its sidecar page's ACL:
+// assets/maps/<stem>.<ext> is visible exactly while maps/<stem>.md is.
+func TestAssetsMapBundleInheritsSidecarACL(t *testing.T) {
+	dir := t.TempDir()
+	vault := filepath.Join(dir, "vault")
+	for _, sub := range []string{"assets/maps", "maps", "other"} {
+		if err := os.MkdirAll(filepath.Join(vault, sub), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, f := range []string{"assets/maps/arena.png", "assets/maps/vault-map.webp", "assets/maps/orphan.png", "other/notes.md"} {
+		if err := os.WriteFile(filepath.Join(vault, f), []byte("\x89PNG\r\n\x1a\n0123456789"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := VaultDir
+	VaultDir = vault
+	defer func() { VaultDir = old }()
+
+	h := testHandlers()
+	fs := h.Store.(*fakeStore)
+	fs.pages["maps/arena.md"] = &store.Page{Path: "maps/arena.md", Title: "Arena", Content: "open"}
+	fs.pages["maps/vault-map.md"] = &store.Page{Path: "maps/vault-map.md", Title: "Vault", Content: "shh", Secret: true, Owner: "mira"}
+	// Open sidecar: art visible to every viewer (guests included — the page
+	// itself is non-secret).
+	for _, target := range []string{"/assets/assets/maps/arena.png", "/assets/assets/maps/arena.png?as=gm", "/assets/assets/maps/arena.png?as=mira"} {
+		if rec := get(t, h, target); rec.Code != http.StatusOK {
+			t.Errorf("open-map art %s = %d, want 200", target, rec.Code)
+		}
+	}
+	// Secret sidecar: GM + owner only; other players and guests 404.
+	if rec := get(t, h, "/assets/assets/maps/vault-map.webp?as=gm"); rec.Code != http.StatusOK {
+		t.Errorf("secret-map art (GM) = %d, want 200", rec.Code)
+	}
+	if rec := get(t, h, "/assets/assets/maps/vault-map.webp?as=mira"); rec.Code != http.StatusOK {
+		t.Errorf("secret-map art (owner) = %d, want 200", rec.Code)
+	}
+	for _, target := range []string{"/assets/assets/maps/vault-map.webp", "/assets/assets/maps/vault-map.webp?as=cass"} {
+		if rec := get(t, h, target); rec.Code != http.StatusNotFound {
+			t.Errorf("secret-map art %s = %d, want 404", target, rec.Code)
+		}
+	}
+	// Art with no sidecar at all fails closed for everyone.
+	for _, target := range []string{"/assets/assets/maps/orphan.png", "/assets/assets/maps/orphan.png?as=gm"} {
+		if rec := get(t, h, target); rec.Code != http.StatusNotFound {
+			t.Errorf("sidecar-less art %s = %d, want 404", target, rec.Code)
+		}
+	}
+}
+
 func TestQuarantineFailsClosed(t *testing.T) {
 	h := testHandlers()
 	if rec := get(t, h, "/p/broken.md"); rec.Code != http.StatusNotFound {
