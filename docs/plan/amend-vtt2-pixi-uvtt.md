@@ -1,4 +1,4 @@
-# Amend A-VTT2: PixiJS renderer + UVTT import (branch `plan/vtt-pixi-uvtt`, PR #33 draft)
+# Amend A-VTT2: PixiJS renderer + UVTT import (merged PR #33, 2026-10-14, main a41d3e7)
 
 Status 2026-10-13 (final): full surface LANDED on this branch — vendor pin
 pixi.js@8.22.0 ESM + `/static/vtt/` loader mount, `POST /vtt/{mapID}/import`
@@ -8,8 +8,8 @@ D4b/D4c/D5b fixes, grid cap 128, `grid-baked` + overlay, `FragmentVersion` 2 +
 snapshot fields, `vtt_doors` 0004, door helpers + reseed landed earlier
 (05254f7); the browser pass also fixed three shipped defects (client syntax
 error, `?as=` refetch, bundle-dir asset ACL) and a latent WCAG 2.5.3 violation.
-Remaining: merge gates (CI `make check`, CI axe) — PR #33 stays draft until
-then.
+Merged to main 2026-10-14 (PR #33, a41d3e7) with CI green (check, axe,
+serve-smoke, snapshot).
 
 Targets: `docs/spec.md:9,24,27,30`, `internal/plugins/fragment.go:15`, `internal/markdown/frontmatter.go:20`, `web/static/vendor/VERSIONS:1`. No code on `main` changes until this amend merges as its own PR.
 
