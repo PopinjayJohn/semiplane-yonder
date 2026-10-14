@@ -3,6 +3,7 @@ package vtt
 import (
 	"fmt"
 	"html"
+	"math"
 	"strings"
 
 	"github.com/semiplane/yonder/internal/auth"
@@ -40,6 +41,9 @@ func RenderFragment(in FragmentInput) string {
 	b.WriteString(renderInitiative(in))
 	b.WriteString(renderDiceTray(in))
 	b.WriteString(renderTokenList(in))
+	if in.IsGM && len(in.Snap.Doors) > 0 {
+		b.WriteString(renderDoors(in))
+	}
 	if in.IsGM {
 		b.WriteString(renderFogControls(in))
 	}
@@ -55,18 +59,39 @@ func renderBoard(in FragmentInput) string {
 	if title == "" {
 		title = in.MapID
 	}
-	fmt.Fprintf(&b, `<section aria-label="Battle map: %s" data-board>`+"\n", html.EscapeString(title))
+	fmt.Fprintf(&b, `<section aria-label="Battle map: %s" data-board`, html.EscapeString(title))
+	if in.Cal.Background == "" {
+		// Link-only map (imported calibration, art not on disk yet): give the
+		// board its grid's intrinsic aspect ratio (with a floor for extreme
+		// grids) so the overlay grid, tokens, and fog still have a board area;
+		// dropping art in later fills the same box.
+		fmt.Fprintf(&b, ` style="aspect-ratio:%d / %d;min-height:240px"`, g.Cols, g.Rows)
+	}
+	b.WriteString(">" + "\n")
 	// Background through the ACL-checked asset handler (bytes never served
-	// here; unauthorized viewers 404 at /assets, fail closed).
+	// here; unauthorized viewers 404 at /assets, fail closed). The sidecar
+	// value is vault-relative (amend A-VTT2: assets/maps/<mapID>.<ext>) and
+	// the handler serves /assets/<vault-path>, so the URL keeps the /assets/
+	// prefix; bundle-dir art inherits the sidecar ACL (assetVisible).
 	if in.Cal.Background != "" {
 		fmt.Fprintf(&b, `<div data-board-image><img src="/assets/%s%s" alt="Map background for %s"></div>`+"\n",
 			html.EscapeString(in.Cal.Background), html.EscapeString(in.AsQuery), html.EscapeString(title))
 	} else {
 		b.WriteString(`<div data-board-image><p>No background image set. Ask your GM to set one in the map sidecar.</p></div>` + "\n")
 	}
+	// Grid overlay for nogrid art (aria-hidden: token labels already carry
+	// text coordinates). Grid-baked art carries its own lines — skip.
+	if !in.Cal.GridBaked {
+		fmt.Fprintf(&b, `<div data-grid aria-hidden="true" style="background-size:%.4f%% %.4f%%"></div>`+"\n",
+			100/float64(g.Cols), 100/float64(g.Rows))
+	}
 	// Fog overlay + text equivalent.
 	b.WriteString(renderFog(in))
-	// Tokens as real buttons (keyboard-reachable, 44px, text labels).
+	// Tokens as real buttons (keyboard-reachable, 44px, text labels). The
+	// button carries NO DOM text: its face (initial + HP) is CSS-generated
+	// (--face/--hp), so WCAG 2.5.3's visible-text check has nothing to
+	// mismatch against the full-text aria-label, and the sheet link / hidden
+	// tag are SIBLINGS (a link inside a button is invalid HTML).
 	fmt.Fprintf(&b, `<div data-tokens role="group" aria-label="Tokens on %s">`+"\n", html.EscapeString(title))
 	for _, t := range in.Snap.Tokens {
 		left := (float64(t.X) + 0.5) * 100 / float64(g.Cols)
@@ -75,21 +100,32 @@ func renderBoard(in FragmentInput) string {
 		if t.Hidden {
 			label += ", hidden from party"
 		}
-		initial := strings.ToUpper(string(runeOf(t.Name)))
-		link := ""
-		if page, ok := in.CharLinks[t.ID]; ok && page != "" {
-			link = fmt.Sprintf(` <a href="/p/%s%s" data-char-link>sheet</a>`, html.EscapeString(page), html.EscapeString(in.AsQuery))
-		}
-		hiddenTag := ""
+		face := strings.ToUpper(string(runeOf(t.Name)))
+		hp := fmt.Sprintf("%d/%d", t.HP, t.MaxHP)
+		fmt.Fprintf(&b, `<span data-token-wrap style="left:%.2f%%;top:%.2f%%">`, left, top)
+		fmt.Fprintf(&b, `<button type="button" data-token="%s" data-x="%d" data-y="%d" data-name="%s" aria-label="%s" aria-pressed="false" style="--face:%s;--hp:%s"></button>`,
+			html.EscapeString(t.ID), t.X, t.Y, html.EscapeString(t.Name),
+			html.EscapeString(label), cssContent(face), cssContent(hp))
 		if t.Hidden {
-			hiddenTag = ` <span data-tag>hidden</span>`
+			b.WriteString(`<span data-tag>hidden</span>`)
 		}
-		fmt.Fprintf(&b, `<button type="button" data-token="%s" data-x="%d" data-y="%d" data-name="%s" style="left:%.2f%%;top:%.2f%%" aria-label="%s" aria-pressed="false"><span aria-hidden="true">%s</span><span data-hp>%d/%d</span>%s</button>%s`+"\n",
-			html.EscapeString(t.ID), t.X, t.Y, html.EscapeString(t.Name), left, top,
-			html.EscapeString(label), html.EscapeString(initial), t.HP, t.MaxHP, hiddenTag, link)
+		if page, ok := in.CharLinks[t.ID]; ok && page != "" {
+			fmt.Fprintf(&b, `<a href="/p/%s%s" data-char-link>sheet</a>`, html.EscapeString(page), html.EscapeString(in.AsQuery))
+		}
+		b.WriteString("</span>\n")
 	}
 	b.WriteString("</div>\n</section>\n")
 	return b.String()
+}
+
+// cssContent renders a CSS custom-property value (single-quoted, quotes
+// stripped) for the token face / HP pseudo-content.
+func cssContent(s string) string {
+	s = strings.ReplaceAll(s, "'", "")
+	if s == "" {
+		return `""`
+	}
+	return "'" + s + "'"
 }
 
 func runeOf(s string) rune {
@@ -199,6 +235,27 @@ func renderTokenList(in FragmentInput) string {
 	return b.String()
 }
 
+// renderDoors renders the GM door panel (A-VTT2 D10): one row per sidecar
+// portal with its effective live state as TEXT (never color-only) and a
+// toggle button posting {op:"door"}. Players never see this section.
+func renderDoors(in FragmentInput) string {
+	var b strings.Builder
+	b.WriteString(`<section aria-label="Doors" data-doors><h2>Doors (GM)</h2>` + "\n")
+	b.WriteString(`<ol data-door-list aria-live="polite">` + "\n")
+	for _, d := range in.Snap.Doors {
+		col := int(math.Floor((d.A[0] + d.B[0]) / 2))
+		row := int(math.Floor((d.A[1] + d.B[1]) / 2))
+		state, action := "closed", "Open"
+		if !d.Closed {
+			state, action = "open", "Close"
+		}
+		fmt.Fprintf(&b, `<li data-door-row="%d" data-open="%t"><span>Door %d (column %d, row %d): </span><span data-door-state>%s</span> <button type="button" data-door-toggle="%d" data-open="%t" aria-pressed="%t">%s</button></li>`+"\n",
+			d.Idx, !d.Closed, d.Idx+1, col, row, state, d.Idx, !d.Closed, !d.Closed, action)
+	}
+	b.WriteString("</ol>\n</section>\n")
+	return b.String()
+}
+
 func renderFogControls(in FragmentInput) string {
 	var b strings.Builder
 	b.WriteString(`<section aria-label="Fog controls" data-fog-controls><h2>Fog (GM)</h2>` + "\n")
@@ -263,8 +320,66 @@ func RenderPage(in PageInput) string {
 	b.WriteString("</div>\n</main>\n")
 	fmt.Fprintf(&b, `<script data-vtt-client data-map-id="%s" data-cols="%d" data-rows="%d">`+"\n%s\n</script>\n",
 		html.EscapeString(in.MapID), g.Cols, g.Rows, clientJS())
+	// Pixi loader (amend A-VTT2, D8/D9): one module script, zero vendor bytes
+	// fetched unless ?renderer=pixi is present. The DOM board below stays the
+	// operable/a11y truth; the canvas is an enhancement that is aria-hidden on
+	// mount and dropped (never partially shown) on any failure.
+	fmt.Fprintf(&b, `<script type="module" data-pixi-loader data-map-id="%s" data-cols="%d" data-rows="%d" data-state-url="%s" data-stream-url="%s" data-vendor="/static/vendor/pixi.js" data-loader="/static/vtt/pixi-board.js">`+"\n%s\n</script>\n",
+		html.EscapeString(in.MapID), g.Cols, g.Rows,
+		html.EscapeString(in.StateURL), html.EscapeString(in.StreamURL), pixiLoaderJS())
 	b.WriteString("</body>\n</html>\n")
 	return b.String()
+}
+
+// pixiLoaderJS gates the Pixi canvas mount on ?renderer=pixi (D9: per-load
+// query param, no sticky preference). It fetches the same per-viewer-
+// filtered state snapshot the DOM path uses, imports the pinned vendor ESM
+// plus the first-party loader, and mounts. Every failure path leaves the
+// SSR'd DOM board untouched and announces through the existing polite live
+// region — the canvas never blank-replaces the operable board.
+func pixiLoaderJS() string {
+	return `(function () {
+"use strict";
+var el = document.querySelector("[data-pixi-loader]");
+if (!el) return;
+var d = el.dataset;
+var q = new URLSearchParams(location.search);
+if (q.get("renderer") !== "pixi") return; // DOM is the default path: no vendor bytes fetched
+var board = document.querySelector("[data-board]");
+var status = document.querySelector("[data-sse-state]");
+var reduceMotion = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+function say(msg) { if (status) status.textContent = msg; }
+if (!board) return;
+fetch(d.stateUrl, {headers: {"Accept": "application/json"}}).then(function (r) {
+  if (!r.ok) throw new Error("state " + r.status);
+  return r.json();
+}).then(function (snap) {
+  return Promise.all([import(d.vendor), import(d.loader)]).then(function (mods) {
+    // Re-resolve the board at call time: the SSE hello resync may have
+    // morphed the fragment (replacing this element) while the bundles loaded.
+    var live = document.querySelector("[data-board]");
+    if (!live) throw new Error("board element gone");
+    return mods[1].bootPixi(mods[0], live, {
+      reduceMotion: reduceMotion, snapshot: snap,
+      cols: parseInt(d.cols, 10), rows: parseInt(d.rows, 10),
+      stateURL: d.stateUrl, streamURL: d.streamUrl,
+    });
+  });
+}).then(function (view) {
+  if (!view) throw new Error("pixi boot declined");
+  // The canvas is a decorative overlay: it is aria-hidden (pixi-board.js)
+  // and pointer-transparent (CSS), so the DOM board underneath stays the
+  // operable, keyboard-reachable truth — hiding it would take the token
+  // buttons out of the a11y tree while they remain the only write path.
+  document.documentElement.classList.add("pixi-on");
+  say("Canvas board active. Keyboard controls remain available.");
+}).catch(function () {
+  // No WebGL/Canvas, import failed, asset load failed, or boot threw:
+  // stay on the shipped DOM renderer, announced via the status line.
+  document.documentElement.classList.remove("pixi-on");
+  say("Canvas unavailable, DOM board kept.");
+});
+})();`
 }
 
 func displayTitle(title, mapID string) string {
@@ -283,8 +398,19 @@ a[href="#vtt-map"]:focus{position:static}
 button,input[type=submit]{min-width:44px;min-height:44px}
 [data-board]{position:relative;border:2px solid currentColor;max-width:100%}
 [data-board-image] img{display:block;width:100%;height:auto}
+/* Pixi parity canvas (A-VTT2): a DECORATIVE overlay of the same state —
+   aria-hidden in pixi-board.js and pointer-transparent, so the DOM board
+   underneath stays the operable, keyboard-reachable, screen-reader truth
+   (spec §6). The canvas never intercepts clicks or focus. */
+[data-pixi-canvas]{position:absolute;inset:0;width:100%;height:100%;z-index:5;pointer-events:none}
+[data-grid]{position:absolute;inset:0;pointer-events:none;opacity:.3;background-image:linear-gradient(to right,currentColor 1px,transparent 1px),linear-gradient(to bottom,currentColor 1px,transparent 1px)}
 [data-tokens]{position:absolute;inset:0}
-[data-token]{position:absolute;transform:translate(-50%,-50%);min-width:44px;min-height:44px;border-radius:50%;border:2px solid currentColor;background:ButtonFace;font-weight:bold}
+[data-token-wrap]{position:absolute;transform:translate(-50%,-50%);display:flex;align-items:center;gap:.25em}
+[data-token]{display:flex;align-items:center;justify-content:center;gap:.15em;min-width:44px;min-height:44px;border-radius:50%;border:2px solid currentColor;background:ButtonFace;font-weight:bold}
+/* Token face is CSS-generated (never DOM text): the aria-label is the full
+   text equivalent, so WCAG 2.5.3 has no visible text to mismatch. */
+[data-token]::before{content:var(--face,"?")}
+[data-token]::after{content:var(--hp,"")}
 [data-token][aria-pressed=true]{outline:3px solid currentColor}
 [data-fog]{position:absolute;inset:0;pointer-events:none}
 [data-fog-rect]{position:absolute;background:rgba(0,0,0,.72);border:1px dashed #fff}
@@ -326,14 +452,33 @@ var pendingMorph = null;
 function applyMorph(html) {
   if (focusedInside()) { pendingMorph = html; return; }
   root.innerHTML = html;
+  reattachPixi();
   rebind();
   pendingMorph = null;
+}
+// The pixi canvas lives inside [data-board] (inside the fragment), so an SSE
+// morph would drop it. When a pixi view is live, re-attach the SAME canvas
+// node (WebGL context intact) to the new board. The board is NOT aria-hidden:
+// the canvas is a decorative overlay (aria-hidden + pointer-events:none) and
+// the DOM stays the operable truth.
+function reattachPixi() {
+  var pv = window.__pixiView;
+  if (!pv || !pv.canvasEl) return;
+  var nb = root.querySelector("[data-board]");
+  if (!nb) return;
+  if (pv.canvasEl.parentNode !== nb) nb.appendChild(pv.canvasEl);
 }
 document.addEventListener("focusout", function () {
   if (pendingMorph !== null && !focusedInside()) { var h = pendingMorph; pendingMorph = null; applyMorph(h); }
 });
 function refetchFragment() {
-  var fragURL = stateURL.replace(/\/api\/vtt\//, "/vtt/").replace(/\/state$/, "/fragment");
+  // The state URL may carry the demo identity query (?as=…): rewrite the
+  // PATH only, then re-attach the query, or the /state→/fragment rewrite
+  // silently misses and the SSE resync 404s on the demo tier.
+  var qi = stateURL.indexOf("?");
+  var base = qi >= 0 ? stateURL.slice(0, qi) : stateURL;
+  var query = qi >= 0 ? stateURL.slice(qi) : "";
+  var fragURL = base.replace(/\/api\/vtt\//, "/vtt/").replace(/\/state$/, "/fragment") + query;
   fetch(fragURL, {headers: {"Accept": "text/html"}}).then(function (r) {
     if (!r.ok) throw new Error("fragment " + r.status);
     return r.text();
@@ -378,7 +523,9 @@ function rebind() {
   });
   var board = root.querySelector("[data-board]");
   if (board) board.addEventListener("click", function (ev) {
-    if (ev.target.closest("[data-token]") || !selected) return;
+    // Token buttons and their sibling sheet links own their clicks; only a
+    // bare board click moves the selected token.
+    if (ev.target.closest("[data-token]") || ev.target.closest("a") || !selected) return;
     var rect = board.getBoundingClientRect();
     var x = Math.floor((ev.clientX - rect.left) / rect.width * COLS);
     var y = Math.floor((ev.clientY - rect.top) / rect.height * ROWS);
@@ -483,7 +630,7 @@ function bindForms() {
       var fd = new FormData(ff);
       var mode = (document.activeElement && document.activeElement.value) || "hide";
       fetch(stateURL, {method: "POST", headers: headers(), body: JSON.stringify({op: "fog", mode: mode,
-        rect: {x: parseInt(fd.get("x"), 10) || 0, y: parseInt(fd.get("y"), 10) || 0, w: parseInt(fd.get("w"), 10) || 1, h: parseInt(fd.get("h"), 10) || 1}}})
+        rect: {x: parseInt(fd.get("x"), 10) || 0, y: parseInt(fd.get("y"), 10) || 0, w: parseInt(fd.get("w"), 10) || 1, h: parseInt(fd.get("h"), 10) || 1}})})
         .then(function (r) { say(root.querySelector("[data-fog-state]"), r.ok ? "Fog updated." : "Fog change rejected."); })
         .catch(function () { say(root.querySelector("[data-fog-state]"), "Fog change failed."); });
     });
@@ -499,7 +646,32 @@ function bindForms() {
         .catch(function () { say(statusEl, "Initiative change failed."); });
     });
   }
+  bindDoors();
   void rf; void mf;
+}
+// --- door toggles (A-VTT2: GM-only; optimistic text + fog-update refetch) ---
+function bindDoors() {
+  root.querySelectorAll("[data-door-toggle]").forEach(function (btn) {
+    if (btn.__bound) return;
+    btn.__bound = true;
+    btn.addEventListener("click", function () {
+      var idx = parseInt(btn.getAttribute("data-door-toggle"), 10);
+      var open = btn.getAttribute("data-open") !== "true";
+      fetch(stateURL, {method: "POST", headers: headers(), body: JSON.stringify({op: "door", idx: idx, open: open})})
+        .then(function (r) {
+          if (!r.ok) { say(statusEl, "Door change rejected."); return; }
+          var row = root.querySelector('[data-door-row="' + idx + '"]');
+          var st = row ? row.querySelector("[data-door-state]") : null;
+          if (st) st.textContent = open ? "open" : "closed";
+          if (row) row.setAttribute("data-open", open ? "true" : "false");
+          btn.setAttribute("data-open", open ? "true" : "false");
+          btn.setAttribute("aria-pressed", open ? "true" : "false");
+          btn.textContent = open ? "Close" : "Open";
+          say(statusEl, "Door " + (idx + 1) + (open ? " opened." : " closed."));
+        })
+        .catch(function () { say(statusEl, "Door change failed."); });
+    });
+  });
 }
 // --- SSE: hello resyncs, board events refetch, dice appends, flips reload ---
 function connect() {

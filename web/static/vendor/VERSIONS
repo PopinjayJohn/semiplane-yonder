@@ -6,5 +6,11 @@
 # codemirror dist/index.js is an ESM re-export of @codemirror/*: the pinned
 # file verifies the upstream source, but the runnable editor bundle (with its
 # @codemirror/* closure) lands with the editor lane — no Node in the binary.
+# pixi (amend A-VTT2, D7): ESM dist/pixi.min.mjs (the UMD pixi.min.js has no
+# ESM export for dynamic import()). Pinned to the newest STABLE 8.x at P0
+# execution (8.22.0; the spike's 8.9.1 recommendation was superseded — re-pin
+# via the same two vendor commands, never an @8 range). Fetched only on
+# GET /vtt/{mapID}?renderer=pixi via the lazy loader in web/static/vtt/.
 datastar 1.0.4 727844adfc825ee651fb93c544a2a739986f9a21820a94524b35f0cac470cf91 https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.4/bundles/datastar.js file=datastar.js
 codemirror 6.0.2 6ae1617a0804ef9aeaae4278d9c001dcbfac914d0b0c81c23752c8369e1dcf2c https://cdn.jsdelivr.net/npm/codemirror@6.0.2/dist/index.js file=codemirror.js
+pixi 8.22.0 66257bc46776898bf8c54daaed402ed8f9ac109379c47b2dfa8aa048544d2953 https://cdn.jsdelivr.net/npm/pixi.js@8.22.0/dist/pixi.min.mjs file=pixi.js

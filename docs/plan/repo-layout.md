@@ -2,7 +2,7 @@
 
 ## Tree
 ```
-cmd/app/            main, flags (--vault/--data-dir/--addr), init, reindex, reset-password, rotate-session-key, transfer-ownership, archive-vault, clone-vault, rules lint (Lane E1)
+cmd/app/            main, flags (--vault/--data-dir/--addr), init, reindex, reset-password, rotate-session-key, transfer-ownership, archive-vault, clone-vault, rules lint (Lane E1), import-uvtt (A-VTT2), vendor verify/sha256
 internal/
   vault/            fsnotify watcher, rescan, atomic WriteFile helper (all writes), conflict handling (Lane B; F2 consumes API)
   markdown/         goldmark + frontmatter + secret/optional/unsupported ext (Lane A)
@@ -15,7 +15,7 @@ internal/
   store/            SQLite, FTS, migrations/{index,app}/*.sql contents (Lane B; runner E2), login_attempts
 web/
   templates/        shell + slots (Lane F1; header-*, sidebar-*, footer, page-actions, sheet-header)
-  static/           core.css (tokens), themes/, mockups/ (Lane D1, P00 only), vendor/ (VERSIONS pin+checksums, Lane E1), a11y-tested markup
+  static/           core.css (tokens), themes/, mockups/ (Lane D1, P00 only), vendor/ (VERSIONS pin+checksums, Lane E1), vtt/ (first-party pixi-board.js loader, A-VTT2 — no vendored bytes here), a11y-tested markup
 fixtures/           hand-written demo vault: demo/ (dev only, never embedded); srd/ read-only upstream mirror (out of scope)
 testdata/           golden files: markdown/{input.md, expected.html, expected-index.json}
 docs/               plan/ (this dir), gm-guide/, player-onboarding/, plugin-authoring/

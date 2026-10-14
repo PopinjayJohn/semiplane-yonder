@@ -24,6 +24,12 @@ type Handlers struct {
 	Store    store.Store
 	Sessions auth.SessionStore
 	Roller   dice.Roller
+	// Vault is the import write seam (image + sidecar). Nil in unwired
+	// dev/test mode: import answers 500, every other surface works.
+	Vault VaultWriter
+	// OnAfterWrite reindexes + refreshes the read Store after an import
+	// (same seam WriteHandlers uses); nil skips (the watcher recovers).
+	OnAfterWrite func() error
 	// T1: resolved theme selection ("" = unthemed), same values the shell
 	// and sheet page render. The VTT page is a standalone document, so it
 	// carries the attributes and stylesheet links itself.
@@ -48,6 +54,9 @@ func (h *Handlers) RegisterRoutes(reg *web.RouteRegistry) {
 	reg.Register(web.Route{Method: http.MethodGet, Path: plugins.MapFragmentPath, Handler: h.Fragment, ReadOnly: true, AuthRequired: true, SecretFiltered: true})
 	reg.Register(web.Route{Method: http.MethodGet, Path: plugins.StateSnapshotPath, Handler: h.State, ReadOnly: true, AuthRequired: true, SecretFiltered: true})
 	reg.Register(web.Route{Method: http.MethodGet, Path: web.RouteVTT, Handler: h.Page, ReadOnly: true, AuthRequired: true})
+	// A-VTT2: GM-only UVTT import (writes the vault; reindex rides the
+	// caller's OnAfterWrite seam).
+	reg.Register(web.Route{Method: http.MethodPost, Path: web.RouteVTT + "/import", Handler: h.Import, ReadOnly: false, AuthRequired: true})
 	reg.Register(web.Route{Method: http.MethodPatch, Path: web.RouteVTT + "/state", Handler: h.Move, ReadOnly: false, AuthRequired: true})
 	reg.Register(web.Route{Method: http.MethodPost, Path: web.RouteVTT + "/state", Handler: h.StateUpdate, ReadOnly: false, AuthRequired: true})
 }
@@ -387,6 +396,10 @@ type stateOp struct {
 	Spawn    *plugins.SpawnIntent `json:"spawn"`
 	Notation string               `json:"notation"`
 	Blind    bool                 `json:"blind"`
+	// Door toggle (A-VTT2): idx is the 0-based sidecar portals position,
+	// open the requested live state.
+	Idx  int  `json:"idx"`
+	Open bool `json:"open"`
 }
 
 // StateUpdate dispatches GM/player POST ops (login + CSRF + per-op auth).
@@ -430,6 +443,8 @@ func (h *Handlers) StateUpdate(w http.ResponseWriter, r *http.Request) {
 		h.opReset(w, r, v, mapID)
 	case "roll":
 		h.opRoll(w, r, v, mapID, op)
+	case "door":
+		h.opDoor(w, r, v, mapID, op)
 	default:
 		http.Error(w, "unknown op", http.StatusBadRequest)
 	}
@@ -609,6 +624,30 @@ func (h *Handlers) opReset(w http.ResponseWriter, r *http.Request, v *auth.Viewe
 	writeOK(w, mapID)
 }
 
+// opDoor toggles one portal's live open state (A-VTT2 D10: GM-only first;
+// owner-movable doors are deferred R4). open=false removes the override row
+// so the sidecar default wins (fail-closed to closed on loss). The idx must
+// name a portal in the CURRENT sidecar list — sidecar edits win, never the
+// stale app-DB row. Clients re-render on the fog-update refetch.
+func (h *Handlers) opDoor(w http.ResponseWriter, r *http.Request, v *auth.Viewer, mapID string, op stateOp) {
+	if !isGM(v) {
+		http.Error(w, "not allowed", http.StatusForbidden)
+		return
+	}
+	ctx := r.Context()
+	cal := CalibrationFor(ctx, h.Store, mapID)
+	if op.Idx < 0 || op.Idx >= len(cal.Portals) {
+		http.Error(w, "no such portal", http.StatusUnprocessableEntity)
+		return
+	}
+	if err := SetDoorOpen(ctx, h.Store, mapID, op.Idx, op.Open); err != nil {
+		http.Error(w, "cannot set door", http.StatusInternalServerError)
+		return
+	}
+	Publish(Event{Name: plugins.EventFogUpdate, Map: mapID})
+	writeDoorJSON(w, mapID, op.Idx, op.Open)
+}
+
 // opRoll is the dice tray (any map viewer; blind totals route GM-only via
 // plugins.RouteBlind — the roller sees nothing extra on blind rolls unless
 // they are GM). Rolls are ephemeral broadcasts; persistence stays with H2's
@@ -688,6 +727,15 @@ func writeTokenJSON(w http.ResponseWriter, v *auth.Viewer, t Token) {
 
 func writeOK(w http.ResponseWriter, mapID string) {
 	b, _ := json.Marshal(map[string]string{"ok": "true", "map_id": mapID})
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "private, no-store")
+	_, _ = w.Write(b)
+}
+
+// writeDoorJSON answers a door toggle with the effective live state (the
+// sidecar default may still win when open=false removed the override).
+func writeDoorJSON(w http.ResponseWriter, mapID string, idx int, open bool) {
+	b, _ := json.Marshal(map[string]any{"ok": true, "map_id": mapID, "door": idx, "open": open})
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "private, no-store")
 	_, _ = w.Write(b)

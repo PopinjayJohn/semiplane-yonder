@@ -33,6 +33,15 @@ type MapState struct {
 	FogMask    string
 	FogPresent bool
 	Initiative []InitEntry
+	// Doors holds live open overrides by sidecar portal idx; absent idx
+	// means "sidecar default" (fail-closed to closed downstream).
+	Doors []DoorLive
+}
+
+// DoorLive is one live door row (open override for one portal idx).
+type DoorLive struct {
+	Idx  int
+	Open bool
 }
 
 func appDB(st store.Store) *sql.DB { return st.AppDB() }
@@ -77,6 +86,20 @@ func LoadState(ctx context.Context, st store.Store, mapID string) (MapState, err
 			return out, nil
 		}
 		out.Initiative = append(out.Initiative, e)
+	}
+	// vtt_doors is optional (pre-0004 DBs lack it): missing table means
+	// "no overrides", and readers fail closed to the sidecar default.
+	if drows, err := db.QueryContext(ctx, `SELECT idx, open FROM vtt_doors WHERE map = ?`, mapID); err == nil {
+		defer func() { _ = drows.Close() }()
+		for drows.Next() {
+			var d DoorLive
+			var open int
+			if err := drows.Scan(&d.Idx, &open); err != nil {
+				return out, nil
+			}
+			d.Open = open != 0
+			out.Doors = append(out.Doors, d)
+		}
 	}
 	return out, nil
 }
@@ -173,6 +196,21 @@ func SetFog(ctx context.Context, st store.Store, mapID, mask string) error {
 	_, err := appDB(st).ExecContext(ctx,
 		`INSERT INTO vtt_fog(map, mask) VALUES(?, ?)
 		  ON CONFLICT(map) DO UPDATE SET mask=excluded.mask`, mapID, mask)
+	return err
+}
+
+// SetDoorOpen upserts one live door override (GM-only; authorization lives
+// in handlers.go). open=false removes the override (sidecar default wins,
+// fail-closed to closed).
+func SetDoorOpen(ctx context.Context, st store.Store, mapID string, idx int, open bool) error {
+	db := appDB(st)
+	if !open {
+		_, err := db.ExecContext(ctx, `DELETE FROM vtt_doors WHERE map = ? AND idx = ?`, mapID, idx)
+		return err
+	}
+	_, err := db.ExecContext(ctx,
+		`INSERT INTO vtt_doors(map, idx, open) VALUES(?, ?, 1)
+		  ON CONFLICT(map, idx) DO UPDATE SET open=excluded.open`, mapID, idx)
 	return err
 }
 
@@ -296,6 +334,15 @@ func ResetToSidecar(ctx context.Context, st store.Store, mapID string, c Calibra
 	if _, err := tx.ExecContext(ctx, `DELETE FROM vtt_initiative WHERE map = ?`, mapID); err != nil {
 		return err
 	}
+	// vtt_doors is optional (pre-0004 DBs lack the table): reseed doors
+	// only when it exists; readers fail closed without it.
+	var hasDoors bool
+	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM sqlite_master WHERE type='table' AND name='vtt_doors'`).Scan(new(int)); err == nil {
+		hasDoors = true
+		if _, err := tx.ExecContext(ctx, `DELETE FROM vtt_doors WHERE map = ?`, mapID); err != nil {
+			return err
+		}
+	}
 	for i, d := range c.Defaults {
 		hidden := 0
 		if d.Hidden {
@@ -315,6 +362,16 @@ func ResetToSidecar(ctx context.Context, st store.Store, mapID string, c Calibra
 		`INSERT INTO vtt_fog(map, mask) VALUES(?, ?)
 		  ON CONFLICT(map) DO UPDATE SET mask=excluded.mask`, mapID, sidecarFogMask(c)); err != nil {
 		return err
+	}
+	if hasDoors {
+		for i, p := range c.Portals {
+			if p.Closed {
+				continue // absent row = closed default; store opens only
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO vtt_doors(map, idx, open) VALUES(?, ?, 1)`, mapID, i); err != nil {
+				return err
+			}
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return err

@@ -515,7 +515,7 @@ func TestFragmentA11y(t *testing.T) {
 	}
 	// Frozen contract: snapshot shape pins version/map_id/hidden/order keys.
 	b, _ := json.Marshal(plugins.StateSnapshot{Version: plugins.FragmentVersion, MapID: "arena"})
-	for _, want := range []string{`"version":1`, `"map_id":"arena"`} {
+	for _, want := range []string{`"version":2`, `"map_id":"arena"`} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("frozen shape drift: %s", b)
 		}
@@ -542,4 +542,95 @@ func itoa(n int) string {
 		b[i] = '-'
 	}
 	return string(b[i:])
+}
+
+func TestSnapshotV2DoorsAndGeometry(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	// Sidecar with walls, two portals (one shut, one open), one light.
+	if err := s.PageUpsert(ctx, &store.Page{
+		Path: "maps/arena.md", Title: "Arena", Secret: false,
+		Frontmatter: map[string]any{
+			"title": "Arena",
+			"vtt-map": map[string]any{
+				"background": "maps/arena.png",
+				"grid":       map[string]any{"cols": int64(20), "rows": int64(14)},
+				"walls":      []any{[]any{int64(0), int64(0), int64(20), int64(0)}},
+				"portals": []any{
+					map[string]any{"a": []any{int64(1), int64(0)}, "b": []any{int64(2), int64(0)}, "closed": true},
+					map[string]any{"a": []any{int64(3), int64(0)}, "b": []any{int64(4), int64(0)}, "closed": false},
+				},
+				"lights":  []any{map[string]any{"x": float64(5), "y": float64(5), "range": float64(6), "color": "ff0000", "intensity": float64(1), "shadows": true}},
+				"ambient": "112233",
+			},
+		},
+		UpdatedAt: time.Now().Unix(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	grid := Grid{Cols: 20, Rows: 14}
+	if err := SetFog(ctx, s, "arena", EncodeMask(grid, nil)); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpsertToken(ctx, s, "arena", Token{ID: "gob-1", Name: "Boss", X: 9, Y: 9, HP: 1, MaxHP: 1, Hidden: true}); err != nil {
+		t.Fatal(err)
+	}
+	// Fresh GM view: geometry present, door 0 shut, door 1 open.
+	snap, _, err := SnapshotFor(ctx, s, gmViewer(), "arena")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Walls) != 1 || len(snap.Lights) != 1 || snap.Ambient != "112233" {
+		t.Fatalf("geometry = walls %d lights %d ambient %q, want 1/1/112233", len(snap.Walls), len(snap.Lights), snap.Ambient)
+	}
+	if len(snap.Doors) != 2 || !snap.Doors[0].Closed || snap.Doors[1].Closed {
+		t.Fatalf("doors = %+v, want [closed open]", snap.Doors)
+	}
+	// GM opens door 0: effective state flips, sidecar default untouched.
+	if err := SetDoorOpen(ctx, s, "arena", 0, true); err != nil {
+		t.Fatal(err)
+	}
+	snap2, _, _ := SnapshotFor(ctx, s, gmViewer(), "arena")
+	if snap2.Doors[0].Closed {
+		t.Errorf("door 0 still closed after SetDoorOpen")
+	}
+	// Closing removes the override row again.
+	if err := SetDoorOpen(ctx, s, "arena", 0, false); err != nil {
+		t.Fatal(err)
+	}
+	snap3, _, _ := SnapshotFor(ctx, s, gmViewer(), "arena")
+	if !snap3.Doors[0].Closed {
+		t.Errorf("door 0 still open after override removal")
+	}
+	// Player sees the same board geometry (never hidden-token content).
+	psnap, _, err := SnapshotFor(ctx, s, playerViewer("mira"), "arena")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(psnap.Walls) != 1 || len(psnap.Doors) != 2 {
+		t.Errorf("player geometry = walls %d doors %d, want 1/2", len(psnap.Walls), len(psnap.Doors))
+	}
+	for _, tok := range psnap.Tokens {
+		if tok.Hidden || tok.ID == "gob-1" {
+			t.Errorf("player snapshot leaks hidden token %+v", tok)
+		}
+	}
+	// Fully-hidden board (fresh map, no fog row) shows no geometry either.
+	if err := s.PageUpsert(ctx, &store.Page{
+		Path: "maps/dark.md", Title: "Dark",
+		Frontmatter: map[string]any{
+			"title":   "Dark",
+			"vtt-map": map[string]any{"walls": []any{[]any{int64(0), int64(0), int64(1), int64(0)}}},
+		},
+		UpdatedAt: time.Now().Unix(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	dsnap, _, err := SnapshotFor(ctx, s, gmViewer(), "dark")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !dsnap.Fog.Hidden || len(dsnap.Walls) != 0 {
+		t.Errorf("hidden board leaks geometry: fog=%v walls=%d", dsnap.Fog.Hidden, len(dsnap.Walls))
+	}
 }

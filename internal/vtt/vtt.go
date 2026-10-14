@@ -102,18 +102,20 @@ func MapIDFromPath(p, prefix, suffix string) (id string, ok bool) {
 
 // Calibration ----------------------------------------------------------------
 
-// Grid bounds (P08: grid calibration in sidecar; board stays small by design).
+// Grid bounds (P08: grid calibration in sidecar; A-VTT2 raised the cap to
+// admit 96x72-class UVTT maps — rendering stays percentage-based, so cost
+// scales with rects/tokens, not cells).
 const (
-	MaxGridCols = 64
-	MaxGridRows = 64
+	MaxGridCols = 128
+	MaxGridRows = 128
 	MinCellPx   = 16
 	MaxCellPx   = 256
 )
 
 // Grid is the sidecar grid calibration.
 type Grid struct {
-	Cols    int // cells wide (1..64)
-	Rows    int // cells high (1..64)
+	Cols    int // cells wide (1..128)
+	Rows    int // cells high (1..128)
 	CellPx  int // render cell size in px (16..256, display hint only)
 	OffsetX int // background offset, px
 	OffsetY int // background offset, px
@@ -140,9 +142,31 @@ type TokenDefault struct {
 type Calibration struct {
 	Background string // vault-relative asset path ("" = none)
 	Grid       Grid
+	// GridBaked reports the background art carries its own grid: renderers
+	// skip the overlay grid lines (tokens/fog still render). Default false
+	// (nogrid art, including dd2vtt embedded images — overlay rendered).
+	GridBaked bool
 	// FogDefault is the GM-reseed posture ("hidden" default, "revealed").
 	FogDefault string
 	Defaults   []TokenDefault
+	// PPG is the source pixels-per-grid (info only; grid.Cell holds the
+	// clamped display value).
+	PPG float64
+	// Ambient is normalized lowercase rrggbb ("" = absent).
+	Ambient string
+	// BakedLighting warns that art already has light/shadow rendered.
+	BakedLighting bool
+	// Walls are sight+movement blockers, Objects movement-only blockers,
+	// all in grid-square floats (UVTT convention; reuses the importer
+	// types so the sidecar writer stays mechanical).
+	Walls   []WallSeg
+	Objects []WallSeg
+	// Portals are door/window spans with sidecar default states.
+	Portals []Portal
+	// Lights are dynamic lights in grid-square units (range in squares).
+	Lights []Light
+	// UVTTSource is the original import filename (audit only).
+	UVTTSource string
 }
 
 // ParseCalibration parses the sidecar `vtt-map` frontmatter value (nil = no
@@ -167,6 +191,27 @@ func ParseCalibration(v any) Calibration {
 		if fd == "revealed" || fd == "hidden" {
 			c.FogDefault = fd
 		}
+	}
+	if b, ok := asBool(m["grid-baked"]); ok {
+		c.GridBaked = b
+	}
+	if n, ok := asFloat(m["ppg"]); ok && n > 0 && finite(n) {
+		c.PPG = n
+	}
+	if s, ok := asString(m["ambient"]); ok {
+		if norm, ok := normalizeColor(s); ok {
+			c.Ambient = norm
+		}
+	}
+	if b, ok := asBool(m["baked-lighting"]); ok {
+		c.BakedLighting = b
+	}
+	c.Walls = parseWallSegs(m["walls"], c.Grid)
+	c.Objects = parseWallSegs(m["blocking-objects"], c.Grid)
+	c.Portals = parsePortalStates(m["portals"], c.Grid)
+	c.Lights = parseLightStates(m["lights"], c.Grid)
+	if s, ok := asString(m["uvtt-source"]); ok {
+		c.UVTTSource = truncate(sanitizeSource(s), 128)
 	}
 	if toks, ok := m["tokens"].([]any); ok {
 		for _, t := range toks {
@@ -466,4 +511,185 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n]
+}
+
+// A-VTT2 calibration sub-keys (append-only inside `vtt-map`; broken values
+// drop field-by-field, never quarantine — Obsidian users hand-edit sidecars).
+
+func asFloat(v any) (float64, bool) {
+	switch t := v.(type) {
+	case int:
+		return float64(t), true
+	case int64:
+		return float64(t), true
+	case float64:
+		return t, true
+	case string:
+		var f float64
+		if _, err := fmt.Sscanf(strings.TrimSpace(t), "%g", &f); err == nil {
+			return f, true
+		}
+	}
+	return 0, false
+}
+
+func asFloatList(v any) ([]float64, bool) {
+	items, ok := v.([]any)
+	if !ok {
+		return nil, false
+	}
+	out := make([]float64, 0, len(items))
+	for _, e := range items {
+		f, ok := asFloat(e)
+		if !ok {
+			return nil, false
+		}
+		out = append(out, f)
+	}
+	return out, true
+}
+
+// normalizeColor parses a lenient rrggbb color: strips a leading `#` or
+// `0x`, lowercases, drops a leading alpha pair (UVTT emits aarrggbb), and
+// requires exactly 6 hex digits afterwards. Anything else is absent.
+func normalizeColor(s string) (string, bool) {
+	s = strings.TrimSpace(strings.ToLower(s))
+	s = strings.TrimPrefix(s, "#")
+	s = strings.TrimPrefix(s, "0x")
+	if len(s) == 8 {
+		s = s[2:]
+	}
+	if len(s) != 6 {
+		return "", false
+	}
+	for i := 0; i < 6; i++ {
+		if !isHex(s[i]) {
+			return "", false
+		}
+	}
+	return s, true
+}
+
+// parseWallSegs parses `walls` / `blocking-objects`: lists of 4-float
+// `[x1,y1,x2,y2]` segments in grid squares, clipped to the grid. Bad segs
+// drop individually; zero-length segs drop.
+func parseWallSegs(v any, g Grid) []WallSeg {
+	items, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	maxX, maxY := float64(g.Cols), float64(g.Rows)
+	var out []WallSeg
+	for _, e := range items {
+		nums, ok := asFloatList(e)
+		if !ok || len(nums) != 4 {
+			continue
+		}
+		for _, n := range nums {
+			if !finite(n) {
+				ok = false
+				break
+			}
+		}
+		if !ok {
+			continue
+		}
+		if cx1, cy1, cx2, cy2, ok := clipSegToGrid(nums[0], nums[1], nums[2], nums[3], maxX, maxY); ok {
+			if cx1 != cx2 || cy1 != cy2 {
+				out = append(out, WallSeg{cx1, cy1, cx2, cy2})
+			}
+		}
+	}
+	return out
+}
+
+func parsePointList(v any) ([2]float64, bool) {
+	nums, ok := asFloatList(v)
+	if !ok || len(nums) != 2 || !finite(nums[0]) || !finite(nums[1]) {
+		return [2]float64{}, false
+	}
+	return [2]float64{nums[0], nums[1]}, true
+}
+
+// parsePortalStates parses `portals`: `{a:[x1,y1], b:[x2,y2], closed: bool}`.
+// Non-bool `closed` defaults to true (fail-closed). Fully out-of-grid
+// portals drop; partial ones clip.
+func parsePortalStates(v any, g Grid) []Portal {
+	items, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	maxX, maxY := float64(g.Cols), float64(g.Rows)
+	var out []Portal
+	for _, e := range items {
+		m, ok := e.(map[string]any)
+		if !ok {
+			continue
+		}
+		a, ok := parsePointList(m["a"])
+		if !ok {
+			continue
+		}
+		b, ok := parsePointList(m["b"])
+		if !ok {
+			continue
+		}
+		closed := true
+		if c, ok := asBool(m["closed"]); ok {
+			closed = c
+		}
+		if cx1, cy1, cx2, cy2, ok := clipSegToGrid(a[0], a[1], b[0], b[1], maxX, maxY); ok {
+			out = append(out, Portal{AX: cx1, AY: cy1, BX: cx2, BY: cy2, Closed: closed})
+		}
+	}
+	return out
+}
+
+// parseLightStates parses `lights`: `{x, y, range, color, intensity,
+// shadows}` in grid squares. Out-of-grid or non-positive-range lights drop;
+// unparseable colors drop the light (fail-closed absent, never invented);
+// non-finite intensity falls back to 1.0; non-bool shadows to false.
+func parseLightStates(v any, g Grid) []Light {
+	items, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	var out []Light
+	for _, e := range items {
+		m, ok := e.(map[string]any)
+		if !ok {
+			continue
+		}
+		x, ok := asFloat(m["x"])
+		if !ok || !finite(x) || x < 0 || x > float64(g.Cols) {
+			continue
+		}
+		y, ok := asFloat(m["y"])
+		if !ok || !finite(y) || y < 0 || y > float64(g.Rows) {
+			continue
+		}
+		rng, ok := asFloat(m["range"])
+		if !ok || !finite(rng) || rng <= 0 {
+			continue
+		}
+		color := ""
+		if s, ok := asString(m["color"]); ok {
+			color, ok = normalizeColor(s)
+			if !ok {
+				continue
+			}
+		} else {
+			continue
+		}
+		intensity := 1.0
+		if f, ok := asFloat(m["intensity"]); ok && finite(f) && f >= 0 {
+			intensity = f
+		}
+		shadows := false
+		if b, ok := asBool(m["shadows"]); ok {
+			shadows = b
+		}
+		out = append(out, Light{X: x, Y: y, Range: rng, Color: color, Intensity: intensity, Shadows: shadows})
+	}
+	return out
 }

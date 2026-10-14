@@ -1223,6 +1223,18 @@ func (h *ReadHandlers) Assets(w http.ResponseWriter, r *http.Request) {
 
 // assetVisible implements the page-bundle rule for vault assets.
 func assetVisible(ctx context.Context, st store.Store, viewer *auth.Viewer, assetPath string) bool {
+	// Amend A-VTT2: map art under the assets/maps/ bundle dir inherits the
+	// map sidecar page's ACL (maps/<stem>.md). The bundle dir holds no pages
+	// of its own, so the same-directory ruling below would fail every
+	// imported background closed to invisible — even the GM's. A missing or
+	// unviewable sidecar still fails closed.
+	if sidecar, ok := mapBundleSidecar(assetPath); ok {
+		p, err := st.PageGet(ctx, sidecar)
+		if err != nil || p == nil {
+			return false
+		}
+		return secrets.CanViewPage(viewer, p.Secret, p.Path, p.Owner, p.EditableBy)
+	}
 	dir := path.Dir(assetPath)
 	if dir == "." {
 		dir = ""
@@ -1253,6 +1265,28 @@ func assetVisible(ctx context.Context, st store.Store, viewer *auth.Viewer, asse
 		}
 	}
 	return false
+}
+
+// mapBundleDir is the UVTT import bundle dir (amend A-VTT2 §4): imported
+// map art lives here and inherits its sidecar's ACL.
+const mapBundleDir = "assets/maps"
+
+// mapBundleSidecar maps a bundle-dir asset to the sidecar page that owns
+// its ACL: assets/maps/<stem>.<ext> → maps/<stem>.md. ok is false for
+// anything outside the bundle dir or with nested paths.
+func mapBundleSidecar(assetPath string) (string, bool) {
+	if !strings.HasPrefix(assetPath, mapBundleDir+"/") {
+		return "", false
+	}
+	name := strings.TrimPrefix(assetPath, mapBundleDir+"/")
+	if name == "" || strings.Contains(name, "/") {
+		return "", false
+	}
+	stem := strings.TrimSuffix(name, path.Ext(name))
+	if stem == "" || strings.ContainsAny(stem, ".") {
+		return "", false
+	}
+	return "maps/" + stem + ".md", true
 }
 
 // SSE handles Server-Sent Events for live updates (P01 hello: GM `-`/`+`
