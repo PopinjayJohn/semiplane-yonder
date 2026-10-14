@@ -132,7 +132,7 @@ carve-out before the registry check (even `/static/print.css` 404'd live
 before this). Public assets only, never vault bytes. Runbook §5 documents
 the mounts.
 
-## A-VTT2 — PixiJS renderer + UVTT import — LANDED (branch plan/vtt-pixi-uvtt, PR #33 draft)
+## A-VTT2 — PixiJS renderer + UVTT import — DONE (merged PR #33, 2026-10-14, main a41d3e7)
 
 Shipped 2026-10-13 on the amend branch (`docs/plan/amend-vtt2-pixi-uvtt.md` is
 the contract; decisions D1–D12, revisits R1–R6):
