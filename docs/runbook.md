@@ -115,7 +115,7 @@ than one command.
 | Offline copy | `yonder clone-vault --vault SRC --dest DST` (dest must be empty) |
 | Validate rules packs | `yonder rules lint [--vault DIR] [dir]` (errors fail; non-SRD warnings don't) |
 | Verify vendored JS pins | `yonder vendor verify [--fetch]` |
-| Import a Universal VTT map (A-VTT2) | `yonder import-uvtt --vault DIR --map ID [--background FILE] [--grid-baked] <file.uvtt\|dd2vtt\|df2vtt>` (GM-only surface; writes the image to `assets/maps/<ID>.<ext>` and merges `vtt-map` calibration into `maps/<ID>.md`, creating the sidecar for a fresh ID; run `reindex` afterwards when serving is not running). The same import over HTTP is `POST /vtt/{mapID}/import` (GM-only, 12MB cap → 413, also auto-creates a fresh map's sidecar). |
+| Import a Universal VTT map (A-VTT2, R1) | `yonder import-uvtt --vault DIR --map ID [--background FILE] [--grid-baked] <file.uvtt\|dd2vtt\|df2vtt>` (GM-only surface; writes the image to `assets/maps/<ID>.<ext>` and merges `vtt-map` calibration into `maps/<ID>.md`, creating the sidecar for a fresh ID; run `reindex` afterwards when serving is not running). The same import over HTTP is `POST /vtt/{mapID}/import` (GM-only, 55MB body cap → 413, import art 40MB, admission 1 in flight + 3/5min per GM → 429, also auto-creates a fresh map's sidecar). Art over 10MB rides outside the vault-zip backup (skipped with a count) — back up the vault directory itself. |
 
 **Restore:** fresh `init --bare` + unzip a vault zip over the empty vault +
 `reindex` = identical vault + index (proven by
