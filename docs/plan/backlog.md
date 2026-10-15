@@ -168,7 +168,10 @@ the contract; decisions D1–D12, revisits R1–R6):
 Deferred revisits (each needs its own amend; stance confirmed 2026-10-13 — R4
 stays GM-only for now): R1 HTTP ~55MB + DoS review, R2 `effectivePpg` downscale,
 R3 OOB-light glow retention, R4 owner-movable doors, R5 sticky renderer
-preference, R6 full-blocker `objects_line_of_sight`.
+preference, R6 full-blocker `objects_line_of_sight` — R6 data path DONE (this
+branch: `docs/plan/r6-full-blocker.md`; `objects-block-sight` sidecar key +
+importer options + calibration parse; renderer treatment still deferred —
+needs a `FragmentVersion` 2→3 amend to carry the flag to clients).
 
 ## Post-v1 feature ideas (unscoped — carried from overview §8–§10)
 DM lens: torch/puzzle timers + spotlight tracker; downtime

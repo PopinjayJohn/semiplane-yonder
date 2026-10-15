@@ -82,6 +82,9 @@ type ImportResult struct {
 	GridBaked   bool
 	BakedLight  bool
 	Source      string
+	// ObjectsBlockSight is the R6 posture (true = blocking-objects are
+	// full movement+sight blockers; false = movement-only, the default).
+	ObjectsBlockSight bool
 }
 
 // VaultWriter is the import write seam (the web.VaultWriter import would
@@ -112,7 +115,7 @@ func ApplyImport(ctx context.Context, req ImportRequest) (*ImportResult, error) 
 		Walls: len(m.Walls), Objects: len(m.Objects),
 		Portals: len(m.Portals), Lights: len(m.Lights),
 		Ambient: m.Ambient, GridBaked: m.GridBaked, BakedLight: m.BakedLighting,
-		Source: m.Source,
+		Source: m.Source, ObjectsBlockSight: m.ObjectsBlockSight,
 	}
 	// 1. Image: external --background bytes or the UVTT embedded image.
 	assetRel := ""
@@ -188,9 +191,11 @@ func CalibrationOf(m *UVTTMap, assetRel string) Calibration {
 		BakedLighting: m.BakedLighting,
 		Walls:         m.Walls,
 		Objects:       m.Objects,
-		Portals:       m.Portals,
-		Lights:        m.Lights,
-		UVTTSource:    m.Source,
+		// R6 full-blocker posture (declarative until P3 vision consumes it).
+		ObjectsBlockSight: m.ObjectsBlockSight,
+		Portals:           m.Portals,
+		Lights:            m.Lights,
+		UVTTSource:        m.Source,
 	}
 }
 
@@ -255,7 +260,7 @@ func imageExt(format string) string {
 // (tokens, fog-default, hand edits) survives the merge.
 var importerOwnedKeys = []string{
 	"background", "grid", "grid-baked", "ppg", "ambient", "baked-lighting",
-	"walls", "blocking-objects", "portals", "lights", "uvtt-source",
+	"walls", "blocking-objects", "objects-block-sight", "portals", "lights", "uvtt-source",
 }
 
 // sidecarEntry is one rendered `key: value` frontmatter entry.
@@ -293,6 +298,12 @@ func sidecarVTTMapEntries(m *UVTTMap, assetRel string) []sidecarEntry {
 	if len(m.Objects) > 0 {
 		out = append(out, wallEntry("blocking-objects", m.Objects))
 	}
+	// R6 posture is always written (mirrors grid-baked): explicit stance,
+	// idempotent re-imports, and flipping true→false removes nothing by
+	// omission — the merge replaces the owned key with the new value.
+	out = append(out, sidecarEntry{key: "objects-block-sight", lines: []string{
+		"  objects-block-sight: " + strconv.FormatBool(m.ObjectsBlockSight),
+	}})
 	if len(m.Portals) > 0 {
 		lines := make([]string, 0, len(m.Portals))
 		for _, p := range m.Portals {

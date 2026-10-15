@@ -158,9 +158,12 @@ type Calibration struct {
 	BakedLighting bool
 	// Walls are sight+movement blockers, Objects movement-only blockers,
 	// all in grid-square floats (UVTT convention; reuses the importer
-	// types so the sidecar writer stays mechanical).
-	Walls   []WallSeg
-	Objects []WallSeg
+	// types so the sidecar writer stays mechanical). ObjectsBlockSight
+	// (R6) upgrades Objects to full blockers (movement AND sight);
+	// declarative until P3 vision consumes it. Default false.
+	Walls             []WallSeg
+	Objects           []WallSeg
+	ObjectsBlockSight bool
 	// Portals are door/window spans with sidecar default states.
 	Portals []Portal
 	// Lights are dynamic lights in grid-square units (range in squares).
@@ -208,6 +211,9 @@ func ParseCalibration(v any) Calibration {
 	}
 	c.Walls = parseWallSegs(m["walls"], c.Grid)
 	c.Objects = parseWallSegs(m["blocking-objects"], c.Grid)
+	if b, ok := asBool(m["objects-block-sight"]); ok {
+		c.ObjectsBlockSight = b
+	}
 	c.Portals = parsePortalStates(m["portals"], c.Grid)
 	c.Lights = parseLightStates(m["lights"], c.Grid)
 	if s, ok := asString(m["uvtt-source"]); ok {
