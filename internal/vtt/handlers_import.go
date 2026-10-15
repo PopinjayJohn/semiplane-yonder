@@ -1,10 +1,15 @@
-// UVTT import HTTP route (amend A-VTT2 §4, D1): POST /vtt/{mapID}/import.
+// UVTT import HTTP route (amend A-VTT2 §4, R1 review
+// docs/plan/r1-http-cap-dos-review.md): POST /vtt/{mapID}/import.
 //
 // Auth surface, in the frozen order (same discipline as opSpawn/opReset):
 // login → preview-as 403 (W2) → double-submit CSRF → GM-only → CanViewMap.
 // The body is the raw .uvtt/.dd2vtt/.df2vtt JSON (application/json) with
-// optional `grid_baked` (D12) and `objects_block_sight` (R6) fields; a 12MB
-// cap answers 413 before any parse (larger files go through the CLI). The `?source=` query param carries the
+// optional `grid_baked` (D12) and `objects_block_sight` (R6) fields; a 55MB
+// cap answers 413 before any parse (larger files go through the CLI). Past
+// the GM gate, the R1 admission guard admits 1 import in flight + 3 per 5
+// minutes per GM (429 past it), so a compromised session or a retry loop
+// cannot stack full rescans while each holds ~200MB transient. The
+// `?source=` query param carries the
 // original filename for audit metadata only (sanitized to a base name,
 // never a path).
 //
@@ -32,11 +37,14 @@ import (
 
 	"github.com/semiplane/yonder/internal/plugins"
 	"github.com/semiplane/yonder/internal/store"
-	"github.com/semiplane/yonder/internal/uploads"
 )
 
-// maxImportBody caps the UVTT import body (D1: 12MB HTTP, CLI uncapped).
-const maxImportBody = 12 << 20
+// maxImportBody caps the UVTT import body (R1: 55MB HTTP, CLI uncapped).
+// The paired HTTP image cap is maxHTTPImportImageBytes (40MB, the largest
+// image encodable in a 55MB body) — the body cap alone would admit no real
+// 5–50MB export, since bodies over ~8MB always failed the old 5MB image
+// cap after paying parse + decode.
+const maxImportBody = 55 << 20
 
 // Import handles POST /vtt/{mapID}/import (GM-only, login + CanViewMap).
 func (h *Handlers) Import(w http.ResponseWriter, r *http.Request) {
@@ -91,13 +99,32 @@ func (h *Handlers) Import(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	freshSecret := sidecar == nil && mapDirSecret(ctx, h.Store)
+	// Known-oversize bodies 413 before spending admission budget (chunked
+	// uploads report -1 and fall through to the post-read check).
+	if r.ContentLength > maxImportBody {
+		http.Error(w, "import body too large (55MB cap; use the import-uvtt CLI)", http.StatusRequestEntityTooLarge)
+		return
+	}
+	// R1 admission guard: past the auth gates (rejected requests never
+	// consume budget) and before the first body byte is read (rejected
+	// requests never allocate). Every acquired slot releases via defer.
+	lim := h.importLimiter()
+	if err := lim.Acquire(v.UserID); err != nil {
+		if errors.Is(err, ErrImportBusy) {
+			http.Error(w, "another import is already running, try again shortly", http.StatusTooManyRequests)
+		} else {
+			http.Error(w, "too many imports, try again later", http.StatusTooManyRequests)
+		}
+		return
+	}
+	defer lim.Release()
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxImportBody+1))
 	if err != nil {
 		http.Error(w, "cannot read body", http.StatusBadRequest)
 		return
 	}
 	if len(body) > maxImportBody {
-		http.Error(w, "import body too large (12MB cap; use the import-uvtt CLI)", http.StatusRequestEntityTooLarge)
+		http.Error(w, "import body too large (55MB cap; use the import-uvtt CLI)", http.StatusRequestEntityTooLarge)
 		return
 	}
 	source := strings.TrimSpace(r.URL.Query().Get("source"))
@@ -111,7 +138,7 @@ func (h *Handlers) Import(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := ApplyImport(ctx, ImportRequest{
 		Vault: h.Vault, MapID: mapID, Map: m,
-		ImageByteCap: uploads.MaxImageBytes,
+		ImageByteCap: maxHTTPImportImageBytes,
 		FreshSecret:  freshSecret,
 	})
 	if err != nil {

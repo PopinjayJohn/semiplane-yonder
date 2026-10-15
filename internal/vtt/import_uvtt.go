@@ -56,6 +56,13 @@ const maxImageDecodedBytes = 96 << 20
 // 4 so non-final chunks never split a quantum).
 const base64ChunkSize = 32 << 10
 
+// MaxLights caps the retained light list (R3 glow rule, §docs/plan/
+// r3-oob-light-glow.md): real exports carry dozens of lights (29 observed
+// max), so 512 is generous headroom while a hostile 100k-light list can no
+// longer balloon the sidecar, the snapshot JSON, or the Pixi light pass.
+// Truncation keeps the first MaxLights in file order (deterministic).
+const MaxLights = 512
+
 // ErrCorrupt marks every structural failure (bad JSON, missing resolution,
 // bad base64, unknown image magic). Use errors.Is(err, ErrCorrupt).
 var ErrCorrupt = errors.New("uvtt: corrupt file")
@@ -286,9 +293,6 @@ func mapUVTT(raw uvttFile, source string) (*UVTTMap, error) {
 			continue // positionless lights are dropped
 		}
 		gx, gy := toGrid(px, py)
-		if gx < 0 || gy < 0 || gx > maxX || gy > maxY {
-			continue // out-of-bounds lights are dropped, never clamped
-		}
 		rng := 0.0
 		if len(l.Range) > 0 {
 			var r float64
@@ -299,6 +303,9 @@ func mapUVTT(raw uvttFile, source string) (*UVTTMap, error) {
 		}
 		if rng <= 0 {
 			continue // zero/negative range lights are dropped
+		}
+		if !lightGlowOverlaps(gx, gy, rng, maxX, maxY) {
+			continue // fully-off-board glow is dropped, never clamped
 		}
 		color, ok := parseUVTTColor(l.Color)
 		if !ok {
@@ -326,6 +333,9 @@ func mapUVTT(raw uvttFile, source string) (*UVTTMap, error) {
 			shadows = b
 		}
 		out.Lights = append(out.Lights, Light{X: gx, Y: gy, Range: rng, Color: color, Intensity: intensity, Shadows: shadows})
+	}
+	if len(out.Lights) > MaxLights {
+		out.Lights = out.Lights[:MaxLights] // hostile huge lists stay bounded, file order kept
 	}
 	if len(raw.Environment) > 0 {
 		var env uvttEnvironment
@@ -500,6 +510,19 @@ func portalClosed(raw json.RawMessage) bool {
 		return n != 0
 	}
 	return false
+}
+
+// lightGlowOverlaps reports whether a light's glow disc — center (x, y),
+// radius rng in grid squares — touches the board box [0,maxX]x[0,maxY]
+// (R3 retention rule). A centered-on-board light always overlaps; a
+// partially-off-board center is kept as-is (never clamped) so the glow
+// source stays where the exporter put it; a fully-off-board disc drops.
+// Callers enforce rng > 0 and finite coordinates first.
+func lightGlowOverlaps(x, y, rng, maxX, maxY float64) bool {
+	cx := min(max(x, 0), maxX)
+	cy := min(max(y, 0), maxY)
+	dx, dy := x-cx, y-cy
+	return dx*dx+dy*dy <= rng*rng
 }
 
 // clipSegToGrid clips a grid-unit segment to [0,maxX]x[0,maxY]

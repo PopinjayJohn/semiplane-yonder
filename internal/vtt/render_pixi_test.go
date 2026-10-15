@@ -202,3 +202,44 @@ func TestRenderBoardAspectRatioWithoutArt(t *testing.T) {
 		t.Errorf("art-backed board must stay unstyled:\n%s", html)
 	}
 }
+
+// R2 downscale note: a GM fragment for a calibration whose source art
+// exceeds the stored png/jpeg cap carries the text warning; players never
+// see it; small/webp/art-less calibrations render without the section
+// (default path byte-identical apart from ignored absence).
+func TestRenderFragmentArtNote(t *testing.T) {
+	tomb := Calibration{
+		Background: "assets/maps/tomb.jpg",
+		Grid:       Grid{Cols: 96, Rows: 72, CellPx: 100},
+		PPG:        100,
+	}
+	gm := RenderFragment(FragmentInput{MapID: "tomb", Title: "tomb", Cal: tomb, IsGM: true})
+	for _, want := range []string{
+		`data-art-note`, `aria-label="Map art"`,
+		`source 100px per grid (9600x7200px)`,
+		`overlays stay aligned`,
+	} {
+		if !strings.Contains(gm, want) {
+			t.Errorf("GM downscaled fragment missing %q:\n%s", want, gm)
+		}
+	}
+	// Player: the section (and its source-dim content) never renders.
+	player := RenderFragment(FragmentInput{MapID: "tomb", Title: "tomb", Cal: tomb})
+	for _, leak := range []string{"data-art-note", "Map art", "9600x7200"} {
+		if strings.Contains(player, leak) {
+			t.Errorf("player fragment leaks %q", leak)
+		}
+	}
+	// Non-downscaled shapes: no section for anyone, GM included.
+	for name, cal := range map[string]Calibration{
+		"small png": {Background: "assets/maps/arena.png", Grid: Grid{Cols: 20, Rows: 14}, PPG: 50},
+		"webp":      {Background: "assets/maps/big.webp", Grid: Grid{Cols: 96, Rows: 72}, PPG: 100},
+		"art-less":  {Grid: Grid{Cols: 96, Rows: 72}, PPG: 100},
+		"no ppg":    {Background: "assets/maps/tomb.jpg", Grid: Grid{Cols: 96, Rows: 72}},
+	} {
+		html := RenderFragment(FragmentInput{MapID: "m", Title: "m", Cal: cal, IsGM: true})
+		if strings.Contains(html, "data-art-note") {
+			t.Errorf("%s: GM fragment must not carry the art note", name)
+		}
+	}
+}
