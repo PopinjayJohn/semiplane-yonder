@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/semiplane/yonder/internal/auth"
 	"github.com/semiplane/yonder/internal/dice"
@@ -35,6 +36,20 @@ type Handlers struct {
 	// carries the attributes and stylesheet links itself.
 	Theme  string
 	Scheme string
+	// ImportLimit is the R1 import admission guard (1 in flight + a small
+	// per-GM window budget → 429). Nil-safe: importLimiter lazily installs
+	// the default per instance (same idiom as WriteHandlers.rateLimiter).
+	ImportLimit *ImportLimiter
+	importMu    sync.Mutex
+}
+
+func (h *Handlers) importLimiter() *ImportLimiter {
+	h.importMu.Lock()
+	defer h.importMu.Unlock()
+	if h.ImportLimit == nil {
+		h.ImportLimit = DefaultImportLimiter()
+	}
+	return h.ImportLimit
 }
 
 func (h *Handlers) roller() dice.Roller {
