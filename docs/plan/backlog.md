@@ -206,3 +206,13 @@ frozen-contract change (design: `docs/plan/r2-effective-ppg.md`):
   geometry).
 - No `StateSnapshot` change, no `FragmentVersion` bump. Remaining R-items
   (R1, R3–R6) stay deferred as listed in A-VTT2.
+
+## R1 — HTTP import cap 55MB + admission guard (A-VTT2 revisit, DONE 2026-10-15)
+
+DoS review in `docs/plan/r1-http-cap-dos-review.md`: `POST /vtt/{mapID}/import`
+raised 12MB → 55MB with a paired HTTP image cap 5MB → 40MB (the largest
+image encodable in a 55MB body; larger art keeps the "use the `import-uvtt`
+CLI" 422) plus an in-memory admission guard (1 import in flight + 3/5min per
+GM → 429, never a lockout). Parser caps unchanged (96MB decoded, 128MP
+dims); unauthenticated attackers still 401 before the first body byte.
+Spec §7 (`MaxUVTTBody=55MB`), runbook §4, amend §§4/7/9 pin the numbers.
