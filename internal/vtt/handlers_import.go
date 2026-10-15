@@ -32,6 +32,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -159,9 +160,11 @@ func (h *Handlers) Import(w http.ResponseWriter, r *http.Request) {
 	}
 	if h.OnAfterWrite != nil {
 		if err := h.OnAfterWrite(); err != nil {
-			// The vault write is durable (truth); the index refresh failure
-			// is retried by the watcher's next event. Log + continue.
-			_ = err
+			// The vault write is durable (truth) and the watcher's next event
+			// retries the refresh — but a swallowed error here is an
+			// undebuggable flake (a stale index reads as a missing map), so
+			// log it loud and continue.
+			slog.Error("import: index refresh after import failed (watcher will retry)", "map", mapID, "err", err)
 		}
 	}
 	Publish(Event{Name: plugins.EventFogUpdate, Map: mapID})
