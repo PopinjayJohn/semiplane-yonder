@@ -67,7 +67,15 @@ export async function bootPixi(PIXI, board, opts) {
       sprite.eventMode = "none";
       stage.addChild(sprite);
       view.bg = sprite;
+      // R2 effective ppg (D11): the stored art's real pixels per grid,
+      // derived live from the texture (floats, never rounded). Overlays
+      // need NO rescaling from this — px() normalizes grid squares against
+      // the same stage the sprite stretches to — but P3 pixel-space LOS
+      // must scale by THIS factor, never by grid.cell or source ppg.
+      view.bgTexW = tex.width;
+      view.bgTexH = tex.height;
     }
+    view.effectivePpg = null;
     const grid = new PIXI.Graphics();
     drawGrid(grid, app.screen.width, app.screen.height, cols, rows);
     stage.addChild(grid);
@@ -261,6 +269,14 @@ function renderSnapshot(view, snap) {
   if (view.bg) {
     view.bg.width = s.w;
     view.bg.height = s.h;
+  }
+  // Live effective ppg for P3 (null when art-less): stored texture dims
+  // over the snapshot grid. Float-exact per D11; grid-square geometry is
+  // never quantized to it on the overlay path.
+  if (view.bgTexW && view.bgTexH) {
+    view.effectivePpg = { x: view.bgTexW / view.cols, y: view.bgTexH / view.rows };
+  } else {
+    view.effectivePpg = null;
   }
   drawGrid(view.grid, s.w, s.h, view.cols, view.rows);
   drawFog(view, snap.fog);

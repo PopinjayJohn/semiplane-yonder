@@ -652,14 +652,18 @@ func parsePortalStates(v any, g Grid) []Portal {
 }
 
 // parseLightStates parses `lights`: `{x, y, range, color, intensity,
-// shadows}` in grid squares. Out-of-grid or non-positive-range lights drop;
-// unparseable colors drop the light (fail-closed absent, never invented);
-// non-finite intensity falls back to 1.0; non-bool shadows to false.
+// shadows}` in grid squares. Retained under the R3 glow rule: the center
+// may sit off-board (kept as-is, never clamped) while its glow disc still
+// touches the board; fully-off-board glows drop. The list is capped at
+// MaxLights (first-in-file kept). Unparseable colors drop the light
+// (fail-closed absent, never invented); non-finite intensity falls back
+// to 1.0; non-bool shadows to false.
 func parseLightStates(v any, g Grid) []Light {
 	items, ok := v.([]any)
 	if !ok {
 		return nil
 	}
+	maxX, maxY := float64(g.Cols), float64(g.Rows)
 	var out []Light
 	for _, e := range items {
 		m, ok := e.(map[string]any)
@@ -667,15 +671,18 @@ func parseLightStates(v any, g Grid) []Light {
 			continue
 		}
 		x, ok := asFloat(m["x"])
-		if !ok || !finite(x) || x < 0 || x > float64(g.Cols) {
+		if !ok || !finite(x) {
 			continue
 		}
 		y, ok := asFloat(m["y"])
-		if !ok || !finite(y) || y < 0 || y > float64(g.Rows) {
+		if !ok || !finite(y) {
 			continue
 		}
 		rng, ok := asFloat(m["range"])
 		if !ok || !finite(rng) || rng <= 0 {
+			continue
+		}
+		if !lightGlowOverlaps(x, y, rng, maxX, maxY) {
 			continue
 		}
 		color := ""
@@ -696,6 +703,9 @@ func parseLightStates(v any, g Grid) []Light {
 			shadows = b
 		}
 		out = append(out, Light{X: x, Y: y, Range: rng, Color: color, Intensity: intensity, Shadows: shadows})
+	}
+	if len(out) > MaxLights {
+		out = out[:MaxLights] // same culling bound as the importer
 	}
 	return out
 }

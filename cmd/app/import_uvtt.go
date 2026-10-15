@@ -5,7 +5,7 @@
 //	    [--objects-block-sight|--no-objects-block-sight] <file.uvtt|dd2vtt|df2vtt>
 //
 // Same parser + sidecar writer as POST /vtt/{mapID}/import, but with NO
-// HTTP cap (D1: "larger files via CLI"): the 12MB body cap and the 5MB
+// HTTP cap (D1: "larger files via CLI"): the 55MB body cap and the 40MB
 // image cap do not apply here — the parser's 96MB decoded cap and the
 // 128MP dims cap still do. Writes the map image to assets/maps/<id>.<ext>
 // and merges the vtt-map calibration into maps/<id>.md surgically

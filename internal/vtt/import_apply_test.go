@@ -250,6 +250,88 @@ func TestApplyImportCRLFPreserved(t *testing.T) {
 	}
 }
 
+// A partially-OOB light survives the sidecar round-trip through the REAL
+// frontmatter parser: the importer retains its glow (R3) and the read path
+// (parseLightStates) applies the same rule, so calibration matches exactly.
+func TestApplyImportOOBLightRoundTrip(t *testing.T) {
+	v, dir := testVault(t)
+	ctx := context.Background()
+	payload := `{
+  "resolution": {"map_origin": {"x":0,"y":0}, "map_size": {"x":20,"y":20}, "pixels_per_grid": 150},
+  "lights": [
+    {"position":{"x":9.015625,"y":3},"range":5,"color":"ffeccd8b","intensity":0.8,"shadows":true},
+    {"position":{"x":-0.570313,"y":19.539101},"range":1.3,"color":"ffeccd8b","intensity":1,"shadows":true},
+    {"position":{"x":-5,"y":10},"range":1.3,"color":"ffffff","intensity":1,"shadows":false}
+  ]
+}`
+	m, err := Parse([]byte(payload), "ground-floor.dd2vtt")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(m.Lights) != 2 {
+		t.Fatalf("parsed lights = %d, want 2 (glow retained, far-oob dropped)", len(m.Lights))
+	}
+	res, err := ApplyImport(ctx, ImportRequest{Vault: v, MapID: "glow", Map: m})
+	if err != nil {
+		t.Fatalf("ApplyImport: %v", err)
+	}
+	if res.Lights != 2 {
+		t.Fatalf("result lights = %d, want 2", res.Lights)
+	}
+	out, err := os.ReadFile(filepath.Join(dir, "maps", "glow.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := markdown.Parse(ctx, string(out), "maps/glow.md")
+	if err != nil {
+		t.Fatalf("reparse: %v", err)
+	}
+	if page.Quarantined {
+		t.Fatalf("imported sidecar quarantined: %s", page.QuarantineReason)
+	}
+	cal := ParseCalibration(page.Frontmatter["vtt-map"])
+	want := CalibrationOf(m, res.AssetPath)
+	if len(cal.Lights) != len(want.Lights) {
+		t.Fatalf("round-trip lights = %d, want %d", len(cal.Lights), len(want.Lights))
+	}
+	for i := range cal.Lights {
+		got, want := cal.Lights[i], want.Lights[i]
+		// Sidecar floats serialize at 4 decimals (formatFloat), so the
+		// round-trip holds within 1e-4, not bit-exact (unlike ≤4dp goldens).
+		close := func(a, b float64) bool {
+			d := a - b
+			return d < 1e-4 && d > -1e-4
+		}
+		if !close(got.X, want.X) || !close(got.Y, want.Y) ||
+			!close(got.Range, want.Range) || got.Color != want.Color ||
+			!close(got.Intensity, want.Intensity) || got.Shadows != want.Shadows {
+			t.Errorf("light %d = %+v, want %+v", i, got, want)
+		}
+	}
+	if cal.Lights[1].X >= 0 {
+		t.Errorf("glow center x = %g, want the negative OOB value kept as-is", cal.Lights[1].X)
+	}
+}
+
+// The sidecar read path enforces the same culling bound as the importer,
+// so a hand-edited mega-list cannot bypass it at serve time.
+func TestSidecarLightGlowCap(t *testing.T) {
+	items := make([]any, 0, MaxLights+10)
+	for i := 0; i < MaxLights+10; i++ {
+		items = append(items, map[string]any{
+			"x": float64(i % 20), "y": float64(1), "range": float64(2),
+			"color": "ffffff", "intensity": float64(1), "shadows": false,
+		})
+	}
+	c := ParseCalibration(map[string]any{
+		"grid":   map[string]any{"cols": int64(20), "rows": int64(20)},
+		"lights": items,
+	})
+	if len(c.Lights) != MaxLights {
+		t.Fatalf("sidecar lights = %d, want MaxLights %d", len(c.Lights), MaxLights)
+	}
+}
+
 // The HTTP image cap (5MB) rejects big embedded art with a clear reason;
 // the CLI (cap 0) is uncapped (D1).
 func TestApplyImportImageCap(t *testing.T) {

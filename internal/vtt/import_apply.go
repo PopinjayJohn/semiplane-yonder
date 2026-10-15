@@ -37,6 +37,13 @@ const MapAssetDir = "assets/maps"
 // page image, but not unbounded.
 const maxImportImageBytes = 64 << 20
 
+// maxHTTPImportImageBytes bounds one stored image on the HTTP route (R1:
+// 40MB, the largest image encodable in a 55MB body at base64 ×4/3 plus
+// envelope). webp is stored as-is (no decode transient); png/jpeg stay
+// under the 32MP uploads.Normalize guard and downscale to 1600px, so stored
+// bytes stay small. Anything larger keeps the "use the import-uvtt CLI" 422.
+const maxHTTPImportImageBytes = 40 << 20
+
 // ImportRequest is one parsed import ready to apply.
 type ImportRequest struct {
 	Vault VaultWriter
@@ -48,9 +55,10 @@ type ImportRequest struct {
 	Background    []byte
 	BackgroundExt string // "png" | "webp" | "jpeg" (sniffed by the caller)
 	// ImageByteCap bounds one stored image: the HTTP route passes
-	// uploads.MaxImageBytes (5MB, spec §7), the CLI passes 0 (uncapped per
-	// D1 — "larger files via CLI"). The parser's 96MB decoded cap and the
-	// 128MP dims cap bound both surfaces regardless.
+	// maxHTTPImportImageBytes (40MB, R1 — the largest image encodable in a
+	// 55MB body), the CLI passes 0 (uncapped per D1 — "larger files via
+	// CLI"). The parser's 96MB decoded cap and the 128MP dims cap bound
+	// both surfaces regardless.
 	ImageByteCap int
 	// FreshSecret stamps `secret: true` on a sidecar this import CREATES
 	// (the maps/ tree is secret). Existing sidecars keep their own flag.
@@ -197,8 +205,8 @@ func CalibrationOf(m *UVTTMap, assetRel string) Calibration {
 // uploads.Normalize (decode, 32MP MaxPixels guard, DisplayMaxDim downscale,
 // EXIF-strip re-encode — over-cap png/jpeg must arrive as webp instead),
 // webp is stored as-is (never fully decoded at import). byteCap > 0 is the
-// §7 5MB image cap the HTTP route applies ("larger files via CLI" — the CLI
-// passes 0, still bounded by the parser's 96MB decoded cap).
+// 40MB image cap the HTTP route applies (R1 — "larger files via CLI" — the
+// CLI passes 0, still bounded by the parser's 96MB decoded cap).
 func processImportImage(data []byte, format string, byteCap int) ([]byte, string, error) {
 	if len(data) == 0 {
 		return nil, "", errors.New("import: empty image")
