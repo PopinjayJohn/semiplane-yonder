@@ -8,6 +8,7 @@ import (
 
 	"github.com/semiplane/yonder/internal/auth"
 	"github.com/semiplane/yonder/internal/plugins"
+	"github.com/semiplane/yonder/internal/uploads"
 	"github.com/semiplane/yonder/internal/web"
 )
 
@@ -43,6 +44,9 @@ func RenderFragment(in FragmentInput) string {
 	b.WriteString(renderTokenList(in))
 	if in.IsGM && len(in.Snap.Doors) > 0 {
 		b.WriteString(renderDoors(in))
+	}
+	if in.IsGM && EffectivePPGOf(in.Cal).Downscaled {
+		b.WriteString(renderArtNote(in))
 	}
 	if in.IsGM {
 		b.WriteString(renderFogControls(in))
@@ -253,6 +257,22 @@ func renderDoors(in FragmentInput) string {
 			d.Idx, !d.Closed, d.Idx+1, col, row, state, d.Idx, !d.Closed, !d.Closed, action)
 	}
 	b.WriteString("</ol>\n</section>\n")
+	return b.String()
+}
+
+// renderArtNote renders the GM-only downscale note (R2): the stored
+// png/jpeg art is capped at uploads.DisplayMaxDim on the long edge, so a
+// large-ppg source (e.g. 96x72 @100ppg = 9600x7200px) is stored smaller.
+// Geometry is grid squares end-to-end, so overlays stay aligned regardless
+// — the note says so in text (never color-only). Players never receive it.
+func renderArtNote(in FragmentInput) string {
+	eff := EffectivePPGOf(in.Cal)
+	var b strings.Builder
+	b.WriteString(`<section aria-label="Map art" data-art-note><h2>Map art</h2>` + "\n")
+	fmt.Fprintf(&b, `<p>Map art downscaled: source %gpx per grid (%gx%gpx); stored png/jpeg art is capped at %dpx on the long edge. `+
+		`Walls, doors, and lights use grid squares, so overlays stay aligned — no action needed.</p>`+"\n",
+		in.Cal.PPG, eff.SrcW, eff.SrcH, uploads.DisplayMaxDim)
+	b.WriteString("</section>\n")
 	return b.String()
 }
 

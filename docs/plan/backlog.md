@@ -188,6 +188,25 @@ audit-only; content-prose hash deferred); media upgrades (EXIF-orientation auto-
 decode/resize, PDF page-count — each needs a maintained dep, propose first
 per AGENTS.md).
 
+## R2 — `effectivePpg` downscale — SHIPPED (branch `plan/r2-effective-ppg`)
+
+Deferred revisit R2 from the A-VTT2 section above, implemented without a
+frozen-contract change (design: `docs/plan/r2-effective-ppg.md`):
+
+- `EffectivePPGOf` (`internal/vtt/effective_ppg.go`, pure, no I/O) projects
+  calibration onto the stored-art posture: png/jpeg art is capped at
+  `uploads.DisplayMaxDim` (1600px long edge), webp is stored as-is (D2).
+- GM-only `data-art-note` section in the fragment (server-filtered;
+  players never receive it): source ppg + source dims + "overlays stay
+  aligned — no action needed". Non-downscaled maps render byte-identical.
+- `pixi-board.js` derives live `view.effectivePpg` from the loaded texture
+  (float-exact, D11) for the future P3 pixel-space LOS consumer; overlay
+  alignment itself needs no rescaling on either renderer (grid squares
+  end-to-end — the importer deliberately does NOT fold the scale into
+  geometry).
+- No `StateSnapshot` change, no `FragmentVersion` bump. Remaining R-items
+  (R1, R3–R6) stay deferred as listed in A-VTT2.
+
 ## R1 — HTTP import cap 55MB + admission guard (A-VTT2 revisit, DONE 2026-10-15)
 
 DoS review in `docs/plan/r1-http-cap-dos-review.md`: `POST /vtt/{mapID}/import`
