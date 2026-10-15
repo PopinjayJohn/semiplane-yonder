@@ -223,3 +223,40 @@ func TestStatblockAbilityMods(t *testing.T) {
 		}
 	}
 }
+
+// TestStatblockDuplicateKeysDeterministic pins the FuzzParse `unstable
+// render` fix: keys that collide after lenient normalization (`name` vs
+// `Name`, `hit-dice` vs `hit_dice`, trait `name` vs `NAME`, save `MOD` vs
+// `mod`) used to resolve via Go map iteration (random per parse), so the
+// same input rendered different HTML on re-parse. Winners are now
+// deterministic (keys iterate in byte order, last wins), and repeated
+// parses agree exactly.
+func TestStatblockDuplicateKeysDeterministic(t *testing.T) {
+	inputs := []struct {
+		body string
+		want string // deterministic winner pinned in HTML
+	}{
+		{"name: Goblin\nName: Orc\n", "Goblin"},
+		{"ac: 10\nAC: 15\n", "Armor Class</strong> 10"},
+		{"hit-dice: 1d8\nhit_dice: 2d10\n", "Hit Dice</strong> 2d10"},
+		{"traits:\n- name: A\n  NAME: B\n", "<strong>A.</strong>"},
+		{"saves:\n- ability: STR\n  MOD: 5\n  mod: 7\n", "STR +7"},
+	}
+	for _, in := range inputs {
+		src := "```statblock\n" + in.body + "```\n"
+		var first string
+		for i := 0; i < 100; i++ {
+			p := parseSB(t, src, "dup.md")
+			if i == 0 {
+				first = p.HTML
+				if !strings.Contains(first, in.want) {
+					t.Errorf("body %q: HTML missing deterministic winner %q:\n%s", in.body, in.want, first)
+				}
+				continue
+			}
+			if p.HTML != first {
+				t.Fatalf("body %q: unstable render on iteration %d", in.body, i)
+			}
+		}
+	}
+}

@@ -137,11 +137,20 @@ func parseStatblockBody(body string) (StatblockData, bool) {
 	if err != nil {
 		return d, true
 	}
-	// Lenient key lookup: lowercase, `-`/`_` equivalent.
+	// Lenient key lookup: lowercase, `-`/`_` equivalent. Keys iterate
+	// sorted so duplicate-after-normalization collisions (`name`/`Name`,
+	// `hit-dice`/`hit_dice`) resolve deterministically (last in byte order
+	// wins) — Go map iteration is random, and a random winner renders
+	// different HTML on re-parse (fuzz `unstable render` flake).
 	m := make(map[string]any, len(raw))
-	for k, v := range raw {
+	keys := make([]string, 0, len(raw))
+	for k := range raw {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
 		nk := strings.ToLower(strings.ReplaceAll(k, "-", "_"))
-		m[nk] = v
+		m[nk] = raw[k]
 	}
 	d.Name = sbStr(m, "name")
 	d.Size = sbStr(m, "size")
@@ -269,7 +278,18 @@ func sbTraits(v any) []StatblockTrait {
 		switch t := item.(type) {
 		case map[string]any:
 			var name, desc string
-			for k, val := range t {
+			// Sorted for determinism: case variants of the same fixed
+			// key (`name`/`NAME`) collide below, and Go map iteration
+			// is random — an unsorted range renders different HTML on
+			// re-parse (fuzz `unstable render` flake). Last in byte
+			// order wins.
+			tkeys := make([]string, 0, len(t))
+			for k := range t {
+				tkeys = append(tkeys, k)
+			}
+			sort.Strings(tkeys)
+			for _, k := range tkeys {
+				val := t[k]
 				switch strings.ToLower(k) {
 				case "name":
 					if s, ok := scalarToString(val); ok {
@@ -351,8 +371,17 @@ func sbMods(vs ...any) []StatblockMod {
 func sbModsFromMap(m map[string]any) []StatblockMod {
 	var label, mod string
 	lower := map[string]any{}
-	for k, val := range m {
-		lower[strings.ToLower(k)] = val
+	// Sorted for determinism: case variants of a fixed lookup key
+	// (`MOD`/`mod`) collide below, and Go map iteration is random — an
+	// unsorted range renders different HTML on re-parse (fuzz `unstable
+	// render` flake). Last in byte order wins.
+	mkeys := make([]string, 0, len(m))
+	for k := range m {
+		mkeys = append(mkeys, k)
+	}
+	sort.Strings(mkeys)
+	for _, k := range mkeys {
+		lower[strings.ToLower(k)] = m[k]
 	}
 	for _, k := range []string{"ability", "skill", "name", "label"} {
 		if val, ok := lower[k]; ok {
