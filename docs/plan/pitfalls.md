@@ -143,6 +143,11 @@
 - The asset ACL's same-directory-page ruling ("a directory holding zero pages serves nothing to anyone") fails a PURE-ASSET bundle dir closed to invisible for the GM too — imported UVTT art under `assets/maps/` was unloadable until `assetVisible` grew the amend's bundle ruling (`assets/maps/<stem>.<ext>` inherits `maps/<stem>.md`; missing sidecar fails closed). Any new asset-only directory needs an explicit ACL ruling or it is a black hole for everyone.
 - A sidecar `background:` whose stem does not match its sidecar (`assets/maps/ford.png` referenced by `maps/arena.md`) is invisible under the bundle ruling — shared art must be named per-map (demo: ford.png renamed arena.png) or live in the sidecar's own directory.
 
+## R3 additions (OOB-light glow retention)
+
+- Sidecar floats serialize at 4 decimals (`formatFloat` rounds): a round-trip test asserting exact struct equality on 6-decimal UVTT coords (e.g. Ground-Floor x=-0.570313 → "-0.5703") fails on the tail — compare round-tripped geometry within 1e-4, not bit-exact (≤4dp goldens are unaffected).
+- Retention-rule changes flip old fixtures silently: the pre-R3 OOB test light at (5,5) r2 on a 4x4 grid *passes* the new glow test (disc distance 1.41 ≤ 2) and would have inverted the test's meaning — keep drop-case coordinates far from the decision boundary ((9,9) r2) and pin near-boundary retention ((4.5,2) r1, Ground-Floor #25) as separate cases.
+
 ## A-VTT2 canvas-mount additions (browser-only defects)
 - A `<script>`-loaded ESM namespace does NOT leak into sibling module functions: pixi-board.js's scene helpers referenced `PIXI` (bootPixi's parameter) and every mount threw ReferenceError into the DOM fallback — Go tests never noticed because the fallback is invisible server-side → bind the namespace at module scope for single-mount loaders, and browser-drive the mount path once before shipping it.
 - Reading `app.canvas` AFTER `app.destroy(true)` throws (`canvas` is a getter over `renderer.canvas`, which destroy nulls), so a fail-closed cleanup path can itself crash — capture the node BEFORE destroying.

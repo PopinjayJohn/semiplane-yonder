@@ -161,7 +161,9 @@ the contract; decisions D1–D12, revisits R1–R6):
   #80668d) with small downscaled art (`assets/maps/tomb.jpg` ~320KB,
   `ground-floor.jpg` ~560KB — demo vault 1.4MB vs 7MB+ of sources; JPEG
   flattens the art's transparent surround to black). The verified 29→28 light
-  drop is OOB light #25 (x = -0.57).
+  drop was OOB light #25 (x = -0.57) under the pre-R3 importer; under the R3
+  glow rule (`docs/plan/r3-oob-light-glow.md`) a re-import retains it as the
+  29th light — the demo sidecar is intentionally left as-imported at 28.
 
 Deferred revisits (each needs its own amend; stance confirmed 2026-10-13 — R4
 stays GM-only for now): R1 HTTP ~55MB + DoS review, R2 `effectivePpg` downscale,
