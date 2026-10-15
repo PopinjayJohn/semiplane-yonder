@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync"
 
 	_ "modernc.org/sqlite"
 )
@@ -53,10 +54,26 @@ func openIndex(path string) (*sql.DB, error) {
 // the migrated app DB. Reindex paths only ever open the index file — the app
 // DB handle here is for read-path joins owned by later lanes.
 type sqliteStore struct {
+	// mu guards the indexDB POINTER, not the pool: RefreshIndex swaps the
+	// pool after an index rebuild, and readers must never observe a pool
+	// mid-close (that is the "database is closed" flake: a request reading
+	// while the old pool was closed and before the new one landed 404'd).
+	mu        sync.RWMutex
 	indexDB   *sql.DB
 	appDB     *sql.DB
 	indexPath string
 	appPath   string
+}
+
+// idx returns the current index pool. Readers snapshot it under the read
+// lock: the returned pool is open and stays valid for the whole query even
+// if a refresh swaps it mid-flight (the old pool is only closed after every
+// in-flight query on it has drained — database/sql closes idle connections
+// and waits for checked-out ones).
+func (s *sqliteStore) idx() *sql.DB {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.indexDB
 }
 
 // Open opens (creating) index + app databases at the given file paths.
@@ -79,26 +96,37 @@ func Open(indexPath, appPath string) (Store, error) {
 	return &sqliteStore{indexDB: indexDB, appDB: appDB, indexPath: indexPath, appPath: appPath}, nil
 }
 
-func (s *sqliteStore) IndexDB() *sql.DB { return s.indexDB }
+func (s *sqliteStore) IndexDB() *sql.DB { return s.idx() }
 func (s *sqliteStore) AppDB() *sql.DB   { return s.appDB }
 
 func (s *sqliteStore) RefreshIndex(ctx context.Context) error {
-	// Close the old index DB connection
-	if err := s.indexDB.Close(); err != nil {
-		return fmt.Errorf("close old index db: %w", err)
-	}
-	// Reopen the index DB (which may have been replaced by reindex)
+	// Open the replacement FIRST: a failed open leaves the live pool
+	// serving untouched instead of taking the store down.
 	indexDB, err := openIndex(s.indexPath)
 	if err != nil {
 		return fmt.Errorf("reopen index db: %w", err)
 	}
+	s.mu.Lock()
+	old := s.indexDB
 	s.indexDB = indexDB
+	s.mu.Unlock()
+	// Close the OLD pool only after the swap: readers that snapshotted it
+	// still finish their queries (database/sql drains checked-out conns).
+	// Close never blocks on new queries because no reader can reach it now.
+	if old != nil {
+		if err := old.Close(); err != nil {
+			return fmt.Errorf("close old index db: %w", err)
+		}
+	}
 	return nil
 }
 
 func (s *sqliteStore) Close() error {
-	err1 := s.indexDB.Close()
-	err2 := s.appDB.Close()
+	s.mu.Lock()
+	idx, app := s.indexDB, s.appDB
+	s.mu.Unlock()
+	err1 := idx.Close()
+	err2 := app.Close()
 	if err1 != nil {
 		return err1
 	}
@@ -123,6 +151,8 @@ func (s *sqliteStore) PageGet(ctx context.Context, path string) (*Page, error) {
 	if isConflictPath(path) {
 		return nil, sql.ErrNoRows
 	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	row := s.indexDB.QueryRowContext(ctx, `SELECT path,title,content,frontmatter,secret,owner,editable_by,updated_at,hash
 		FROM pages WHERE path_fold = lower(?)`, path)
 	return scanPage(row)
@@ -460,7 +490,8 @@ func (s *sqliteStore) AssetDelete(ctx context.Context, path string) error {
 // Transact scopes fn to one index-DB transaction; the app DB passes through
 // (index transactions never span the precious app file — reindex red-line).
 func (s *sqliteStore) Transact(ctx context.Context, fn func(tx Store) error) error {
-	tx, err := s.indexDB.BeginTx(ctx, nil)
+	pool := s.idx() // snapshot: the tx lives on this pool for its lifetime
+	tx, err := pool.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
