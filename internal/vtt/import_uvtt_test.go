@@ -399,3 +399,58 @@ func TestImportUVTTNoImage(t *testing.T) {
 		t.Errorf("ppg/cell = %g/%d, want 8/%d", lo.PPG, lo.Cell, MinCellPx)
 	}
 }
+
+// Full-blocker posture (R6): body field, then the opts override (CLI flag
+// wins). Mirrors the grid-baked option shape exactly; default is
+// movement-only (false).
+func TestParseWithOptsObjectsBlockSight(t *testing.T) {
+	payload := uvttBasic(t, "")
+	m, err := ParseWithOpts([]byte(payload), "b.uvtt", ImportOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.ObjectsBlockSight {
+		t.Error("default objects-block-sight must be false (movement-only)")
+	}
+	// JSON body field.
+	withField := strings.Replace(payload, `"format": 1.0`, `"format": 1.0, "objects_block_sight": true`, 1)
+	m, err = ParseWithOpts([]byte(withField), "b.uvtt", ImportOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !m.ObjectsBlockSight {
+		t.Error("body objects_block_sight ignored")
+	}
+	// CLI flag overrides the body field (both directions).
+	no := false
+	m, err = ParseWithOpts([]byte(withField), "b.uvtt", ImportOpts{ObjectsBlockSight: &no})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.ObjectsBlockSight {
+		t.Error("opts override (false) ignored")
+	}
+	yes := true
+	m, err = ParseWithOpts([]byte(payload), "b.uvtt", ImportOpts{ObjectsBlockSight: &yes})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !m.ObjectsBlockSight {
+		t.Error("opts override (true) ignored")
+	}
+	// Parse (no opts) honors the body field (the HTTP surface calls
+	// ParseWithOpts with empty opts — same as grid_baked).
+	m, _ = Parse([]byte(withField), "b.uvtt")
+	if !m.ObjectsBlockSight {
+		t.Error("Parse must honor the body field")
+	}
+	// Grid-baked and full-blocker postures are independent.
+	both := strings.Replace(withField, `"format": 1.0,`, `"format": 1.0, "grid_baked": true,`, 1)
+	m, err = ParseWithOpts([]byte(both), "b.uvtt", ImportOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !m.GridBaked || !m.ObjectsBlockSight {
+		t.Errorf("independent postures crossed: baked=%v block=%v", m.GridBaked, m.ObjectsBlockSight)
+	}
+}

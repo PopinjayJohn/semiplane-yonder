@@ -305,3 +305,73 @@ func TestParseWithOptsGridBaked(t *testing.T) {
 		t.Error("Parse defaults to unbaked")
 	}
 }
+
+// Full-blocker posture (R6): the importer writes objects-block-sight on
+// every import (mirroring grid-baked), the REAL frontmatter parser reads it
+// back, and a re-import with the opposite posture flips the owned key
+// without touching hand edits (idempotent, no duplication).
+func TestApplyImportObjectsBlockSight(t *testing.T) {
+	v, dir := testVault(t)
+	ctx := context.Background()
+	if err := os.WriteFile(filepath.Join(dir, "maps", "arena.md"), []byte(existingSidecar), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	yes := true
+	m, err := ParseWithOpts([]byte(uvttBasic(t, tinyPNG)), "ford.dd2vtt", ImportOpts{ObjectsBlockSight: &yes})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	res, err := ApplyImport(ctx, ImportRequest{Vault: v, MapID: "arena", Map: m})
+	if err != nil {
+		t.Fatalf("ApplyImport: %v", err)
+	}
+	if !res.ObjectsBlockSight {
+		t.Errorf("result ObjectsBlockSight = false, want true")
+	}
+	out, err := os.ReadFile(filepath.Join(dir, "maps", "arena.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(out); !strings.Contains(got, "objects-block-sight: true") {
+		t.Errorf("sidecar missing objects-block-sight: true:\n%s", got)
+	}
+	page, err := markdown.Parse(ctx, string(out), "maps/arena.md")
+	if err != nil || page.Quarantined {
+		t.Fatalf("reparse: %v %v", err, page)
+	}
+	if cal := ParseCalibration(page.Frontmatter["vtt-map"]); !cal.ObjectsBlockSight {
+		t.Errorf("round-trip ObjectsBlockSight = false, want true")
+	}
+	// Re-import with the default posture: the owned key flips to false
+	// (exactly once), hand edits still survive.
+	m2, err := Parse([]byte(uvttBasic(t, tinyPNG)), "ford.dd2vtt")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if _, err := ApplyImport(ctx, ImportRequest{Vault: v, MapID: "arena", Map: m2}); err != nil {
+		t.Fatalf("re-import: %v", err)
+	}
+	out2, err := os.ReadFile(filepath.Join(dir, "maps", "arena.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got2 := string(out2)
+	if strings.Contains(got2, "objects-block-sight: true") {
+		t.Errorf("stale owned key survived the re-import:\n%s", got2)
+	}
+	if n := strings.Count(got2, "objects-block-sight:"); n != 1 {
+		t.Errorf("objects-block-sight lines = %d, want 1 (no duplication):\n%s", n, got2)
+	}
+	for _, want := range []string{"mira-pc", "fog-default: revealed", "objects-block-sight: false"} {
+		if !strings.Contains(got2, want) {
+			t.Errorf("re-import lost %q:\n%s", want, got2)
+		}
+	}
+	page2, err := markdown.Parse(ctx, got2, "maps/arena.md")
+	if err != nil || page2.Quarantined {
+		t.Fatalf("re-import reparse: %v %v", err, page2)
+	}
+	if cal := ParseCalibration(page2.Frontmatter["vtt-map"]); cal.ObjectsBlockSight {
+		t.Errorf("re-import round-trip ObjectsBlockSight = true, want false")
+	}
+}

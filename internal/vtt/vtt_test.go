@@ -77,13 +77,14 @@ func TestParseCalibrationDefaults(t *testing.T) {
 
 func TestParseCalibrationVTT2Keys(t *testing.T) {
 	c := ParseCalibration(map[string]any{
-		"grid":             map[string]any{"cols": int64(10), "rows": int64(8)},
-		"grid-baked":       true,
-		"ppg":              float64(100),
-		"ambient":          "FF80668D",
-		"baked-lighting":   true,
-		"walls":            []any{[]any{int64(0), int64(0), int64(10), int64(0)}, []any{int64(0)}},
-		"blocking-objects": []any{[]any{int64(1), int64(1), int64(2), int64(2)}},
+		"grid":                map[string]any{"cols": int64(10), "rows": int64(8)},
+		"grid-baked":          true,
+		"ppg":                 float64(100),
+		"ambient":             "FF80668D",
+		"baked-lighting":      true,
+		"walls":               []any{[]any{int64(0), int64(0), int64(10), int64(0)}, []any{int64(0)}},
+		"blocking-objects":    []any{[]any{int64(1), int64(1), int64(2), int64(2)}},
+		"objects-block-sight": true,
 		"portals": []any{
 			map[string]any{"a": []any{int64(3), int64(0)}, "b": []any{int64(4), int64(0)}, "closed": true},
 			map[string]any{"a": []any{int64(0), int64(0)}, "b": []any{int64(1), int64(0)}, "closed": "maybe"},
@@ -104,6 +105,9 @@ func TestParseCalibrationVTT2Keys(t *testing.T) {
 	if len(c.Walls) != 1 || len(c.Objects) != 1 {
 		t.Fatalf("walls/objects = %d/%d, want 1/1 (bad seg dropped)", len(c.Walls), len(c.Objects))
 	}
+	if !c.ObjectsBlockSight {
+		t.Errorf("objects-block-sight = false, want true (R6 full blocker)")
+	}
 	if len(c.Portals) != 2 || !c.Portals[0].Closed || !c.Portals[1].Closed {
 		t.Errorf("portals = %+v, want 2 closed (non-bool fails closed)", c.Portals)
 	}
@@ -119,14 +123,23 @@ func TestParseCalibrationVTT2Keys(t *testing.T) {
 	}
 	// Broken sub-keys degrade to zero values, never brick the board.
 	b := ParseCalibration(map[string]any{
-		"grid":       map[string]any{"cols": int64(4), "rows": int64(4)},
-		"grid-baked": "perhaps",
-		"ambient":    "morse",
-		"walls":      "fortress",
-		"lights":     []any{map[string]any{"x": "far", "y": "away"}},
+		"grid":                map[string]any{"cols": int64(4), "rows": int64(4)},
+		"grid-baked":          "perhaps",
+		"ambient":             "morse",
+		"walls":               "fortress",
+		"blocking-objects":    []any{[]any{int64(0), int64(0), int64(1), int64(1)}},
+		"objects-block-sight": "perhaps",
+		"lights":              []any{map[string]any{"x": "far", "y": "away"}},
 	})
 	if b.GridBaked || b.Ambient != "" || len(b.Walls) != 0 || len(b.Lights) != 0 {
 		t.Errorf("broken vtt2 keys not dropped: %+v", b)
+	}
+	if b.ObjectsBlockSight {
+		t.Errorf("broken objects-block-sight not dropped to false: %+v", b)
+	}
+	// Absent key reads as movement-only (the D3 default).
+	if n := ParseCalibration(map[string]any{}); n.ObjectsBlockSight {
+		t.Errorf("absent objects-block-sight = true, want false")
 	}
 }
 

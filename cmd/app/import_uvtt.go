@@ -1,7 +1,8 @@
 // import-uvtt (amend A-VTT2 §4, D1): the offline UVTT import surface.
 //
 //	yonder import-uvtt --vault DIR --map ID [--background FILE]
-//	    [--grid-baked|--no-grid-baked] <file.uvtt|dd2vtt|df2vtt>
+//	    [--grid-baked|--no-grid-baked]
+//	    [--objects-block-sight|--no-objects-block-sight] <file.uvtt|dd2vtt|df2vtt>
 //
 // Same parser + sidecar writer as POST /vtt/{mapID}/import, but with NO
 // HTTP cap (D1: "larger files via CLI"): the 12MB body cap and the 5MB
@@ -32,10 +33,12 @@ import (
 
 func runImportUVTTCommand(vaultPath string, args []string) error {
 	var (
-		mapID       string
-		background  string
-		gridBaked   bool
-		noGridBaked bool
+		mapID             string
+		background        string
+		gridBaked         bool
+		noGridBaked       bool
+		objectsBlockSight bool
+		noObjectsBlock    bool
 	)
 	fs := flag.NewFlagSet("import-uvtt", flag.ContinueOnError)
 	vaultFlag(fs, &vaultPath)
@@ -43,17 +46,22 @@ func runImportUVTTCommand(vaultPath string, args []string) error {
 	fs.StringVar(&background, "background", "", "External background image file (default: the UVTT embedded image)")
 	fs.BoolVar(&gridBaked, "grid-baked", false, "The background art carries its own grid (renderer skips the overlay)")
 	fs.BoolVar(&noGridBaked, "no-grid-baked", false, "Force the overlay grid (the default)")
+	fs.BoolVar(&objectsBlockSight, "objects-block-sight", false, "Blocking objects also block sight (Foundry-style full blocker; default movement-only)")
+	fs.BoolVar(&noObjectsBlock, "no-objects-block-sight", false, "Force movement-only blocking objects (the default)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if mapID == "" {
-		return fmt.Errorf("usage: import-uvtt --vault DIR --map ID [--background FILE] [--grid-baked] <file.uvtt|dd2vtt|df2vtt>")
+		return fmt.Errorf("usage: import-uvtt --vault DIR --map ID [--background FILE] [--grid-baked] [--objects-block-sight] <file.uvtt|dd2vtt|df2vtt>")
 	}
 	if gridBaked && noGridBaked {
 		return fmt.Errorf("--grid-baked and --no-grid-baked are mutually exclusive")
 	}
+	if objectsBlockSight && noObjectsBlock {
+		return fmt.Errorf("--objects-block-sight and --no-objects-block-sight are mutually exclusive")
+	}
 	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: import-uvtt --vault DIR --map ID [--background FILE] [--grid-baked] <file.uvtt|dd2vtt|df2vtt>")
+		return fmt.Errorf("usage: import-uvtt --vault DIR --map ID [--background FILE] [--grid-baked] [--objects-block-sight] <file.uvtt|dd2vtt|df2vtt>")
 	}
 	if vaultPath == "" {
 		return fmt.Errorf("vault path required (--vault)")
@@ -62,12 +70,13 @@ func runImportUVTTCommand(vaultPath string, args []string) error {
 		return fmt.Errorf("bad map id %q (1-64 chars of letters/digits/dash/underscore)", mapID)
 	}
 	baked := gridBaked && !noGridBaked
+	blockSight := objectsBlockSight && !noObjectsBlock
 
 	data, err := os.ReadFile(fs.Arg(0))
 	if err != nil {
 		return fmt.Errorf("read %s: %w", fs.Arg(0), err)
 	}
-	m, err := vtt.ParseWithOpts(data, filepath.Base(fs.Arg(0)), vtt.ImportOpts{GridBaked: &baked})
+	m, err := vtt.ParseWithOpts(data, filepath.Base(fs.Arg(0)), vtt.ImportOpts{GridBaked: &baked, ObjectsBlockSight: &blockSight})
 	if err != nil {
 		return fmt.Errorf("parse %s: %w", fs.Arg(0), err)
 	}
@@ -117,8 +126,8 @@ func printImportSummary(mapID string, res *vtt.ImportResult) {
 		asset = "(none — add background: assets/maps/" + mapID + ".<ext> when you have art)"
 	}
 	fmt.Printf("imported %s -> %s\n", res.Source, res.SidecarPath)
-	fmt.Printf("  grid %dx%d (cell %dpx), grid-baked %v, ambient %q, baked-lighting %v\n",
-		res.Cols, res.Rows, res.Cell, res.GridBaked, res.Ambient, res.BakedLight)
+	fmt.Printf("  grid %dx%d (cell %dpx), grid-baked %v, objects-block-sight %v, ambient %q, baked-lighting %v\n",
+		res.Cols, res.Rows, res.Cell, res.GridBaked, res.ObjectsBlockSight, res.Ambient, res.BakedLight)
 	fmt.Printf("  walls %d, blocking-objects %d, portals %d, lights %d\n",
 		res.Walls, res.Objects, res.Portals, res.Lights)
 	fmt.Printf("  background %s\n", asset)

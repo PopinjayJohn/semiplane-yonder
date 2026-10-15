@@ -2,9 +2,9 @@
 //
 // Auth surface, in the frozen order (same discipline as opSpawn/opReset):
 // login → preview-as 403 (W2) → double-submit CSRF → GM-only → CanViewMap.
-// The body is the raw .uvtt/.dd2vtt/.df2vtt JSON (application/json) with an
-// optional `grid_baked` field (D12); a 12MB cap answers 413 before any parse
-// (larger files go through the CLI). The `?source=` query param carries the
+// The body is the raw .uvtt/.dd2vtt/.df2vtt JSON (application/json) with
+// optional `grid_baked` (D12) and `objects_block_sight` (R6) fields; a 12MB
+// cap answers 413 before any parse (larger files go through the CLI). The `?source=` query param carries the
 // original filename for audit metadata only (sanitized to a base name,
 // never a path).
 //
@@ -184,8 +184,8 @@ func writeImportJSON(w http.ResponseWriter, mapID string, res *ImportResult) {
 		"sidecar": res.SidecarPath, "asset": res.AssetPath, "image_format": res.ImageFormat,
 		"grid":  map[string]any{"cols": res.Cols, "rows": res.Rows, "cell": res.Cell},
 		"walls": res.Walls, "objects": res.Objects, "portals": res.Portals, "lights": res.Lights,
-		"ambient": res.Ambient, "grid_baked": res.GridBaked, "baked_lighting": res.BakedLight,
-		"uvtt_source": res.Source,
+		"ambient": res.Ambient, "grid_baked": res.GridBaked, "objects_block_sight": res.ObjectsBlockSight,
+		"baked_lighting": res.BakedLight, "uvtt_source": res.Source,
 	})
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "private, no-store")

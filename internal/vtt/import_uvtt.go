@@ -109,8 +109,8 @@ type UVTTImage struct {
 
 // UVTTMap is the mapped import: grid calibration plus clipped geometry.
 // Field names mirror the amend's vtt-map sub-keys (walls, blocking-objects,
-// portals, lights, ambient, baked-lighting, ppg, uvtt-source) so the later
-// sidecar writer is mechanical.
+// objects-block-sight, portals, lights, ambient, baked-lighting, ppg,
+// uvtt-source) so the later sidecar writer is mechanical.
 type UVTTMap struct {
 	Source string  // sanitized base name of the uploaded file (audit only)
 	Cols   int     // from map_size.x, 1..MaxGridCols
@@ -121,6 +121,11 @@ type UVTTMap struct {
 	// renderer draws the overlay grid (the UVTT embedded-image default,
 	// Dungeondraft bakes nogrid art); true = art carries its own grid.
 	GridBaked bool
+	// ObjectsBlockSight is the R6 posture the importer writes: false =
+	// blocking-objects are movement-only (D3 Roll20 convention, the
+	// default); true = they additionally block sight (Foundry-style full
+	// blocker). Declarative until vision lands (P3).
+	ObjectsBlockSight bool
 
 	OriginX, OriginY float64 // map_origin in image pixels (cropped-export offset)
 
@@ -145,18 +150,23 @@ func Parse(data []byte, source string) (*UVTTMap, error) {
 // ImportOpts carries surface-specific import options. GridBaked is a pointer
 // so "absent" (importer default false) is distinct from an explicit
 // --no-grid-baked: the HTTP body's `grid_baked` field is read first, then a
-// non-nil opts value (CLI flag) overrides it.
+// non-nil opts value (CLI flag) overrides it. ObjectsBlockSight follows the
+// same shape for the R6 full-blocker posture (`objects_block_sight` body
+// field, --objects-block-sight/--no-objects-block-sight CLI flags).
 type ImportOpts struct {
-	GridBaked *bool
+	GridBaked         *bool
+	ObjectsBlockSight *bool
 }
 
-// ParseWithOpts is Parse plus the D12 grid-baked posture: the JSON body may
-// carry `grid_baked` (HTTP field / CLI parity), and a non-nil
-// opts.GridBaked overrides it (CLI --grid-baked/--no-grid-baked).
+// ParseWithOpts is Parse plus the D12 grid-baked posture and the R6
+// full-blocker posture: the JSON body may carry `grid_baked` /
+// `objects_block_sight` (HTTP fields / CLI parity), and non-nil opts values
+// (CLI flags) override them.
 func ParseWithOpts(data []byte, source string, opts ImportOpts) (*UVTTMap, error) {
 	var wrap struct {
 		uvttFile
-		GridBaked *bool `json:"grid_baked"`
+		GridBaked         *bool `json:"grid_baked"`
+		ObjectsBlockSight *bool `json:"objects_block_sight"`
 	}
 	if err := json.Unmarshal(data, &wrap); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %v", ErrCorrupt, err)
@@ -173,6 +183,14 @@ func ParseWithOpts(data []byte, source string, opts ImportOpts) (*UVTTMap, error
 		baked = *opts.GridBaked
 	}
 	m.GridBaked = baked
+	blockSight := false
+	if wrap.ObjectsBlockSight != nil {
+		blockSight = *wrap.ObjectsBlockSight
+	}
+	if opts.ObjectsBlockSight != nil {
+		blockSight = *opts.ObjectsBlockSight
+	}
+	m.ObjectsBlockSight = blockSight
 	return m, nil
 }
 
