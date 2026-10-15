@@ -515,7 +515,7 @@ func TestFragmentA11y(t *testing.T) {
 	}
 	// Frozen contract: snapshot shape pins version/map_id/hidden/order keys.
 	b, _ := json.Marshal(plugins.StateSnapshot{Version: plugins.FragmentVersion, MapID: "arena"})
-	for _, want := range []string{`"version":2`, `"map_id":"arena"`} {
+	for _, want := range []string{`"version":3`, `"map_id":"arena"`} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("frozen shape drift: %s", b)
 		}
@@ -632,5 +632,101 @@ func TestSnapshotV2DoorsAndGeometry(t *testing.T) {
 	}
 	if !dsnap.Fog.Hidden || len(dsnap.Walls) != 0 {
 		t.Errorf("hidden board leaks geometry: fog=%v walls=%d", dsnap.Fog.Hidden, len(dsnap.Walls))
+	}
+}
+
+func TestSnapshotV3ObjectsBlockSight(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	if err := s.PageUpsert(ctx, &store.Page{
+		Path: "maps/arena.md", Title: "Arena", Secret: false,
+		Frontmatter: map[string]any{
+			"title": "Arena",
+			"vtt-map": map[string]any{
+				"grid":                map[string]any{"cols": int64(20), "rows": int64(14)},
+				"blocking-objects":    []any{[]any{int64(0), int64(0), int64(5), int64(0)}},
+				"objects-block-sight": true,
+			},
+		},
+		UpdatedAt: time.Now().Unix(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	grid := Grid{Cols: 20, Rows: 14}
+	if err := SetFog(ctx, s, "arena", EncodeMask(grid, nil)); err != nil {
+		t.Fatal(err)
+	}
+	// GM and player both receive the flag with the geometry (board-visible
+	// to all map viewers, behind the same fail-closed gate as walls/objects).
+	for _, v := range []*auth.Viewer{gmViewer(), playerViewer("mira")} {
+		snap, _, err := SnapshotFor(ctx, s, v, "arena")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if snap.Version != 3 {
+			t.Errorf("viewer %v version = %d, want 3", v.UserID, snap.Version)
+		}
+		if !snap.ObjectsBlockSight {
+			t.Errorf("viewer %v missing objects_block_sight", v.UserID)
+		}
+		if len(snap.Objects) != 1 {
+			t.Errorf("viewer %v objects = %d, want 1", v.UserID, len(snap.Objects))
+		}
+		b, _ := SnapshotJSON(snap)
+		for _, want := range []string{`"version":3`, `"objects_block_sight":true`} {
+			if !strings.Contains(string(b), want) {
+				t.Errorf("viewer %v snapshot missing %s: %s", v.UserID, want, b)
+			}
+		}
+	}
+	// Default (absent key) reads false and encodes v2-identically (no key).
+	if err := s.PageUpsert(ctx, &store.Page{
+		Path: "maps/arena.md", Title: "Arena", Secret: false,
+		Frontmatter: map[string]any{
+			"title":   "Arena",
+			"vtt-map": map[string]any{"grid": map[string]any{"cols": int64(20), "rows": int64(14)}},
+		},
+		UpdatedAt: time.Now().Unix(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	snap, _, err := SnapshotFor(ctx, s, gmViewer(), "arena")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.ObjectsBlockSight {
+		t.Error("absent key reads true, want false")
+	}
+	b, _ := SnapshotJSON(snap)
+	if strings.Contains(string(b), "objects_block_sight") {
+		t.Errorf("unset flag leaks into JSON: %s", b)
+	}
+	// Fully hidden board (no fog row) shows no geometry AND no flag.
+	if err := s.PageUpsert(ctx, &store.Page{
+		Path: "maps/dark.md", Title: "Dark",
+		Frontmatter: map[string]any{
+			"title": "Dark",
+			"vtt-map": map[string]any{
+				"blocking-objects":    []any{[]any{int64(0), int64(0), int64(1), int64(0)}},
+				"objects-block-sight": true,
+			},
+		},
+		UpdatedAt: time.Now().Unix(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	dsnap, _, err := SnapshotFor(ctx, s, gmViewer(), "dark")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !dsnap.Fog.Hidden {
+		t.Error("dark board failed open")
+	}
+	if len(dsnap.Objects) != 0 || dsnap.ObjectsBlockSight {
+		t.Errorf("hidden board leaks objects posture: %+v objects=%d", dsnap.ObjectsBlockSight, len(dsnap.Objects))
+	}
+	db, _ := SnapshotJSON(dsnap)
+	if strings.Contains(string(db), "objects_block_sight") {
+		t.Errorf("hidden board leaks flag into JSON: %s", db)
 	}
 }

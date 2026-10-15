@@ -93,7 +93,7 @@ func TestFrozenContractStrings(t *testing.T) {
 		}
 		seen[e] = true
 	}
-	if FragmentVersion != 2 {
+	if FragmentVersion != 3 {
 		t.Errorf("FragmentVersion = %d", FragmentVersion)
 	}
 }
@@ -110,15 +110,44 @@ func TestSnapshotJSONShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(b)
-	for _, want := range []string{`"version":2`, `"map_id":"arena"`, `"hidden":true`, `"order":1`} {
+	for _, want := range []string{`"version":3`, `"map_id":"arena"`, `"hidden":true`, `"order":1`} {
 		if !strings.Contains(s, want) {
 			t.Errorf("snapshot missing %s: %s", want, s)
 		}
 	}
-	// v2 fields are omitempty: v1-shaped rows encode without them.
-	for _, absent := range []string{`"walls"`, `"doors"`, `"lights"`, `"ambient"`} {
+	// v2/v3 fields are omitempty: v1-shaped rows encode without them.
+	for _, absent := range []string{`"walls"`, `"doors"`, `"lights"`, `"ambient"`, `"objects_block_sight"`} {
 		if strings.Contains(s, absent) {
 			t.Errorf("v1-shaped snapshot leaks %s: %s", absent, s)
 		}
+	}
+}
+
+func TestSnapshotJSONShapeV3ObjectsBlockSight(t *testing.T) {
+	// v3 flag set: the key encodes; unset (v2-shaped row): it encodes
+	// identically to v2 (absent), and v2 clients ignore the unknown key.
+	on := StateSnapshot{Version: FragmentVersion, MapID: "arena", ObjectsBlockSight: true}
+	b, err := json.Marshal(on)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"objects_block_sight":true`) {
+		t.Errorf("v3 snapshot missing objects_block_sight: %s", b)
+	}
+	off := StateSnapshot{Version: 2, MapID: "arena"}
+	b2, err := json.Marshal(off)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b2), "objects_block_sight") {
+		t.Errorf("v2-shaped snapshot leaks the v3 key: %s", b2)
+	}
+	// v2 client compat: unknown key decodes without error into a v2 shape.
+	var back StateSnapshot
+	if err := json.Unmarshal(b, &back); err != nil {
+		t.Fatal(err)
+	}
+	if !back.ObjectsBlockSight || back.Version != FragmentVersion {
+		t.Errorf("v3 round-trip wrong: %+v", back)
 	}
 }
