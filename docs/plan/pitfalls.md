@@ -143,6 +143,22 @@
 - The asset ACL's same-directory-page ruling ("a directory holding zero pages serves nothing to anyone") fails a PURE-ASSET bundle dir closed to invisible for the GM too — imported UVTT art under `assets/maps/` was unloadable until `assetVisible` grew the amend's bundle ruling (`assets/maps/<stem>.<ext>` inherits `maps/<stem>.md`; missing sidecar fails closed). Any new asset-only directory needs an explicit ACL ruling or it is a black hole for everyone.
 - A sidecar `background:` whose stem does not match its sidecar (`assets/maps/ford.png` referenced by `maps/arena.md`) is invisible under the bundle ruling — shared art must be named per-map (demo: ford.png renamed arena.png) or live in the sidecar's own directory.
 
+## R1 additions (HTTP import cap + DoS review)
+- Raising a body cap without its paired image cap admits nothing real: body ≈ image×4/3, so every body over ~8MB failed the 5MB image cap AFTER paying parse + decode — the raise only enlarged the geometry-bomb surface → move both caps as a coherent pair (55MB body / 40MB largest-encodable-image) or move neither (R1).
+- Auth gates must run before the admission limiter AND the body read: 401/403/404/415 allocate nothing, and rejected requests must not consume window budget — acquire only past the GM/CanViewMap gates, with a Content-Length pre-check ahead of acquire for known-oversize bodies (R1, pinned by TestImportRouteBodyCap + TestImportRouteAdmissionGuard).
+- A lazily-defaulted guard on a handler struct needs its own mutex (`importMu`, same idiom as `WriteHandlers.diceSvcMu`): racy first-use init is a data race under concurrent first imports, and a shared package-level default leaks window budget across tests (R1).
+- Fake-webp fixtures must get the VP8X layout right (flags + 3 RESERVED bytes + LE24 width-1/height-1 at body[4..9], D5b): the dims parse is header-only, so padding can be zeros — but a header in the wrong shape fails dims, not the cap under test (R1 `fakeWebP`).
+
+## R2 additions (effectivePpg downscale)
+- Grid-square geometry is resolution-independent: folding the art downscale factor INTO walls/lights (or dividing by ppg, the old spike bug D4b) CREATES the misalignment R2 fears — the importer must store geometry untouched and both renderers normalize against the stage the background stretches to (R2, pinned by TestEffectivePPGOf + TestRenderFragmentArtNote).
+- Stored art dims are unknowable from calibration alone (demo art was hand-downscaled to 1280px outside the pipeline; GMs can hand-swap `background`) → a GM warning must be worded as the deterministic cap rule ("source AxB, capped at 1600px long edge"), never as measured stored dims, or it lies on exactly the maps GMs hand-tune (R2 `renderArtNote`).
+- A GM-only calibration note in `RenderFragment` must be `IsGM`-gated like the door/fog sections: source dims + ppg are GM-side import facts, and an ungated note leaks them to every map viewer (R2, pinned by the player-fragment half of TestRenderFragmentArtNote).
+
+## R3 additions (OOB-light glow retention)
+
+- Sidecar floats serialize at 4 decimals (`formatFloat` rounds): a round-trip test asserting exact struct equality on 6-decimal UVTT coords (e.g. Ground-Floor x=-0.570313 → "-0.5703") fails on the tail — compare round-tripped geometry within 1e-4, not bit-exact (≤4dp goldens are unaffected).
+- Retention-rule changes flip old fixtures silently: the pre-R3 OOB test light at (5,5) r2 on a 4x4 grid *passes* the new glow test (disc distance 1.41 ≤ 2) and would have inverted the test's meaning — keep drop-case coordinates far from the decision boundary ((9,9) r2) and pin near-boundary retention ((4.5,2) r1, Ground-Floor #25) as separate cases.
+
 ## A-VTT2 canvas-mount additions (browser-only defects)
 - A `<script>`-loaded ESM namespace does NOT leak into sibling module functions: pixi-board.js's scene helpers referenced `PIXI` (bootPixi's parameter) and every mount threw ReferenceError into the DOM fallback — Go tests never noticed because the fallback is invisible server-side → bind the namespace at module scope for single-mount loaders, and browser-drive the mount path once before shipping it.
 - Reading `app.canvas` AFTER `app.destroy(true)` throws (`canvas` is a getter over `renderer.canvas`, which destroy nulls), so a fail-closed cleanup path can itself crash — capture the node BEFORE destroying.

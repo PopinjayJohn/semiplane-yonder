@@ -6,7 +6,8 @@ package vtt
 
 import (
 	"context"
-	"fmt"
+	"encoding/base64"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -259,16 +260,157 @@ func TestImportRouteFreshSidecarSecretStamp(t *testing.T) {
 	}
 }
 
-// The 12MB cap answers 413 before any parse (D1).
+// The 55MB cap answers 413 before any parse (R1): once via the
+// Content-Length pre-check (no budget consumed, no byte allocated) and once
+// via the post-read check for chunked bodies of unknown length.
 func TestImportRouteBodyCap(t *testing.T) {
 	env := newImportTestEnv(t, "---\ntitle: Arena\nvtt-map:\n  grid: {cols: 20, rows: 14}\n---\n")
-	big := fmt.Sprintf(`{"resolution": {"map_origin": [0,0], "map_size": [4,3], "pixels_per_grid": 100}, "image": "%s"}`,
-		strings.Repeat("A", (maxImportBody+4096)*4/3))
-	rec, req := importRequest(t, gmViewer(), big, "")
+	// Pre-check: declared length over the cap, tiny actual body.
+	rec, req := importRequest(t, gmViewer(), `{"resolution": {"map_origin": [0,0], "map_size": [4,3], "pixels_per_grid": 100}}`, "")
+	req.ContentLength = maxImportBody + 1
 	env.h.Import(rec, req)
 	if rec.Code != http.StatusRequestEntityTooLarge {
-		t.Errorf("oversize body = %d, want 413", rec.Code)
+		t.Errorf("content-length pre-check = %d, want 413", rec.Code)
 	}
+	if !strings.Contains(rec.Body.String(), "55MB") {
+		t.Errorf("413 body = %q, want the new cap number", rec.Body.String())
+	}
+	// Post-read check: unknown length (chunked), endless body — the handler
+	// reads maxImportBody+1 and 413s without materializing more.
+	rec2, req2 := importRequest(t, gmViewer(), "", "")
+	req2.Body = io.NopCloser(io.LimitReader(zeroReader{}, maxImportBody+2))
+	req2.ContentLength = -1
+	env.h.Import(rec2, req2)
+	if rec2.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("post-read check = %d, want 413", rec2.Code)
+	}
+	// Neither rejection wrote anything.
+	if _, err := os.Stat(filepath.Join(env.vault, "assets")); err == nil {
+		t.Error("rejected import wrote an asset")
+	}
+}
+
+// The R1 admission guard: past the auth gates, before the first body byte.
+// A GM past their window budget gets 429 (never a lockout), and a second
+// concurrent import gets 429 while one runs. Rejected requests write nothing.
+func TestImportRouteAdmissionGuard(t *testing.T) {
+	newGuardEnv := func(t *testing.T, lim *ImportLimiter) *importTestEnv {
+		t.Helper()
+		env := newImportTestEnv(t, "---\ntitle: Arena\nvtt-map:\n  grid: {cols: 20, rows: 14}\n---\n")
+		env.h.ImportLimit = lim
+		return env
+	}
+	// Window budget: 1 import per hour admits one, then 429s.
+	env := newGuardEnv(t, NewImportLimiter(1, 1, time.Hour))
+	rec, req := importRequest(t, gmViewer(), uvttBasic(t, tinyPNG), "")
+	env.h.Import(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("first import = %d: %s", rec.Code, rec.Body.String())
+	}
+	rec, req = importRequest(t, gmViewer(), uvttBasic(t, tinyPNG), "")
+	env.h.Import(rec, req)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Errorf("past-budget import = %d, want 429", rec.Code)
+	}
+	// In-flight semaphore: a held slot 429s even with budget remaining.
+	env2 := newGuardEnv(t, NewImportLimiter(1, 10, time.Hour))
+	lim := env2.h.importLimiter()
+	if err := lim.Acquire("gm"); err != nil {
+		t.Fatal(err)
+	}
+	rec, req = importRequest(t, gmViewer(), uvttBasic(t, tinyPNG), "")
+	env2.h.Import(rec, req)
+	if rec.Code != http.StatusTooManyRequests || !strings.Contains(rec.Body.String(), "already running") {
+		t.Errorf("concurrent import = %d %q, want the busy 429", rec.Code, rec.Body.String())
+	}
+	lim.Release()
+	rec, req = importRequest(t, gmViewer(), uvttBasic(t, tinyPNG), "")
+	env2.h.Import(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("after release = %d: %s", rec.Code, rec.Body.String())
+	}
+	// Rejected imports never wrote: only the two accepted ones own assets.
+	// (Both envs import map "arena"; each accepted exactly what it ran.)
+	for _, e := range []*importTestEnv{env, env2} {
+		if _, err := os.Stat(filepath.Join(e.vault, "assets", "maps", "arena.png")); err != nil {
+			t.Errorf("accepted import lost its asset: %v", err)
+		}
+	}
+}
+
+// The paired R1 image cap (40MB HTTP, the largest image encodable in a 55MB
+// body): a 6MB webp — rejected under the old 5MB cap — imports fine, while
+// an image just over 40MB (in a body still under 55MB) 422s to the CLI.
+func TestImportRouteImageCapHTTP(t *testing.T) {
+	env := newImportTestEnv(t, "---\ntitle: Arena\nvtt-map:\n  grid: {cols: 20, rows: 14}\n---\n")
+	sixMB := fakeWebP(t, 100, 100, 6<<20)
+	rec, req := importRequest(t, gmViewer(), uvttImageBody(sixMB), "")
+	env.h.Import(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("6MB webp import = %d: %s", rec.Code, rec.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(env.vault, "assets", "maps", "arena.webp")); err != nil {
+		t.Errorf("6MB webp not stored as-is: %v", err)
+	}
+	// Just over the 40MB image cap, still under the 55MB body cap.
+	env2 := newImportTestEnv(t, "---\ntitle: Arena\nvtt-map:\n  grid: {cols: 20, rows: 14}\n---\n")
+	over := fakeWebP(t, 100, 100, (40<<20)+1)
+	rec, req = importRequest(t, gmViewer(), uvttImageBody(over), "")
+	env2.h.Import(rec, req)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("over-40MB image import = %d, want 422", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "import-uvtt CLI") {
+		t.Errorf("422 body = %q, want the CLI pointer", rec.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(env2.vault, "assets")); err == nil {
+		t.Error("rejected import wrote an asset")
+	}
+}
+
+// fakeWebP builds decoded image bytes with a valid RIFF/VP8X header claiming
+// wxh (header-only dims parse, never decoded) plus zero padding to size.
+// webp is stored as-is, so the padding never needs to be real pixels.
+func fakeWebP(t *testing.T, w, h, size int) []byte {
+	t.Helper()
+	if size < 30 {
+		t.Fatalf("fake webp size %d too small for a header", size)
+	}
+	out := make([]byte, size)
+	copy(out, []byte("RIFF"))
+	uint32le(out[4:], uint32(size-8))
+	copy(out[8:], []byte("WEBPVP8X"))
+	uint32le(out[16:], 10)
+	out[20] = 0 // flags
+	// bytes 21..23 reserved (D5b: width starts at body[4]).
+	uint32le24(out[24:], uint32(w-1))
+	uint32le24(out[27:], uint32(h-1))
+	return out
+}
+
+func uint32le(b []byte, v uint32) {
+	b[0], b[1], b[2], b[3] = byte(v), byte(v>>8), byte(v>>16), byte(v>>24)
+}
+
+func uint32le24(b []byte, v uint32) {
+	b[0], b[1], b[2] = byte(v), byte(v>>8), byte(v>>16)
+}
+
+// uvttImageBody wraps decoded image bytes (base64) in a minimal import body.
+func uvttImageBody(decoded []byte) string {
+	return `{"resolution": {"map_origin": [0,0], "map_size": [4,3], "pixels_per_grid": 100}, "image": "` +
+		base64.StdEncoding.EncodeToString(decoded) + `"}`
+}
+
+// zeroReader is an endless stream of zero bytes (chunked-body stand-in:
+// exercises the post-read 413 without materializing a 55MB string).
+type zeroReader struct{}
+
+func (zeroReader) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = 0
+	}
+	return len(p), nil
 }
 
 // A secret sidecar keeps its ACL: the GM imports fine; another player still

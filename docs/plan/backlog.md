@@ -161,7 +161,9 @@ the contract; decisions D1–D12, revisits R1–R6):
   #80668d) with small downscaled art (`assets/maps/tomb.jpg` ~320KB,
   `ground-floor.jpg` ~560KB — demo vault 1.4MB vs 7MB+ of sources; JPEG
   flattens the art's transparent surround to black). The verified 29→28 light
-  drop is OOB light #25 (x = -0.57).
+  drop was OOB light #25 (x = -0.57) under the pre-R3 importer; under the R3
+  glow rule (`docs/plan/r3-oob-light-glow.md`) a re-import retains it as the
+  29th light — the demo sidecar is intentionally left as-imported at 28.
 
 Deferred revisits (each needs its own amend; stance confirmed 2026-10-13 — R4
 stays GM-only for now): R1 HTTP ~55MB + DoS review, R2 `effectivePpg` downscale,
@@ -187,3 +189,32 @@ pin mismatch fail-closed via `ErrPinMismatch`, empty pins float, homebrew
 audit-only; content-prose hash deferred); media upgrades (EXIF-orientation auto-rotate, webp
 decode/resize, PDF page-count — each needs a maintained dep, propose first
 per AGENTS.md).
+
+## R2 — `effectivePpg` downscale — SHIPPED (branch `plan/r2-effective-ppg`)
+
+Deferred revisit R2 from the A-VTT2 section above, implemented without a
+frozen-contract change (design: `docs/plan/r2-effective-ppg.md`):
+
+- `EffectivePPGOf` (`internal/vtt/effective_ppg.go`, pure, no I/O) projects
+  calibration onto the stored-art posture: png/jpeg art is capped at
+  `uploads.DisplayMaxDim` (1600px long edge), webp is stored as-is (D2).
+- GM-only `data-art-note` section in the fragment (server-filtered;
+  players never receive it): source ppg + source dims + "overlays stay
+  aligned — no action needed". Non-downscaled maps render byte-identical.
+- `pixi-board.js` derives live `view.effectivePpg` from the loaded texture
+  (float-exact, D11) for the future P3 pixel-space LOS consumer; overlay
+  alignment itself needs no rescaling on either renderer (grid squares
+  end-to-end — the importer deliberately does NOT fold the scale into
+  geometry).
+- No `StateSnapshot` change, no `FragmentVersion` bump. Remaining R-items
+  (R1, R3–R6) stay deferred as listed in A-VTT2.
+
+## R1 — HTTP import cap 55MB + admission guard (A-VTT2 revisit, DONE 2026-10-15)
+
+DoS review in `docs/plan/r1-http-cap-dos-review.md`: `POST /vtt/{mapID}/import`
+raised 12MB → 55MB with a paired HTTP image cap 5MB → 40MB (the largest
+image encodable in a 55MB body; larger art keeps the "use the `import-uvtt`
+CLI" 422) plus an in-memory admission guard (1 import in flight + 3/5min per
+GM → 429, never a lockout). Parser caps unchanged (96MB decoded, 128MP
+dims); unauthenticated attackers still 401 before the first body byte.
+Spec §7 (`MaxUVTTBody=55MB`), runbook §4, amend §§4/7/9 pin the numbers.
