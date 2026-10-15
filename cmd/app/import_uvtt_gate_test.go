@@ -222,6 +222,38 @@ func TestImportGateOverHTTP(t *testing.T) {
 	}
 }
 
+// R1: the new 55MB cap + the admission guard through the production mux.
+// An over-cap POST 413s (real Content-Length, so the pre-check fires without
+// the server reading the body), and the default limiter is live in prod
+// wiring: 3 imports succeed, the 4th 429s.
+func TestImportGateCapAndGuard(t *testing.T) {
+	g := newImportGate(t)
+	huge := strings.Repeat("x", (55<<20)+1024)
+	code, body := g.req(http.MethodPost, "/vtt/arena/import", huge, g.gm.cookie, g.gm.csrf)
+	if code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("over-cap import = %d, want 413", code)
+	}
+	if !strings.Contains(body, "55MB") {
+		t.Errorf("413 body = %q, want the new cap number", body)
+	}
+	for i := 0; i < 3; i++ {
+		if code, body := g.req(http.MethodPost, "/vtt/arena/import?source=bulk.dd2vtt", gateUVTT, g.gm.cookie, g.gm.csrf); code != http.StatusOK {
+			t.Fatalf("import %d = %d: %s", i, code, body)
+		}
+	}
+	if code, _ := g.req(http.MethodPost, "/vtt/arena/import?source=bulk.dd2vtt", gateUVTT, g.gm.cookie, g.gm.csrf); code != http.StatusTooManyRequests {
+		t.Errorf("4th import = %d, want 429 (default limiter live?)", code)
+	}
+	// Players are rejected before admission (no budget consumed, nothing
+	// written for them) — a fresh map id stays absent.
+	if code, _ := g.req(http.MethodPost, "/vtt/unguarded/import", gateUVTT, g.pl.cookie, g.pl.csrf); code != http.StatusForbidden {
+		t.Errorf("player import = %d, want 403", code)
+	}
+	if _, err := os.Stat(filepath.Join(g.vault, "maps", "unguarded.md")); err == nil {
+		t.Error("rejected import created a sidecar")
+	}
+}
+
 // A GM may create a map by importing into a fresh id over HTTP: the route
 // writes the sidecar itself, the index refresh makes it visible, and the
 // whole thing rides the production mux (route pattern, session CSRF).

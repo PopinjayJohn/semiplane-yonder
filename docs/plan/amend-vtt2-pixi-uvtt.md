@@ -52,7 +52,7 @@ Ambient string      `json:"ambient,omitempty"`
 
 ## 4. Import surface — one route + one CLI
 
-- `POST /vtt/{mapID}/import`: GM-only, login + `CanViewMap`, double-submit CSRF, `preview_as` 403. Body `.uvtt/.dd2vtt/.df2vtt` JSON (`application/json`), 12MB cap → 413 over. Larger files via CLI. A MISSING sidecar is not a 404 (2026-10-13 decision): a GM may create a map by importing into a fresh id — the import writes the sidecar itself (title + `vtt-map` + generated body), stamped `secret: true` fail-closed when the `maps/` tree is secret. Malformed ids still 404.- `import-uvtt --vault <dir> --map <id> <file>`: same parser, no HTTP cap.
+- `POST /vtt/{mapID}/import`: GM-only, login + `CanViewMap`, double-submit CSRF, `preview_as` 403. Body `.uvtt/.dd2vtt/.df2vtt` JSON (`application/json`), 55MB cap → 413 over (R1 2026-10-15: raised from 12MB with the DoS review in `docs/plan/r1-http-cap-dos-review.md`; paired HTTP image cap 40MB + admission guard 1-in-flight + 3/5min per GM → 429). Larger files via CLI. A MISSING sidecar is not a 404 (2026-10-13 decision): a GM may create a map by importing into a fresh id — the import writes the sidecar itself (title + `vtt-map` + generated body), stamped `secret: true` fail-closed when the `maps/` tree is secret. Malformed ids still 404.- `import-uvtt --vault <dir> --map <id> <file>`: same parser, no HTTP cap.
 - Accept all three extensions interchangeably, sniff JSON. `image`: chunked base64 decode, magic-sniff, `uploads.Process` + `Vault.WriteFileBytes` to `assets/maps/<id>.<png|webp|jpg>` (bundle dir, inherits sidecar ACL). Never serve `.uvtt` bytes via `/assets`.
 - Mapping per `vtt-pixi-uvtt.md` §2. `map_size` >128 or image dims >128MP → 422 with reason (no silent downscale). Grid cap raised 64→128 to admit 96x72-class maps (Tomb verification 2026-10-13: 96x72 @100ppg, 105 LOS polylines, 24 objects, 19 closed portals, 0 lights, `baked_lighting:true`).
 - Background selection: importer writes the embedded `image` by default (Dungeondraft bakes nogrid into it — overlay rendered since `grid-baked:false`). A GM may replace `background` with external grid-baked art (e.g. `*-grid-*` files) and hand-set `grid-baked:true`; cols/rows must equal the baked squares or the overlay/table misaligns — hand-swapped art is GM's responsibility. Import takes `--background <file> --grid-baked/--no-grid-baked` (CLI) / `grid_baked` field (HTTP) to do both in one step.
@@ -61,7 +61,7 @@ Ambient string      `json:"ambient,omitempty"`
 
 ## 5. Uploads (§7) + fences (§9)
 
-- §7: add "`.uvtt` import source (JSON, GM-only, never served as asset)", `MaxUVTTBody=12MB` HTTP.
+- §7: add "`.uvtt` import source (JSON, GM-only, never served as asset)", `MaxUVTTBody=55MB` HTTP (R1 2026-10-15: raised from 12MB; paired 40MB import-art cap + admission guard).
 - §9: `VTT v1 = image+fog+tokens+dice+initiative` gains "+ Pixi parity renderer (DOM fallback) + UVTT import (rect-fog approx; full vision in P3)". Still no WS/WYSIWYG/OAuth.
 
 ## 6. Tests / gates
@@ -72,7 +72,7 @@ Ambient string      `json:"ambient,omitempty"`
 
 ## 7. Rejected
 
-- Raising HTTP cap to ~55MB now (DoS review deferred to P3).
+- Raising HTTP cap to ~55MB now (DoS review deferred to P3). [R1 2026-10-15: review done — raised to 55MB with the paired 40MB image cap + admission guard, see `docs/plan/r1-http-cap-dos-review.md`.]
 - Silent downscaling of large maps (fail loudly instead).
 
 ## 8. Decisions (accepted 2026-10-12, implement as specified)
@@ -100,7 +100,7 @@ Stance confirmed 2026-10-13: R1–R3, R5, R6 stay deferred exactly as listed;
 R4 stays deferred with GM-only door ownership for now (no owner-movable
 doors without its own auth + griefing review).
 
-- R1 HTTP ~55MB + DoS review (rate-limit, base64 cost, single-writer impact).
+- R1 HTTP ~55MB + DoS review (rate-limit, base64 cost, single-writer impact). [DONE 2026-10-15: review in `docs/plan/r1-http-cap-dos-review.md` — cap raised to 55MB + 40MB image + admission guard.]
 - R2 `effectivePpg` downscale for large maps (scale walls/lights by same factor + warn).
 - R3 OOB-light glow retention + culling/filtering rules.
 - R4 Owner-movable doors (auth surface + griefing review).
