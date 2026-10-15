@@ -176,3 +176,6 @@
 
 ## A-VTT2b additions (v3 objects_block_sight snapshot flag)
 - `omitempty` bools are version gates, not just noise reduction: without it, every v2-shaped snapshot would sprout `"objects_block_sight":false`, breaking the "v2 rows encode identically" compat claim — pin BOTH directions (key-when-set, absent-when-unset) in the contract test, not just the set path (A-VTT2b).
+
+## fuzz flake additions
+- Lenient key normalization AFTER map iteration is a render-determinism bug: statblock's `for k := range raw` lowercased/`-`→`_` folded keys while ranging, so `name`/`Name` (or `hit-dice`/`hit_dice`, trait `name`/`NAME`, save `MOD`/`mod`) resolved to a random winner per `Parse` and the same input rendered different HTML (`unstable render` flake, ~1e-7/exec since the fuzzer must splice a near-duplicate key line) → sort keys before every normalizing write (sorted + last-wins), pinned by `TestStatblockDuplicateKeysDeterministic` + the `statblock-dupkey` fuzz seed (full note: `docs/plan/fuzzparse-unstable-render.md`).
