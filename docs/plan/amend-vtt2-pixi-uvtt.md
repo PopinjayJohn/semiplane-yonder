@@ -94,11 +94,23 @@ Ambient string      `json:"ambient,omitempty"`
 - D10 Door toggle: GM-only first (matches `SetFog`); owner-movable deferred.
 - D11 Wall scaling at downscaled PPG (P3): client-side float scale; floats survive exactly.
 
-## 9. Deferred revisits (P3 or later, each needs its own note/amend)
+## 9. Deferred revisits — RESOLVED 2026-10-15 (each landed its own note/PR)
 
-Stance confirmed 2026-10-13: R1–R3, R5, R6 stay deferred exactly as listed;
-R4 stays deferred with GM-only door ownership for now (no owner-movable
-doors without its own auth + griefing review).
+- **R1 LANDED** (`docs/plan/r1-http-cap-dos-review.md`, PR #39): HTTP body
+  cap 12MB→55MB with the paired image cap 5MB→40MB and an in-memory
+  admission guard (1 in flight + 3/5min per GM → 429).
+- **R2 LANDED** (`docs/plan/r2-effective-ppg.md`, PR #36): `EffectivePPGOf`
+  projection + GM-only downscale note + client-side float scale. No
+  `FragmentVersion` bump required.
+- **R3 LANDED** (`docs/plan/r3-oob-light-glow.md`, PR #38): glow-disc
+  retention (Ground-Floor's 29th light retained) + `MaxLights=512` culling.
+- **R5 DECIDED** (`docs/plan/r5-renderer-preference.md`, PR #35): stay
+  per-load; the revisit bar for stickiness is written into the note.
+- **R6 LANDED** (`docs/plan/r6-full-blocker.md` data path, PR #37; rendering
+  via the **A-VTT2b amend**, PR #40): `FragmentVersion` 2→3 with the additive
+  `StateSnapshot.objects_block_sight`, Pixi objects at wall weight when set.
+- **R4 STILL DEFERRED** — owner-movable doors stay GM-only for now; needs its
+  own auth + griefing review before any work.
 
 - R1 HTTP ~55MB + DoS review (rate-limit, base64 cost, single-writer impact). [DONE 2026-10-15: review in `docs/plan/r1-http-cap-dos-review.md` — cap raised to 55MB + 40MB image + admission guard.]
 - R2 `effectivePpg` downscale for large maps (scale walls/lights by same factor + warn).

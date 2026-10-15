@@ -209,10 +209,11 @@ frozen-contract change (design: `docs/plan/r2-effective-ppg.md`):
   alignment itself needs no rescaling on either renderer (grid squares
   end-to-end — the importer deliberately does NOT fold the scale into
   geometry).
-- No `StateSnapshot` change, no `FragmentVersion` bump. Remaining R-items
-  (R1, R3–R6) stay deferred as listed in A-VTT2.
+- No `StateSnapshot` change, no `FragmentVersion` bump. R1/R3/R5/R6 all landed
+  separately 2026-10-15 (see the A-VTT2 section and each revisit's note);
+  R4 (owner-movable doors) remains deferred, GM-only for now.
 
-## R1 — HTTP import cap 55MB + admission guard (A-VTT2 revisit, DONE 2026-10-15)
+## R1 — HTTP import cap 55MB + admission guard (A-VTT2 revisit, LANDED 2026-10-15, PR #39)
 
 DoS review in `docs/plan/r1-http-cap-dos-review.md`: `POST /vtt/{mapID}/import`
 raised 12MB → 55MB with a paired HTTP image cap 5MB → 40MB (the largest
