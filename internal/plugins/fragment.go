@@ -16,7 +16,10 @@ const (
 	// v2 (amend A-VTT2): adds walls/objects/doors/lights/ambient for the
 	// PixiJS renderer + UVTT import; v1 rect fog encoding is unchanged and
 	// v1 clients ignore the new fields.
-	FragmentVersion = 2
+	// v3 (amend A-VTT2b): adds objects_block_sight (R6 full-blocker
+	// posture); omitempty so v2-shaped rows encode identically and v2
+	// clients ignore the unknown key.
+	FragmentVersion = 3
 
 	// MapFragmentPath is the per-map HTML fragment Lane K serves:
 	//   GET /vtt/{mapID}/fragment
@@ -89,6 +92,10 @@ type StateSnapshot struct {
 	Doors   []DoorState `json:"doors,omitempty"`
 	Lights  []Light     `json:"lights,omitempty"`
 	Ambient string      `json:"ambient,omitempty"`
+	// v3: objects double as sight blockers when the sidecar says so (R6).
+	// omitempty: v2-shaped rows encode identically; v2 clients ignore the
+	// unknown key; the Version field tells v3 from v2.
+	ObjectsBlockSight bool `json:"objects_block_sight,omitempty"`
 }
 
 // WallSeg is one blocker segment in grid-square floats.

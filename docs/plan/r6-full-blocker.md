@@ -1,7 +1,9 @@
 # R6 — Optional full-blocker flag for `objects_line_of_sight` (Foundry-style)
 
-Status: data path LANDED (this PR); renderer treatment DEFERRED pending a
-snapshot amend (no frozen-contract change in this PR).
+Status: data path LANDED (this PR); renderer treatment LANDED via
+amend A-VTT2b (`docs/plan/amend-vtt2b-objects-block-sight.md`,
+FragmentVersion 2 → 3 carrying `objects_block_sight` to renderers).
+(no frozen-contract change in THIS PR — the bump lives in the amend.)
 
 ## Background
 

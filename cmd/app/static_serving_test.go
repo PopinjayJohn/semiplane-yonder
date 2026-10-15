@@ -157,6 +157,11 @@ func TestW3StaticServing(t *testing.T) {
 		`app.canvas.setAttribute("aria-hidden", "true")`,
 		`window.__pixiView = view`,
 		`view.canvasEl = app.canvas`,
+		// A-VTT2b (v3 R6 full-blocker posture): objects render at wall
+		// weight when the snapshot flag is set, faint otherwise.
+		`function drawWalls(view, walls, objects, objectsBlockSight)`,
+		`const objAlpha = objectsBlockSight ? 0.9 : 0.45;`,
+		`drawWalls(view, snap.walls, snap.objects, snap.objects_block_sight);`,
 	} {
 		if !strings.Contains(loader, want) {
 			t.Errorf("pixi-board.js missing %q", want)

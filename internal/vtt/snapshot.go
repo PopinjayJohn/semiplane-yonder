@@ -92,6 +92,7 @@ func SnapshotFor(ctx context.Context, st store.Store, viewer *auth.Viewer, mapID
 			snap.Lights = append(snap.Lights, plugins.Light{X: l.X, Y: l.Y, Range: l.Range, Color: l.Color, Intensity: l.Intensity, Shadows: l.Shadows})
 		}
 		snap.Ambient = cal.Ambient
+		snap.ObjectsBlockSight = cal.ObjectsBlockSight
 		// Live open overrides keyed by sidecar list position; out-of-range
 		// rows (sidecar list edited shorter) are ignored, never emitted.
 		over := map[int]bool{}

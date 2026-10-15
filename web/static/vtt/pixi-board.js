@@ -192,7 +192,11 @@ function drawFog(view, fog) {
   }
 }
 
-function drawWalls(view, walls, objects) {
+// R6 full-blocker posture (amend A-VTT2b, v3 snapshot flag): when the
+// sidecar marks blocking-objects as sight blockers, objects render at WALL
+// weight (full blockers), not the faint movement-only style. Declarative
+// until P3 vision feeds them into the LOS mask.
+function drawWalls(view, walls, objects, objectsBlockSight) {
   const g = view.walls;
   g.clear();
   const seg = function (s, width, alpha) {
@@ -200,7 +204,8 @@ function drawWalls(view, walls, objects) {
     g.moveTo(a.x, a.y).lineTo(b.x, b.y).stroke({ width: width, color: 0x111111, alpha: alpha });
   };
   (walls || []).forEach(function (s) { seg(s, 2, 0.9); });
-  (objects || []).forEach(function (s) { seg(s, 2, 0.45); }); // movement-only: fainter
+  const objAlpha = objectsBlockSight ? 0.9 : 0.45;
+  (objects || []).forEach(function (s) { seg(s, 2, objAlpha); });
 }
 
 // Doors: closed portals read as a solid bar; open (window) portals as a faint
@@ -275,7 +280,7 @@ function renderSnapshot(view, snap) {
   }
   drawGrid(view.grid, s.w, s.h, view.cols, view.rows);
   drawFog(view, snap.fog);
-  drawWalls(view, snap.walls, snap.objects);
+  drawWalls(view, snap.walls, snap.objects, snap.objects_block_sight);
   drawDoors(view, snap.doors);
   drawLights(view, snap.lights);
   drawTokens(view, snap.tokens);

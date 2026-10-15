@@ -173,3 +173,6 @@
 ## R6 additions (optional full-blocker flag for objects_line_of_sight)
 - Importer-owned BOOLEAN posture keys must be written on EVERY import (not only when true): the surgical merge replaces owned keys but never resets them, so an omit-when-false writer leaves a stale `true` standing after a default re-import — always emit `objects-block-sight: true|false` (mirrors `grid-baked`), pinned by the true→false re-import flip in `TestApplyImportObjectsBlockSight` (R6).
 - CLI `ImportOpts` pointers are always non-nil (even the default `false`), so CLI opts shadow UVTT body fields: a body `objects_block_sight: true` is silently dropped unless `--objects-block-sight` is passed (same pre-existing shape as `grid_baked`) — pin both override directions in the opts test, and remember `Parse` itself honors body fields (HTTP passes empty opts) (R6).
+
+## A-VTT2b additions (v3 objects_block_sight snapshot flag)
+- `omitempty` bools are version gates, not just noise reduction: without it, every v2-shaped snapshot would sprout `"objects_block_sight":false`, breaking the "v2 rows encode identically" compat claim — pin BOTH directions (key-when-set, absent-when-unset) in the contract test, not just the set path (A-VTT2b).
