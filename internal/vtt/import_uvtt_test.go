@@ -176,8 +176,9 @@ func TestImportUVTTOOBClip(t *testing.T) {
     {"bounds":[{"x":-0.5,"y":0},{"x":1,"y":0}],"closed":false}
   ],
   "lights": [
-    {"position":{"x":5,"y":5},"range":2,"color":"ffffff","intensity":1,"shadows":false},
-    {"position":{"x":2,"y":2},"range":2,"color":"ffffff","intensity":1,"shadows":false}
+    {"position":{"x":2,"y":2},"range":2,"color":"ffffff","intensity":1,"shadows":false},
+    {"position":{"x":4.5,"y":2},"range":1,"color":"ffffff","intensity":1,"shadows":false},
+    {"position":{"x":9,"y":9},"range":2,"color":"ffffff","intensity":1,"shadows":false}
   ]
 }`
 	m, err := Parse([]byte(payload), "oob.uvtt")
@@ -198,11 +199,90 @@ func TestImportUVTTOOBClip(t *testing.T) {
 	if !approxEq(p.AX, 0) || !approxEq(p.AY, 0) || !approxEq(p.BX, 1) || !approxEq(p.BY, 0) {
 		t.Errorf("portal = %+v, want (0,0)-(1,0)", p)
 	}
-	if len(m.Lights) != 1 {
-		t.Fatalf("lights = %d, want 1 (oob dropped)", len(m.Lights))
+	if len(m.Lights) != 2 {
+		t.Fatalf("lights = %d, want 2 (in-board + glow-overlap retained, fully-oob dropped)", len(m.Lights))
 	}
 	if !approxEq(m.Lights[0].X, 2) || !approxEq(m.Lights[0].Y, 2) {
 		t.Errorf("light pos = (%g,%g), want (2,2)", m.Lights[0].X, m.Lights[0].Y)
+	}
+	if !approxEq(m.Lights[1].X, 4.5) || !approxEq(m.Lights[1].Y, 2) {
+		t.Errorf("glow light center = (%g,%g), want (4.5,2) kept as-is, never clamped",
+			m.Lights[1].X, m.Lights[1].Y)
+	}
+}
+
+// TestImportUVTTPartialOOBLightRetained pins the Ground-Floor 29th light
+// (verified vs 00-Ground-Floor.dd2vtt: light #25 at x=-0.570313,
+// y=19.539101, range 1.3 on a 20x20 grid): its glow disc reaches 0.57
+// squares past the west edge, so R3 retains it with coordinates intact.
+func TestImportUVTTPartialOOBLightRetained(t *testing.T) {
+	payload := `{
+  "resolution": {"map_origin": {"x":0,"y":0}, "map_size": {"x":20,"y":20}, "pixels_per_grid": 150},
+  "lights": [
+    {"position":{"x":9.015625,"y":3},"range":5,"color":"ffeccd8b","intensity":0.8,"shadows":true},
+    {"position":{"x":-0.570313,"y":19.539101},"range":1.3,"color":"ffeccd8b","intensity":1,"shadows":true}
+  ]
+}`
+	m, err := Parse([]byte(payload), "ground-floor.dd2vtt")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(m.Lights) != 2 {
+		t.Fatalf("lights = %d, want 2 (the OOB #25 glow is retained)", len(m.Lights))
+	}
+	l := m.Lights[1]
+	if !approxEq(l.X, -0.570313) || !approxEq(l.Y, 19.539101) {
+		t.Errorf("light pos = (%g,%g), want (-0.570313,19.539101) unclamped", l.X, l.Y)
+	}
+	if !approxEq(l.Range, 1.3) || l.Color != "eccd8b" {
+		t.Errorf("light = %+v, want range 1.3 color eccd8b", l)
+	}
+}
+
+// TestImportUVTTFullyOOBLightDropped pins the drop side: a glow disc
+// entirely off-board (and a zero-range light) contributes nothing.
+func TestImportUVTTFullyOOBLightDropped(t *testing.T) {
+	payload := `{
+  "resolution": {"map_origin": {"x":0,"y":0}, "map_size": {"x":20,"y":20}, "pixels_per_grid": 150},
+  "lights": [
+    {"position":{"x":-5,"y":10},"range":1.3,"color":"ffffff","intensity":1,"shadows":false},
+    {"position":{"x":10,"y":10},"range":0,"color":"ffffff","intensity":1,"shadows":false},
+    {"position":{"x":10,"y":10},"range":2,"color":"ffffff","intensity":1,"shadows":false}
+  ]
+}`
+	m, err := Parse([]byte(payload), "far.dd2vtt")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(m.Lights) != 1 {
+		t.Fatalf("lights = %d, want 1 (fully-oob + zero-range dropped)", len(m.Lights))
+	}
+	if !approxEq(m.Lights[0].X, 10) || !approxEq(m.Lights[0].Y, 10) {
+		t.Errorf("light pos = (%g,%g), want (10,10)", m.Lights[0].X, m.Lights[0].Y)
+	}
+}
+
+// TestImportUVTTLightCap pins the culling bound: a hostile huge light list
+// stays bounded by MaxLights, keeping file order (deterministic).
+func TestImportUVTTLightCap(t *testing.T) {
+	var b strings.Builder
+	b.WriteString(`{"resolution": {"map_origin": [0,0], "map_size": [128,128], "pixels_per_grid": 50}, "lights": [`)
+	for i := 0; i < MaxLights+88; i++ {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		fmt.Fprintf(&b, `{"position":[%d,1],"range":2,"color":"ffffff","intensity":1,"shadows":false}`, i%128)
+	}
+	b.WriteString(`]}`)
+	m, err := Parse([]byte(b.String()), "hostile.uvtt")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(m.Lights) != MaxLights {
+		t.Fatalf("lights = %d, want MaxLights %d", len(m.Lights), MaxLights)
+	}
+	if !approxEq(m.Lights[0].X, 0) || !approxEq(m.Lights[MaxLights-1].X, float64((MaxLights-1)%128)) {
+		t.Errorf("cap kept wrong slice: first x=%g last x=%g", m.Lights[0].X, m.Lights[MaxLights-1].X)
 	}
 }
 
